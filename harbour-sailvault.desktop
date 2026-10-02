@@ -6,8 +6,8 @@ Exec=harbour-sailvault
 Name=SailVault
 
 [X-Sailjail]
-# Placeholder until the final reverse-domain organization name is chosen.
-# Changing it later moves the app's data directories.
-OrganizationName=org.example
+# Changing OrganizationName or ApplicationName moves the app's data
+# directories, so keep both stable once released.
+OrganizationName=de.tordenskjold
 ApplicationName=sailvault
 Permissions=
