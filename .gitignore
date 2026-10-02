@@ -1,0 +1,25 @@
+# Rust (host and qmake build)
+/core/target/
+/rust-target/
+/cargo-home/
+
+# sfdk / qmake / CMake build output
+/RPMS/
+/build*/
+/harbour-sailvault
+/documentation.list
+*.o
+*.so
+*.a
+Makefile
+.qmake.stash
+*.pro.user*
+CMakeLists.txt.user*
+moc_*.cpp
+qrc_*.cpp
+*.qm
+
+# Editors
+.vscode/
+.idea/
+*.swp

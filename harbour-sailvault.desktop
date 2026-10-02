@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+X-Nemo-Application-Type=silica-qt5
+Icon=harbour-sailvault
+Exec=harbour-sailvault
+Name=SailVault
+
+[X-Sailjail]
+# Placeholder until the final reverse-domain organization name is chosen.
+# Changing it later moves the app's data directories.
+OrganizationName=org.example
+ApplicationName=sailvault
+Permissions=
