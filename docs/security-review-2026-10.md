@@ -26,6 +26,33 @@ correct and authenticates every byte before using it.
 | Low | 13 |
 | Info | 7 |
 
+## Fix status (2026-10-03)
+
+| Finding | Status | Commit |
+|---------|--------|--------|
+| M1 timers during suspend | fixed: deadlines on CLOCK_BOOTTIME, checked on access, on activation and by a 5 s watchdog | `a5f8585` |
+| M2 unwiped key material | fixed: zeroize features for aes, cbc, chacha20, twofish; core-owned zeroized Argon2 memory; inner stream dropped after parsing. HMAC and SHA-2 states cannot be wiped (no crate support), documented in the threat model | `fcc1f38` |
+| L1 late unlock in background | fixed | `a5f8585` |
+| L2 RUSTSEC-2026-0194 | mitigated: duplicate check off, 64 attributes per element; upgrade needs Rust 1.79 | `fcc1f38` |
+| L3 partial RELRO | fixed: BIND_NOW, checked with readelf | `0afd2d5` |
+| L4 symbol table | fixed: binary stripped; dynamic exports stay for the booster | `0afd2d5` |
+| L5 `--locked` | fixed | `0afd2d5` |
+| L6 overflow checks | fixed for sailvault-core | `0afd2d5` |
+| L7 exit race | fixed: cancel, wait for the pool, deliver posted result | `a5f8585` |
+| L8 file read | fixed: one bounded allocation | `a5f8585` |
+| L9 entry page on lock | fixed | `98a82c6` |
+| L10 clipboard hash | fixed: no hash, compares against the core's value | `a5f8585` |
+| L11 small unwiped copies | fixed | `fcc1f38` |
+| L12 pre-authentication bounds | fixed: header hash before KDF, fallible Argon2 memory, tighter Argon2 caps | `fcc1f38` |
+| L13 compatibility | fixed: UUID names pinned by a test, KeePassXC boolean rules, Comment field, VariantDictionary Bool and trailing bytes; Salsa20 inner stream stays unsupported (fails closed) | `fcc1f38` |
+| I1 clipboard on exit | mitigated: `QGuiApplication::sync()` after clearing; device test pending | `a5f8585` |
+| I2 keyboard input | fixed | `a5f8585` |
+| I3 empty password | open: needs a separate "no password" control in the UI | - |
+| I4 Send assertion | fixed | `fcc1f38` |
+| I5 key file during unlock | fixed | `98a82c6` |
+| I6 unused dependencies | fixed for argon2 alloc (password-hash, rand_core removed); libQt5Network stays (sailfishapp) | `0afd2d5` |
+| I7 duplicate keys, `&amp;` in key file | open, behavior documented | - |
+
 ## Medium
 
 ### M1. Lock and clipboard timers stand still while the phone sleeps

@@ -1,6 +1,7 @@
 # SailVault threat model
 
-Status: 2026-10-03, Phase 3 (read-only app). Covers the code in this
+Status: 2026-10-03, Phase 3 (read-only app), updated after the security
+review fixes (`docs/security-review-2026-10.md`). Covers the code in this
 repository at that state. Phases 4 (write, Bitwarden import) and 5 (Nextcloud
 sync) change the model; see "Changes in later phases". Points marked
 **unverified** have not been checked on Sailfish OS or the device yet.
@@ -26,10 +27,14 @@ Rust core                 KDBX4 parsing, KDF, decryption, search
 ```
 
 - The Rust core holds the decrypted database. It parses untrusted input with
-  bounds on header size, KDF parameters (AES-KDF up to 1e9 rounds, Argon2 up
-  to 2 GiB), payload (256 MiB), decompressed XML (512 MiB), XML depth (128)
-  and attachment count. Decrypted buffers and text nodes are zeroized when
-  dropped; errors carry no content.
+  bounds on header size, KDF parameters (AES-KDF up to 1e9 rounds; Argon2 up
+  to 1 GiB, 1000 iterations and 64 GiB of memory times iterations), payload
+  (256 MiB), decompressed XML (512 MiB), XML depth (128), attributes per
+  element (64) and attachment count. The header hash is checked before the
+  KDF runs. Decrypted buffers, text nodes, cipher states (AES, ChaCha20,
+  Twofish) and the Argon2 working memory are zeroized when dropped; the
+  keystream for protected values is dropped right after parsing; errors
+  carry no content.
 - The C API returns lists with ids, titles, user names and group names. A
   field value crosses the boundary only when the user shows or copies it.
   Every string from the core is zeroized by `sv_string_free`.
@@ -65,14 +70,21 @@ Protected:
 - Auto-lock after 5 minutes without input and after 1 minute in the
   background (another app or display off); manual lock from the pulley menu
   and the cover. Locking drops and zeroizes the decrypted database.
+- The deadlines count time the phone spends asleep (`CLOCK_BOOTTIME`). They
+  are checked before every database access, when the app becomes active,
+  and every 5 seconds while a deadline is pending, so after the phone wakes
+  up the lock happens within 5 seconds. Qt timers alone stop during
+  suspend; the Jolla Phone was asleep 48 of 75 hours since boot when this
+  was measured.
 - Protected fields stay masked until the user chooses "Show".
 
 Limits:
 
 - Within the lock window, everything in the database is accessible.
 - Locking on device lock is not implemented: it would need a system D-Bus
-  service that the sandbox does not allow. The background rule locks after
-  at most 1 minute with the display off.
+  service that the sandbox does not allow. The background rule locks 1
+  minute after the display turns off, or within 5 seconds of waking up if
+  the phone slept longer.
 - Fingerprint unlock is not available to Harbour apps (Phase 1 result), so
   there is no quick re-authentication; the auto-lock timeouts are a
   trade-off between exposure and typing the master password.
@@ -83,15 +95,17 @@ Protected:
 
 - Sailjail isolates the app's memory and private directories from other
   sandboxed apps.
-- The clipboard is cleared 30 seconds after a copy, on lock and on exit,
-  but only if it still holds the copied value (compared by SHA-256), so the
-  app never clears what another app put there.
+- The clipboard is cleared 30 seconds after a copy (counting sleep time),
+  on lock and on exit, but only if it still holds the copied value, so the
+  app never clears what another app put there. To compare, the app asks the
+  core for the value again; it keeps no copy or hash of it.
 
 Limits:
 
 - During the 30 seconds, any app that can read the clipboard can read the
   copied value. Whether Sailfish OS keeps a clipboard history (for example
-  in the keyboard) is **unverified**.
+  in the keyboard), and whether a Wayland client in the background may clear
+  the selection, is **unverified** (device test pending).
 - Apps with the `Documents` or `Downloads` permission can read the KDBX file
   and a key file stored there. The KDBX file is encrypted; the key file is
   not.
@@ -115,8 +129,9 @@ Limits:
 - A file the attacker created with their own credentials opens normally if
   the user knows those credentials; the app cannot tell whose database it is.
 - Resource limits stop a hostile file from exhausting the phone, but a file
-  inside the limits can still make an unlock slow (for example Argon2 at
-  2 GiB).
+  inside the limits can still make an unlock slow (about a minute at the
+  Argon2 work cap). Argon2 memory is reserved fallibly, so a failed
+  allocation is an error, not a crash.
 
 ### 5. Network attacker
 
@@ -132,8 +147,12 @@ network requests.
   password; Silica's `PasswordField` disables prediction and automatic
   capitalization (`Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase`).
 - **C++ buffers are wiped on a best-effort basis.** Password and key file
-  bytes are overwritten with `explicit_bzero` after use, but Qt's implicit
-  sharing can leave copies that are freed without zeroing.
+  bytes are read into one exact allocation and overwritten with
+  `explicit_bzero` after use, but Qt's implicit sharing can leave copies
+  that are freed without zeroing.
+- **HMAC and SHA-2 states are not wiped.** The `hmac` and `sha2` crates
+  offer no zeroize support; their internal states, derived from key
+  material, are freed without zeroing.
 - **Memory paging.** The phone swaps to zram (compressed RAM, checked on
   5.2.0.18), not to flash, so swapped pages stay in RAM. The app does not
   lock its memory.
