@@ -1,7 +1,8 @@
 # Phase 1 - Spike results
 
-Status: in progress. Only the section "On the device" was tested on the
-Jolla Phone; everything else was verified on the development host.
+Status: complete (2026-10-03). Sections "On the device", "Sailfish Secrets"
+(device results) and "Cold start baseline" were tested on the Jolla Phone;
+everything else was verified on the development host.
 
 ## SDK and build target
 
@@ -126,6 +127,29 @@ Device test results (Jolla Phone, Sailfish OS 5.2.0.18, 2026-10-02):
   fingerprint check. Hard gate (criterion 2) not met with this
   configuration.
 
+## Cold start baseline
+
+Measured on the Jolla Phone (Sailfish OS 5.2.0.18) on 2026-10-03 with
+`tools/measure-startup.sh`: launch of `/usr/bin/harbour-sailvault
+--startup-trace` over SSH until the first frame is swapped (`frameSwapped`),
+both timestamps on `CLOCK_BOOTTIME`, 10 ms resolution (`/proc/uptime`).
+
+| App state | First run | Runs 2-11 median | Min | Max |
+|-----------|-----------|------------------|-----|-----|
+| Empty app (core version page) | 397 ms | 405 ms | 365 ms | 430 ms |
+
+A second series of 6 runs gave a median of 399 ms.
+
+Limits of this measurement:
+
+- Direct launch: no Silica booster and no Sailjail sandbox. From SSH,
+  `invoker` exits with code 1 and `sailjail` starts nothing, so the homescreen
+  path could not be scripted. The booster normally makes launches faster; the
+  sandbox adds some setup. Homescreen launch time is not measured.
+- Files are in the page cache after the first run; dropping caches needs
+  root. The first run is not a true cold start either, since the package was
+  just installed.
+
 ## Open
 
 - [x] Rust "hello" static library linked into a Silica app via `sfdk build`
@@ -135,4 +159,4 @@ Device test results (Jolla Phone, Sailfish OS 5.2.0.18, 2026-10-02):
 - [x] 5.1.0.11 build runs on the Jolla Phone with Sailfish OS 5.2.0.18
 - [x] Secret stored in Sailfish Secrets and read back behind system authentication (Confirm dialog only)
 - [x] Fingerprint accepted by the system dialog on the Jolla Phone: no, gate failed; fingerprint dropped (PLAN.md section 6)
-- [ ] Cold start baseline of the empty app
+- [x] Cold start baseline of the empty app (about 400 ms, direct launch)
