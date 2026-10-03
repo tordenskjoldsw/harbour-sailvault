@@ -1,14 +1,20 @@
 TARGET = harbour-sailvault
 
 CONFIG += sailfishapp
+PKGCONFIG += sailfishsecrets
 
-SOURCES += src/main.cpp
+HEADERS += src/systemkeystore.h
+
+SOURCES += \
+    src/main.cpp \
+    src/systemkeystore.cpp
 
 INCLUDEPATH += core/include
 
 # Build the Rust core with cargo before linking. CARGO_HOME is isolated so the
 # build engine, which shares the host home directory, never reads the host's
-# cargo configuration or registry.
+# cargo configuration or registry. Cargo runs from the source root so it finds
+# .cargo/config.toml with the vendored sources, also in shadow builds.
 #
 # Inside the build engine, cargo targets the engine's own architecture unless
 # the triple is given explicitly.
@@ -21,7 +27,7 @@ RUST_TARGET_DIR = $$OUT_PWD/rust-target
 RUST_STATICLIB = $$RUST_TARGET_DIR/$$RUST_TRIPLE/release/libsailvault_core.a
 
 rust_core.target = $$RUST_STATICLIB
-rust_core.commands = CARGO_HOME=$$OUT_PWD/cargo-home cargo build --release --offline \
+rust_core.commands = cd $$PWD && CARGO_HOME=$$OUT_PWD/cargo-home cargo build --release --offline \
     --target $$RUST_TRIPLE \
     --manifest-path $$PWD/core/Cargo.toml --target-dir $$RUST_TARGET_DIR
 rust_core.depends = FORCE
