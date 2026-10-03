@@ -3,8 +3,9 @@ import Sailfish.Silica 1.0
 import harbour.sailvault 1.0
 import "../components"
 
-// Imports the Bitwarden/Vaultwarden export at path into a new group of the
-// root group, and offers to delete an unencrypted export afterwards.
+// Imports the Bitwarden/Vaultwarden export at path into the group "Bitwarden
+// import", merging with an earlier import, and offers to delete an
+// unencrypted export afterwards.
 Page {
     id: page
 
@@ -13,7 +14,7 @@ Page {
     readonly property bool importable: kind === Importer.Unencrypted
                                        || kind === Importer.PasswordProtected
     property int error: -1
-    property int importedCount: -1
+    property string resultText
 
     function statusText(status) {
         switch (status) {
@@ -28,6 +29,14 @@ Page {
         case Importer.NotAdded: return qsTr("The entries could not be added to the database")
         default: return ""
         }
+    }
+
+    function summary(added, updated) {
+        if (added === 0 && updated === 0)
+            return qsTr("Nothing new to import")
+        if (updated === 0)
+            return qsTr("%n entries imported", "", added)
+        return qsTr("%1 new, %2 updated").arg(added).arg(updated)
     }
 
     function startImport() {
@@ -45,9 +54,9 @@ Page {
         target: importer
         onFinished: {
             if (wasUnencrypted) {
-                page.importedCount = entryCount
+                page.resultText = page.summary(added, updated)
             } else {
-                Notices.show(qsTr("%n entries imported", "", entryCount), Notice.Short)
+                Notices.show(page.summary(added, updated), Notice.Short)
                 pageStack.pop()
             }
         }
@@ -75,12 +84,13 @@ Page {
                 wrapMode: Text.Wrap
                 color: page.importable ? Theme.highlightColor : Theme.errorColor
                 text: {
-                    if (page.importedCount >= 0)
-                        return qsTr("%n entries imported. The export file is not encrypted: anyone who can read it can read every password in it.", "", page.importedCount)
+                    if (page.resultText.length > 0)
+                        return page.resultText + ". "
+                                + qsTr("The export file is not encrypted: anyone who can read it can read every password in it.")
                     if (page.kind === Importer.Unencrypted)
-                        return qsTr("This export is not encrypted. The entries go into a new group \"Bitwarden import\". You can delete the file afterwards.")
+                        return qsTr("This export is not encrypted. The entries go into the group \"Bitwarden import\"; an earlier import there is updated. You can delete the file afterwards.")
                     if (page.kind === Importer.PasswordProtected)
-                        return qsTr("Enter the password chosen for this export. The entries go into a new group \"Bitwarden import\".")
+                        return qsTr("Enter the password chosen for this export. The entries go into the group \"Bitwarden import\"; an earlier import there is updated.")
                     return page.statusText(page.kind)
                 }
             }
@@ -88,7 +98,7 @@ Page {
             PasswordInput {
                 id: passwordField
 
-                visible: page.kind === Importer.PasswordProtected && page.importedCount < 0
+                visible: page.kind === Importer.PasswordProtected && page.resultText.length === 0
                 enabled: !importer.busy
                 label: qsTr("Export password")
                 errorText: page.error === Importer.WrongPassword ? page.statusText(page.error) : ""
@@ -120,7 +130,7 @@ Page {
 
             Button {
                 anchors.horizontalCenter: parent.horizontalCenter
-                visible: page.importable && page.importedCount < 0 && !importer.busy
+                visible: page.importable && page.resultText.length === 0 && !importer.busy
                 enabled: page.kind === Importer.Unencrypted || passwordField.text.length > 0
                 text: qsTr("Import")
                 onClicked: page.startImport()
@@ -128,7 +138,7 @@ Page {
 
             Button {
                 anchors.horizontalCenter: parent.horizontalCenter
-                visible: page.importedCount >= 0
+                visible: page.resultText.length > 0
                 text: qsTr("Delete file")
                 onClicked: {
                     Notices.show(importer.removeImportedFile() ? qsTr("Export file deleted")
@@ -140,7 +150,7 @@ Page {
 
             Button {
                 anchors.horizontalCenter: parent.horizontalCenter
-                visible: page.importedCount >= 0
+                visible: page.resultText.length > 0
                 text: qsTr("Keep file")
                 onClicked: pageStack.pop()
             }

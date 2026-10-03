@@ -184,17 +184,18 @@ void Importer::addPendingImport()
         return;
     SvImport *import = m_pending;
     m_pending = nullptr;
-    const int entryCount = static_cast<int>(sv_import_entry_count(import));
-    const bool added = m_vault->addImport(import);
+    int added = 0;
+    int updated = 0;
+    const bool merged = m_vault->addImport(import, added, updated);
     sv_import_free(import);
-    if (!added) {
+    if (!merged) {
         fail(NotAdded);
         return;
     }
     if (m_unencrypted)
         m_removablePath = m_path;
     setBusy(false);
-    emit finished(entryCount, m_unencrypted);
+    emit finished(added, updated, m_unencrypted);
 }
 
 void Importer::onVaultStateChanged()

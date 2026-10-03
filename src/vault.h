@@ -73,9 +73,9 @@ public:
 
     // Null when locked or when a lock deadline has passed.
     const SvDatabase *database();
-    // Adds a Bitwarden import as a new group in the root group and starts a
-    // save; refused while a save runs or when locked.
-    bool addImport(const SvImport *import);
+    // Merges a Bitwarden import into its group in the root group and saves
+    // when anything changed; refused while a save runs or when locked.
+    bool addImport(const SvImport *import, int &added, int &updated);
 
     Q_INVOKABLE void unlock(const QString &password);
     Q_INVOKABLE void lock();

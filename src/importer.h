@@ -11,9 +11,10 @@
 
 class Vault;
 
-// Imports a Bitwarden/Vaultwarden JSON export into the unlocked database as
-// a new group. Reading and decrypting the export, which runs its KDF, happens
-// on a pool thread; the vault adds the result on the main thread and saves.
+// Imports a Bitwarden/Vaultwarden JSON export into the unlocked database,
+// merged into the group of the same name when it exists. Reading and
+// decrypting the export, which runs its KDF, happens on a pool thread; the
+// vault merges the result on the main thread and saves.
 class Importer : public QObject
 {
     Q_OBJECT
@@ -51,7 +52,7 @@ public:
 
 signals:
     void busyChanged();
-    void finished(int entryCount, bool wasUnencrypted);
+    void finished(int added, int updated, bool wasUnencrypted);
     void failed(int status);
 
 private slots:
