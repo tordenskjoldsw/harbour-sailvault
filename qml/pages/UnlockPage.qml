@@ -86,6 +86,7 @@ Page {
 
             PageHeader {
                 title: qsTr("SailVault")
+                description: window.lockedAutomatically ? qsTr("Locked automatically") : ""
             }
 
             ValueButton {
