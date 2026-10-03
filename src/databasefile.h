@@ -9,7 +9,8 @@
 enum DatabaseFileStatus {
     StatusFileUnreadable = -1,
     StatusTooLarge = -2,
-    StatusFileUnwritable = -3
+    StatusFileUnwritable = -3,
+    StatusFileExists = -4
 };
 
 const qint64 MaxDatabaseBytes = 256 * 1024 * 1024;
@@ -30,5 +31,10 @@ QByteArray fileDigest(const QByteArray &data);
 // that version, which replacedChangedFile reports.
 int writeDatabaseFile(const QString &path, const QByteArray &data, const QString &backupDir,
                       const QByteArray &expectedDigest, bool &replacedChangedFile);
+
+// Writes a new database file that must not exist yet: the data goes to a
+// temporary file, is synced and read back, then is linked to path, which
+// fails instead of replacing a file that appeared meanwhile.
+int createDatabaseFile(const QString &path, const QByteArray &data);
 
 #endif // DATABASEFILE_H

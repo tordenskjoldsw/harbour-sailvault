@@ -36,6 +36,13 @@ class Vault : public QObject
     Q_PROPERTY(QString keyFilePath READ keyFilePath WRITE setKeyFilePath NOTIFY keyFilePathChanged)
 
 public:
+    // Where a new database file is created.
+    enum Location {
+        Documents,
+        Downloads
+    };
+    Q_ENUM(Location)
+
     enum State {
         Locked,
         Unlocking,
@@ -54,7 +61,8 @@ public:
         TooLarge,
         FileUnreadable,
         FileUnwritable,
-        SaveFailed
+        SaveFailed,
+        FileExists
     };
     Q_ENUM(Error)
 
@@ -78,6 +86,12 @@ public:
     bool addImport(const SvImport *import, int &added, int &updated);
 
     Q_INVOKABLE void unlock(const QString &password);
+    // Creates an empty database file name.kdbx in location, protected by
+    // password, and unlocks it; an existing file is never replaced.
+    Q_INVOKABLE void createDatabase(int location, const QString &name, const QString &password);
+    // The path createDatabase would write, or empty for an invalid name.
+    Q_INVOKABLE QString newDatabasePath(int location, const QString &name) const;
+    Q_INVOKABLE bool fileExists(const QString &path) const;
     Q_INVOKABLE void lock();
     Q_INVOKABLE void clearError();
     // version -1 is the current state of an entry, 0 and up its history
@@ -137,6 +151,8 @@ protected:
 
 private slots:
     void onUnlockFinished(int attempt, int status, qulonglong handle, const QByteArray &digest);
+    void onCreateFinished(int attempt, int status, qulonglong handle, const QByteArray &digest,
+                          const QString &path);
     void onSaveFinished(int attempt, int status, const QByteArray &digest,
                         bool replacedChangedFile);
     void onApplicationStateChanged(Qt::ApplicationState state);
@@ -144,6 +160,7 @@ private slots:
 
 private:
     QString readField(const QString &entryId, const QString &key, int version) const;
+    void finishUnlock(SvDatabase *database, const QByteArray &digest);
     // Marks the in-memory change and starts the save.
     void commitChange();
     void lockAutomatically();

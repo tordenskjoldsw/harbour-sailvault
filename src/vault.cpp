@@ -4,6 +4,7 @@
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QEvent>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QRunnable>
 #include <QSettings>
@@ -167,6 +168,71 @@ private:
     QByteArray m_expectedDigest;
 };
 
+// Creates the database and its file on a pool thread, then hands the
+// unlocked handle to the vault like an unlock does.
+class CreateTask : public QRunnable
+{
+public:
+    CreateTask(Vault *vault, std::shared_ptr<std::atomic_bool> cancelled, int attempt,
+               const QString &path, const QString &name, const QByteArray &password)
+        : m_vault(vault)
+        , m_cancelled(std::move(cancelled))
+        , m_attempt(attempt)
+        , m_path(path)
+        , m_name(name.toUtf8())
+        , m_password(password)
+    {
+    }
+
+    ~CreateTask() override
+    {
+        secureWipe(m_password);
+    }
+
+    void run() override
+    {
+        SvDatabase *database = nullptr;
+        SvBytes file;
+        file.data = nullptr;
+        file.length = 0;
+        int status = sv_database_create(
+            reinterpret_cast<const uint8_t *>(m_password.constData()),
+            static_cast<size_t>(m_password.size()),
+            reinterpret_cast<const uint8_t *>(m_name.constData()),
+            static_cast<size_t>(m_name.size()), QDateTime::currentMSecsSinceEpoch() / 1000,
+            &database, &file);
+        secureWipe(m_password);
+        QByteArray digest;
+        if (status == SV_OK) {
+            const QByteArray data = QByteArray::fromRawData(
+                reinterpret_cast<const char *>(file.data), static_cast<int>(file.length));
+            status = createDatabaseFile(m_path, data);
+            digest = fileDigest(data);
+        }
+        sv_bytes_free(file);
+        if (status != SV_OK) {
+            sv_database_free(database);
+            database = nullptr;
+        }
+
+        const bool delivered = !*m_cancelled
+            && QMetaObject::invokeMethod(m_vault, "onCreateFinished", Qt::QueuedConnection,
+                                         Q_ARG(int, m_attempt), Q_ARG(int, status),
+                                         Q_ARG(qulonglong, reinterpret_cast<qulonglong>(database)),
+                                         Q_ARG(QByteArray, digest), Q_ARG(QString, m_path));
+        if (!delivered)
+            sv_database_free(database);
+    }
+
+private:
+    Vault *m_vault;
+    std::shared_ptr<std::atomic_bool> m_cancelled;
+    int m_attempt;
+    QString m_path;
+    QByteArray m_name;
+    QByteArray m_password;
+};
+
 Vault::Error errorFor(int status)
 {
     switch (status) {
@@ -189,6 +255,8 @@ Vault::Error errorFor(int status)
         return Vault::FileUnreadable;
     case StatusFileUnwritable:
         return Vault::FileUnwritable;
+    case StatusFileExists:
+        return Vault::FileExists;
     case SV_WRITE_FAILED:
     case SV_RANDOM_UNAVAILABLE:
         return Vault::SaveFailed;
@@ -368,6 +436,11 @@ void Vault::onUnlockFinished(int attempt, int status, qulonglong handle, const Q
         setState(Locked);
         return;
     }
+    finishUnlock(database, digest);
+}
+
+void Vault::finishUnlock(SvDatabase *database, const QByteArray &digest)
+{
     m_database = database;
     m_fileDigest = digest;
     saveSettings();
@@ -376,6 +449,57 @@ void Vault::onUnlockFinished(int attempt, int status, qulonglong handle, const Q
     setState(Unlocked);
     // The app may have left the foreground while the KDF ran.
     onApplicationStateChanged(QGuiApplication::applicationState());
+}
+
+QString Vault::newDatabasePath(int location, const QString &name) const
+{
+    const QString fileName = name.trimmed();
+    if (fileName.isEmpty() || fileName.startsWith(QLatin1Char('.'))
+        || fileName.contains(QLatin1Char('/')) || fileName.size() > 100)
+        return QString();
+    const QString folder = QStandardPaths::writableLocation(
+        location == Downloads ? QStandardPaths::DownloadLocation
+                              : QStandardPaths::DocumentsLocation);
+    return folder + QLatin1Char('/') + fileName + QStringLiteral(".kdbx");
+}
+
+bool Vault::fileExists(const QString &path) const
+{
+    return QFileInfo::exists(path);
+}
+
+void Vault::createDatabase(int location, const QString &name, const QString &password)
+{
+    const QString path = newDatabasePath(location, name);
+    if (m_state != Locked || path.isEmpty() || password.isEmpty())
+        return;
+    QByteArray passwordBytes = password.toUtf8();
+    setError(NoError);
+    setState(Unlocking);
+    QThreadPool::globalInstance()->start(new CreateTask(this, m_unlockCancelled, ++m_attempt, path,
+                                                        name.trimmed(), passwordBytes));
+    secureWipe(passwordBytes);
+}
+
+void Vault::onCreateFinished(int attempt, int status, qulonglong handle,
+                             const QByteArray &digest, const QString &path)
+{
+    SvDatabase *database = reinterpret_cast<SvDatabase *>(handle);
+    if (m_state != Unlocking || attempt != m_attempt) {
+        sv_database_free(database);
+        return;
+    }
+    if (status != SV_OK) {
+        sv_database_free(database);
+        setError(errorFor(status));
+        setState(Locked);
+        return;
+    }
+    m_databasePath = path;
+    m_keyFilePath.clear();
+    emit databasePathChanged();
+    emit keyFilePathChanged();
+    finishUnlock(database, digest);
 }
 
 void Vault::lock()

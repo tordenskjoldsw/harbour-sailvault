@@ -61,6 +61,7 @@ DISTFILES += \
     qml/pages/EntryDialog.qml \
     qml/pages/HistoryPage.qml \
     qml/pages/MovePage.qml \
+    qml/pages/NewDatabaseDialog.qml \
     qml/pages/UnlockPage.qml \
     rpm/harbour-sailvault.spec \
     harbour-sailvault.desktop

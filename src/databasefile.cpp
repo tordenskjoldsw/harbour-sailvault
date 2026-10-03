@@ -134,3 +134,22 @@ int writeDatabaseFile(const QString &path, const QByteArray &data, const QString
         return StatusFileUnwritable;
     return SV_OK;
 }
+
+int createDatabaseFile(const QString &path, const QByteArray &data)
+{
+    const QByteArray name = QFile::encodeName(path);
+    if (::access(name.constData(), F_OK) == 0)
+        return StatusFileExists;
+    const QString tempPath = path + QStringLiteral(".sailvault-tmp");
+    const QByteArray tempName = QFile::encodeName(tempPath);
+    if (!writeTemporary(tempPath, S_IRUSR | S_IWUSR, data))
+        return StatusFileUnwritable;
+    const int linked = ::link(tempName.constData(), name.constData());
+    const int linkError = errno;
+    ::unlink(tempName.constData());
+    if (linked != 0)
+        return linkError == EEXIST ? StatusFileExists : StatusFileUnwritable;
+    if (!syncDirectory(QFileInfo(path).absolutePath()))
+        return StatusFileUnwritable;
+    return SV_OK;
+}

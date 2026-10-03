@@ -9,6 +9,7 @@ Page {
 
     readonly property bool isUnlockPage: true
     readonly property bool unlocking: vault.state === Vault.Unlocking
+    property bool creating
     readonly property bool passwordError: vault.error === Vault.WrongCredentials
     readonly property bool keyFileError: vault.error === Vault.InvalidKeyFile
     readonly property bool databaseError: vault.error !== Vault.NoError && !passwordError
@@ -28,8 +29,18 @@ Page {
         case Vault.Corrupted: return qsTr("The database is damaged")
         case Vault.TooLarge: return qsTr("The database or its settings exceed the supported limits")
         case Vault.FileUnreadable: return qsTr("The file cannot be read")
+        case Vault.FileUnwritable: return qsTr("The file cannot be written")
+        case Vault.FileExists: return qsTr("A file with this name already exists")
         default: return ""
         }
+    }
+
+    function createDatabase() {
+        var dialog = pageStack.push(Qt.resolvedUrl("NewDatabaseDialog.qml"))
+        dialog.accepted.connect(function() {
+            page.creating = true
+            vault.createDatabase(dialog.location, dialog.fileName, dialog.password)
+        })
     }
 
     function unlock() {
@@ -44,6 +55,8 @@ Page {
     Connections {
         target: vault
         onStateChanged: {
+            if (vault.state !== Vault.Unlocking)
+                page.creating = false
             if (vault.state === Vault.Unlocked) {
                 pageStack.push(Qt.resolvedUrl("EntryListPage.qml"),
                                { "groupId": "", "groupName": qsTr("SailVault") })
@@ -71,8 +84,14 @@ Page {
         contentHeight: column.height + Theme.paddingLarge
 
         PullDownMenu {
-            visible: vault.keyFilePath.length > 0 && !page.unlocking
+            visible: !page.unlocking
+
             MenuItem {
+                text: qsTr("New database")
+                onClicked: page.createDatabase()
+            }
+            MenuItem {
+                visible: vault.keyFilePath.length > 0
                 text: qsTr("Remove key file")
                 onClicked: vault.keyFilePath = ""
             }
@@ -127,11 +146,18 @@ Page {
                 enabled: vault.databasePath.length > 0
                 onClicked: page.unlock()
             }
+
+            Button {
+                anchors.horizontalCenter: parent.horizontalCenter
+                visible: vault.databasePath.length === 0
+                text: qsTr("New database")
+                onClicked: page.createDatabase()
+            }
         }
     }
 
     BusyLabel {
         running: page.unlocking
-        text: qsTr("Unlocking")
+        text: page.creating ? qsTr("Creating database") : qsTr("Unlocking")
     }
 }
