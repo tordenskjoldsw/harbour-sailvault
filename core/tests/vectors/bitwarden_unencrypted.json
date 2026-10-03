@@ -1,0 +1,130 @@
+{
+  "encrypted": false,
+  "folders": [
+    {
+      "id": "8a3f1c2e-4b5d-4e6f-9a0b-1c2d3e4f5a6b",
+      "name": "Work"
+    },
+    {
+      "id": "9b4e2d3f-5c6e-4f70-8b1c-2d3e4f5a6b7c",
+      "name": "Work/Mail"
+    }
+  ],
+  "items": [
+    {
+      "passwordHistory": [
+        {
+          "lastUsedDate": "2025-03-01T08:00:00.000Z",
+          "password": "example-old-password"
+        }
+      ],
+      "revisionDate": "2025-06-01T12:30:00.000Z",
+      "creationDate": "2024-11-20T09:15:00.000Z",
+      "deletedDate": null,
+      "archivedDate": null,
+      "id": "0b1c2d3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+      "organizationId": null,
+      "folderId": "9b4e2d3f-5c6e-4f70-8b1c-2d3e4f5a6b7c",
+      "type": 1,
+      "reprompt": 0,
+      "name": "Example mail",
+      "notes": "Example notes\nsecond line",
+      "favorite": true,
+      "fields": [
+        {
+          "name": "Recovery code",
+          "value": "example-recovery-123",
+          "type": 1,
+          "linkedId": null
+        },
+        {
+          "name": "Newsletter",
+          "value": "true",
+          "type": 2,
+          "linkedId": null
+        }
+      ],
+      "login": {
+        "fido2Credentials": [],
+        "uris": [
+          {
+            "match": null,
+            "uri": "https://mail.example.org"
+          },
+          {
+            "match": 1,
+            "uri": "https://webmail.example.org"
+          }
+        ],
+        "username": "alice@example.org",
+        "password": "example-mail-password",
+        "totp": "JBSWY3DPEHPK3PXP"
+      },
+      "collectionIds": null
+    },
+    {
+      "passwordHistory": null,
+      "revisionDate": "2025-01-10T10:00:00.000Z",
+      "creationDate": "2025-01-10T10:00:00.000Z",
+      "deletedDate": null,
+      "archivedDate": null,
+      "id": "1c2d3e4f-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
+      "organizationId": null,
+      "folderId": null,
+      "type": 3,
+      "reprompt": 0,
+      "name": "Example card",
+      "notes": null,
+      "favorite": false,
+      "card": {
+        "cardholderName": "Alice Example",
+        "brand": "Visa",
+        "number": "4111111111111111",
+        "expMonth": "12",
+        "expYear": "2030",
+        "code": "123"
+      },
+      "collectionIds": null
+    },
+    {
+      "passwordHistory": null,
+      "revisionDate": "2025-02-02T10:00:00.000Z",
+      "creationDate": "2025-02-02T10:00:00.000Z",
+      "deletedDate": null,
+      "archivedDate": null,
+      "id": "2d3e4f5a-6b7c-4d8e-8f9a-1b2c3d4e5f6a",
+      "organizationId": null,
+      "folderId": "8a3f1c2e-4b5d-4e6f-9a0b-1c2d3e4f5a6b",
+      "type": 5,
+      "reprompt": 0,
+      "name": "Example SSH key",
+      "notes": null,
+      "favorite": false,
+      "sshKey": {
+        "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----\nexample\n-----END OPENSSH PRIVATE KEY-----",
+        "publicKey": "ssh-ed25519 AAAAexample alice@example.org",
+        "keyFingerprint": "SHA256:example"
+      },
+      "collectionIds": null
+    },
+    {
+      "passwordHistory": null,
+      "revisionDate": "2025-02-03T10:00:00.000Z",
+      "creationDate": "2025-02-03T10:00:00.000Z",
+      "deletedDate": null,
+      "archivedDate": null,
+      "id": "3e4f5a6b-7c8d-4e9f-8a0b-2c3d4e5f6a7b",
+      "organizationId": null,
+      "folderId": null,
+      "type": 2,
+      "reprompt": 0,
+      "name": "Example note äöü 🔐",
+      "notes": "Example secure note",
+      "favorite": false,
+      "secureNote": {
+        "type": 0
+      },
+      "collectionIds": null
+    }
+  ]
+}

@@ -18,6 +18,8 @@ pub enum ImportError {
     AccountRestricted,
     PasswordRequired,
     WrongPassword,
+    /// A folder path is nested deeper than SailVault imports.
+    FolderTooDeep,
 }
 
 impl fmt::Display for ImportError {
@@ -41,6 +43,7 @@ impl fmt::Display for ImportError {
             }
             Self::PasswordRequired => f.write_str("the export needs its password"),
             Self::WrongPassword => f.write_str("wrong export password"),
+            Self::FolderTooDeep => f.write_str("a folder is nested too deeply"),
         }
     }
 }

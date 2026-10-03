@@ -116,6 +116,7 @@ fn newer_major_version_is_rejected() {
 const PASSWORD: &[u8] = b"sailvault-fixture";
 const KEY_FILE: &[u8] = include_bytes!("fixtures/fixture.keyx");
 
+use sailvault_core::bitwarden;
 use sailvault_core::kdbx::{CompositeKey, Database, Entry, Group};
 
 fn key(key_file: bool) -> CompositeKey {
@@ -817,4 +818,75 @@ fn a_new_group_survives_a_save_and_keepassxc_lists_its_entries() {
         listing.contains("Banking/Mail äöü/Newsletter\n"),
         "{listing}"
     );
+}
+
+#[test]
+fn a_bitwarden_import_survives_a_save_and_keepassxc_reads_it() {
+    let export = include_bytes!("vectors/bitwarden_unencrypted.json");
+    let vault = bitwarden::read_export(export, None).unwrap();
+    let group = bitwarden::import_group(&vault, "Bitwarden import").unwrap();
+    let mut database = open(AES_AESKDF, false);
+    let root = database.root_group().unwrap().uuid().unwrap();
+    database.add_group_tree(&root, &group, NOW).unwrap();
+
+    let saved = database.save().unwrap();
+    let reopened = Database::open(&saved, key(false)).unwrap();
+    let import = subgroup(&reopened.root_group().unwrap(), "Bitwarden import");
+    let mail = entry(
+        &subgroup(&subgroup(&import, "Work"), "Mail"),
+        "Example mail",
+    );
+    assert_eq!(value(&mail, "Password"), "example-mail-password");
+    assert!(mail.field("Recovery code").unwrap().is_protected());
+    assert_eq!(*mail.tags(), "Favorite");
+    let history: Vec<String> = mail.history().map(|h| value(&h, "Password")).collect();
+    assert_eq!(history, ["example-old-password"]);
+    assert_eq!(import.entries().count(), 2);
+
+    let file = TempFile::write("bitwarden-import", &saved);
+    let listing = keepassxc_cli(&["ls", "-R", "-f"], &file, false, &[]);
+    for path in [
+        "Bitwarden import/Work/Mail/Example mail\n",
+        "Bitwarden import/Work/Example SSH key\n",
+        "Bitwarden import/Example card\n",
+        "Bitwarden import/Example note äöü 🔐\n",
+    ] {
+        assert!(listing.contains(path), "{path} missing in {listing}");
+    }
+    let mail_path = "Bitwarden import/Work/Mail/Example mail";
+    let shown = keepassxc_cli(
+        &[
+            "show",
+            "-a",
+            "UserName",
+            "-a",
+            "URL",
+            "-a",
+            "KP2A_URL_1",
+            "-a",
+            "Recovery code",
+            "-a",
+            "Newsletter",
+        ],
+        &file,
+        false,
+        &[mail_path],
+    );
+    assert_eq!(
+        shown,
+        "alice@example.org\nhttps://mail.example.org\nhttps://webmail.example.org\n\
+         example-recovery-123\ntrue\n"
+    );
+    let code = keepassxc_cli(&["show", "--totp"], &file, false, &[mail_path]);
+    assert!(
+        code.trim().len() == 6 && code.trim().bytes().all(|b| b.is_ascii_digit()),
+        "{code}"
+    );
+    let card = keepassxc_cli(
+        &["show", "-a", "card_number", "-a", "card_expYear"],
+        &file,
+        false,
+        &["Bitwarden import/Example card"],
+    );
+    assert_eq!(card, "4111111111111111\n2030\n");
 }

@@ -91,21 +91,55 @@ Item (`cl/libs/common/src/models/export/cipher.export.ts:184-206`): `id`,
 
 ## Mapping to KDBX
 
-Follow KeePassXC's `BitwardenReader.cpp:44-262`, so imported databases match
-what KeePassXC itself produces:
+SailVault follows KeePassXC's `BitwardenReader.cpp` (`kpxc/src/format/
+BitwardenReader.cpp`, `readItem` and `createGroup`), so imported entries
+match what KeePassXC produces. The import goes into a new group of the open
+database instead of a new database.
 
-- Title, UserName, Password, Notes map directly; first URI to URL, further
-  URIs to `KP2A_URL_n`
-- `totp` becomes an `otpauth://` URI in the protected `otp` attribute
-- `fido2Credentials` become `KPEX_PASSKEY_*` attributes
-- `favorite` becomes the tag `Favorite`
-- Card and identity fields become `card_*` and `identity_*` attributes,
-  sensitive ones protected
-- Hidden custom fields become protected attributes
-- `passwordHistory` becomes entry history
-- `revisionDate` and `creationDate` become entry times
-- Folder path `a/b` becomes nested groups; collections are used when there
-  are no folders
+- `name`, `notes`, `login.username` and `login.password` become Title,
+  Notes, UserName and Password; the first URI becomes URL, further URIs
+  `KP2A_URL_1`, `KP2A_URL_2` and so on
+- `favorite` becomes the tag `Favorite`; a passkey adds the tag `Passkey`
+- A passkey becomes `KPEX_PASSKEY_CREDENTIAL_ID` (unpadded base64url),
+  `KPEX_PASSKEY_PRIVATE_KEY_PEM` (single-line PEM), `KPEX_PASSKEY_USERNAME`,
+  `KPEX_PASSKEY_RELYING_PARTY` and `KPEX_PASSKEY_USER_HANDLE`; ID, key and
+  user handle are protected. With several passkeys the last one wins, as in
+  KeePassXC
+- `identity`: `identity_name` (title, first, middle and last name),
+  `identity_address` (address lines, then "city, state postal code", then
+  country), `identity_company`, `_email`, `_phone`, `_ssn`,
+  `_passportNumber`, `_licenseNumber` (the last three protected); its
+  `username` becomes UserName, or `identity_username` when UserName is set
+- `card`: `card_` plus the field name; `code` is protected
+- Custom fields keep their name; hidden fields (type 1) are protected
+- `passwordHistory` items with a password and a valid `lastUsedDate`
+  become history items with the entry's other standard fields
+- `creationDate` becomes the creation time, `revisionDate` the
+  modification and access time
+- Folder (or, without one, first collection) `a/b` becomes nested groups;
+  an existing path is reused; items without a known folder stay in the
+  import group
 
-Unverified in KeePassXC's reader: SSH keys and types 6 to 8. Decide their
-mapping when implementing the import.
+Where SailVault differs, and why:
+
+- TOTP: an `otpauth://` value is kept as it is (KeePassXC rewrites it and
+  drops the issuer); a bare secret becomes the URL KeePassXC's
+  `Totp::writeSettings` writes; `steam://` secrets become KeePassXC's Steam
+  form (`digits=5`, `encoder=steam`), which KeePassXC's importer breaks.
+  SailVault stores the value and generates no codes (`PLAN.md` section 4)
+- `card_number` is protected as well as `card_code`
+- `identity_name` and `identity_address` are only written when they have
+  content; KeePassXC writes them empty
+- A taken custom field name gets `_2`, `_3` and so on instead of five random
+  characters; an empty name becomes `field`
+- Passkey IDs in Bitwarden's `b64.` form (`credential-id-utils.ts`) are
+  converted; KeePassXC reads them as hex and loses them
+- `sshKey`, `bankAccount`, `driversLicense` and `passport`, which KeePassXC
+  ignores, keep every field as `sshKey_`, `bankAccount_`, `driversLicense_`
+  or `passport_` plus the field name. Protected: `privateKey`;
+  `accountNumber`, `pin`, `iban`; `licenseNumber`; `passportNumber`,
+  `nationalIdentificationNumber`
+- Times without a UTC offset count as UTC (Qt reads them as local time);
+  Bitwarden always writes `Z`
+- Folder paths deeper than 32 levels are refused: the KDBX reader bounds
+  XML nesting, so a deeper tree could not be read back
