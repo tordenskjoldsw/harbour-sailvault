@@ -72,6 +72,60 @@ Verified on the Jolla Phone on 2026-10-02 (exact OS build to be recorded):
   and "Core version 0.1.0", so the string comes from the Rust core through
   the C FFI, Qt and QML.
 
+## Sailfish Secrets
+
+Source analysis of sailfish-secrets 0.2.44 (the target's version,
+https://github.com/sailfishos/sailfish-secrets, tag `0.2.44`):
+
+- Only `DeviceLock` collections trigger the system authentication flow
+  (`beginAuthentication` of `plugin.authentication.default`, see
+  `daemon/SecretsImpl/secretsrequestprocessor.cpp`, read path around line
+  2610). `CustomLock` collections ask for a collection passphrase instead.
+- After an access to an originally locked collection, the daemon relocks it
+  unless the semantic is `DeviceLockKeepUnlocked`
+  (`daemon/SecretsImpl/pluginfunctionwrappers.cpp` around line 1098).
+- The system authentication plugin is not part of the public source. Whether
+  it accepts fingerprint can only be checked on the device.
+
+Harbour (https://docs.sailfishos.org/Develop/Apps/Harbour/Allowed_APIs/):
+`libsailfishsecrets.so.0`, `sailfishsecretsdaemon` and
+`sailfishsecretsdaemon-secretsplugins-default` are allowed; the Sailjail
+permission is `Secrets`. pkg-config module: `sailfishsecrets`.
+
+BitSailor (MIT) does not use Secrets for fingerprint unlock. It calls polkit
+directly, which is not allowed in Harbour, and disables the feature in its
+store build. No working Harbour reference for our approach is known.
+
+Spike configuration (`src/systemkeystore.cpp`), one collection per variant:
+
+| Setting | Value |
+|---------|-------|
+| Lock type | `CreateCollectionRequest::DeviceLock` |
+| Unlock semantic | `DeviceLockVerifyLock` or `DeviceLockRelock` (selectable) |
+| Access control | `OwnerOnlyMode` |
+| User interaction | `SystemInteraction` |
+| Storage and encryption plugin | `DefaultEncryptedStoragePluginName` |
+| Authentication plugin | `DefaultAuthenticationPluginName` |
+| Secret | 32 random bytes from the Rust core (`getrandom`), collection secret |
+
+Known limitation: the Secrets client library passes secret data in
+implicitly shared `QByteArray`s and over D-Bus, so the app cannot zeroize
+every copy. To be addressed when the real key flow is designed (Phase 3).
+
+Device test results (Jolla Phone, 2026-10-02, first run):
+
+- Store, read and delete of the 32-byte test key succeed.
+- Each operation shows a system confirmation dialog.
+- Both `DeviceLockVerifyLock` and `DeviceLockRelock` show the same dialog:
+  "Authorize - /usr/bin/harbour-sailvault wants to store a new secret named
+  testkey into collection sailvaultspikerelock in plugin SQLCipher" with
+  Cancel and Confirm. It asks for neither fingerprint nor security code.
+- Consequence: on an unlocked device the dialog is a confirmation, not an
+  authentication. Anyone holding the unlocked phone can confirm it. The
+  stored key is only bound to the device lock state, not to a fresh
+  fingerprint check. Hard gate (criterion 2) not met with this
+  configuration.
+
 ## Open
 
 - [x] Rust "hello" static library linked into a Silica app via `sfdk build`
