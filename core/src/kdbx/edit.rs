@@ -1,7 +1,7 @@
 //! Changes to the document tree. New elements follow the layout KeePassXC
-//! writes (`KdbxXmlWriter.cpp`), and edits follow its `Entry.cpp` and
-//! `Database.cpp`, so files changed on the phone look like files changed in
-//! KeePassXC.
+//! writes (`KdbxXmlWriter.cpp`), and edits follow its `Entry.cpp`,
+//! `Group.cpp` and `Database.cpp`, so files changed on the phone look like
+//! files changed in KeePassXC.
 
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
@@ -23,6 +23,8 @@ const RECYCLE_BIN_ICON: &str = "43";
 const NO_UUID: [u8; UUID_LENGTH] = [0; UUID_LENGTH];
 // Entry children that KeePassXC writes after the String elements.
 const AFTER_STRINGS: [&str; 4] = ["Binary", "AutoType", "CustomData", "History"];
+// A path of this length (Root, Group) is the root group itself.
+const ROOT_GROUP_PATH_LENGTH: usize = 2;
 
 /// `None` means unlimited (-1 in the file).
 struct HistoryLimits {
@@ -102,21 +104,14 @@ impl Database {
         let path = entry_path(self.document(), uuid).ok_or(KdbxError::UnknownEntry)?;
         if self.deletes_permanently_at(&path) {
             remove_at(self.document_mut(), &path).ok_or(KdbxError::UnknownEntry)?;
-            let deleted = child_or_append(root_mut(self.document_mut())?, "DeletedObjects");
-            deleted.children.push(Node::Element(element(
-                "DeletedObject",
-                vec![
-                    text("UUID", &encode_uuid(uuid)),
-                    text("DeletionTime", &kdbx_time(now)),
-                ],
-            )));
+            let time = kdbx_time(now);
+            self.deleted_objects_mut()?
+                .children
+                .push(Node::Element(deleted_object(uuid, &time)));
             return Ok(true);
         }
 
-        let bin = match self.recycle_bin() {
-            Some(bin) => bin,
-            None => self.create_recycle_bin(now)?,
-        };
+        let bin = self.recycle_bin_or_create(now)?;
         let previous_group = groups_on_path(self.document(), &path)
             .last()
             .and_then(|group| group.child("UUID"))
@@ -125,18 +120,67 @@ impl Database {
         let mut entry = remove_at(self.document_mut(), &path).ok_or(KdbxError::UnknownEntry)?;
         set_time(&mut entry, "LocationChanged", &kdbx_time(now));
         if let (true, Some(previous_group)) = (minor_version >= 1, previous_group) {
-            set_previous_parent_group(&mut entry, &previous_group);
+            set_entry_previous_parent(&mut entry, &previous_group);
         }
         let bin_group = group_mut(self.document_mut(), &bin).ok_or(KdbxError::UnknownGroup)?;
         insert_entry(bin_group, entry);
         Ok(false)
     }
 
-    /// Whether `delete_entry` would remove the entry for good instead of
-    /// moving it to the recycle bin.
+    /// Moves the group with `uuid` and everything in it to the recycle bin.
+    /// A group inside the bin, the bin itself, a group containing the bin, or
+    /// any group while the bin is disabled is removed for good, and every
+    /// entry and group in it is recorded under `DeletedObjects`, as
+    /// KeePassXC's `Group::~Group` does. The root group cannot be deleted.
+    /// Returns whether it was removed for good.
+    pub fn delete_group(&mut self, uuid: &[u8; UUID_LENGTH], now: i64) -> Result<bool> {
+        let path = group_path(self.document(), uuid).ok_or(KdbxError::UnknownGroup)?;
+        if path.len() == ROOT_GROUP_PATH_LENGTH {
+            return Err(KdbxError::RootGroupProtected);
+        }
+        let time = kdbx_time(now);
+        if self.group_deletes_permanently_at(&path) {
+            let group = remove_at(self.document_mut(), &path).ok_or(KdbxError::UnknownGroup)?;
+            let bin_removed = self
+                .recycle_bin()
+                .is_some_and(|bin| bin == *uuid || contains_group(&group, &bin));
+            record_deleted(&group, &time, self.deleted_objects_mut()?);
+            if bin_removed {
+                let meta = self.meta_mut()?;
+                set_child_text(meta, "RecycleBinUUID", &encode_uuid(&NO_UUID));
+            }
+            return Ok(true);
+        }
+
+        let bin = self.recycle_bin_or_create(now)?;
+        let groups = groups_on_path(self.document(), &path);
+        let previous_group = groups
+            .len()
+            .checked_sub(2)
+            .and_then(|parent| groups[parent].child("UUID"))
+            .and_then(decode_uuid);
+        let minor_version = self.header().minor_version;
+        let mut group = remove_at(self.document_mut(), &path).ok_or(KdbxError::UnknownGroup)?;
+        set_time(&mut group, "LocationChanged", &time);
+        if let (true, Some(previous_group)) = (minor_version >= 1, previous_group) {
+            set_group_previous_parent(&mut group, &previous_group);
+        }
+        let bin_group = group_mut(self.document_mut(), &bin).ok_or(KdbxError::UnknownGroup)?;
+        bin_group.children.push(Node::Element(group));
+        Ok(false)
+    }
+
+    /// Whether `delete_entry` or `delete_group` would remove the item with
+    /// `uuid` for good instead of moving it to the recycle bin.
     pub fn deletes_permanently(&self, uuid: &[u8; UUID_LENGTH]) -> Result<bool> {
-        let path = entry_path(self.document(), uuid).ok_or(KdbxError::UnknownEntry)?;
-        Ok(self.deletes_permanently_at(&path))
+        if let Some(path) = entry_path(self.document(), uuid) {
+            return Ok(self.deletes_permanently_at(&path));
+        }
+        let path = group_path(self.document(), uuid).ok_or(KdbxError::UnknownEntry)?;
+        if path.len() == ROOT_GROUP_PATH_LENGTH {
+            return Err(KdbxError::RootGroupProtected);
+        }
+        Ok(self.group_deletes_permanently_at(&path))
     }
 
     fn deletes_permanently_at(&self, path: &[usize]) -> bool {
@@ -148,9 +192,27 @@ impl Database {
         }
     }
 
-    /// Creates the recycle bin group as KeePassXC's `Database::createRecycleBin`
-    /// does and points `Meta` at it.
-    fn create_recycle_bin(&mut self, now: i64) -> Result<[u8; UUID_LENGTH]> {
+    /// The path ends at the group itself, so this also covers the recycle
+    /// bin and a group that holds the bin, as KeePassXC's
+    /// `DatabaseWidget::deleteGroup` does.
+    fn group_deletes_permanently_at(&self, path: &[usize]) -> bool {
+        self.deletes_permanently_at(path)
+            || self.recycle_bin().is_some_and(|bin| {
+                groups_on_path(self.document(), path)
+                    .last()
+                    .is_some_and(|group| contains_group(group, &bin))
+            })
+    }
+
+    /// The recycle bin, created like KeePassXC's `Database::createRecycleBin`
+    /// when the metadata names none or names a group that does not exist.
+    fn recycle_bin_or_create(&mut self, now: i64) -> Result<[u8; UUID_LENGTH]> {
+        if let Some(bin) = self
+            .recycle_bin()
+            .filter(|bin| group_path(self.document(), bin).is_some())
+        {
+            return Ok(bin);
+        }
         let uuid = new_uuid()?;
         let time = kdbx_time(now);
         let group = element(
@@ -171,13 +233,23 @@ impl Database {
         root_group_mut(self.document_mut())?
             .children
             .push(Node::Element(group));
-        let meta = self
-            .document_mut()
-            .child_mut("Meta")
-            .ok_or(KdbxError::InvalidXml("missing Meta"))?;
+        let meta = self.meta_mut()?;
         set_child_text(meta, "RecycleBinUUID", &encode_uuid(&uuid));
         set_child_text(meta, "RecycleBinChanged", &time);
         Ok(uuid)
+    }
+
+    fn meta_mut(&mut self) -> Result<&mut Element> {
+        self.document_mut()
+            .child_mut("Meta")
+            .ok_or(KdbxError::InvalidXml("missing Meta"))
+    }
+
+    fn deleted_objects_mut(&mut self) -> Result<&mut Element> {
+        Ok(child_or_append(
+            root_mut(self.document_mut())?,
+            "DeletedObjects",
+        ))
     }
 
     /// Standard keys that `Meta/MemoryProtection` protects, with KeePassXC's
@@ -295,6 +367,33 @@ fn string_field(key: &str, value: &str, protected: bool) -> Element {
     element("String", vec![text("Key", key), value_element])
 }
 
+fn deleted_object(uuid: &[u8; UUID_LENGTH], time: &str) -> Element {
+    element(
+        "DeletedObject",
+        vec![text("UUID", &encode_uuid(uuid)), text("DeletionTime", time)],
+    )
+}
+
+/// Records a removed group as KeePassXC does: its entries, then each
+/// subgroup the same way, then the group itself.
+fn record_deleted(group: &Element, time: &str, deleted: &mut Element) {
+    for entry in group.children_named("Entry") {
+        if let Some(uuid) = entry.child("UUID").and_then(decode_uuid) {
+            deleted
+                .children
+                .push(Node::Element(deleted_object(&uuid, time)));
+        }
+    }
+    for child in group.children_named("Group") {
+        record_deleted(child, time, deleted);
+    }
+    if let Some(uuid) = group.child("UUID").and_then(decode_uuid) {
+        deleted
+            .children
+            .push(Node::Element(deleted_object(&uuid, time)));
+    }
+}
+
 /// The current value of a field: the last `String` with that key, as
 /// `Entry::fields` resolves repeats.
 fn field_value(entry: &Element, key: &str) -> Option<Zeroizing<String>> {
@@ -341,27 +440,40 @@ fn set_field(entry: &mut Element, key: &str, value: &str, protected: bool) {
     }
 }
 
-fn set_time(entry: &mut Element, name: &str, time: &str) {
-    set_child_text(child_or_append(entry, "Times"), name, time);
+fn set_time(item: &mut Element, name: &str, time: &str) {
+    set_child_text(child_or_append(item, "Times"), name, time);
 }
 
-/// KeePassXC writes `PreviousParentGroup` right after `Times` and
-/// `QualityCheck`.
-fn set_previous_parent_group(entry: &mut Element, group: &[u8; UUID_LENGTH]) {
+/// KeePassXC writes an entry's `PreviousParentGroup` right after `Times`
+/// and `QualityCheck`.
+fn set_entry_previous_parent(entry: &mut Element, group: &[u8; UUID_LENGTH]) {
+    let position = entry
+        .children
+        .iter()
+        .rposition(|child| is_element(child, "Times") || is_element(child, "QualityCheck"))
+        .map_or(0, |index| index + 1);
+    set_previous_parent(entry, group, position);
+}
+
+/// KeePassXC writes a group's `PreviousParentGroup` after its own fields,
+/// before its entries and subgroups.
+fn set_group_previous_parent(group: &mut Element, parent: &[u8; UUID_LENGTH]) {
+    let position = group
+        .children
+        .iter()
+        .position(|child| is_element(child, "Entry") || is_element(child, "Group"))
+        .unwrap_or(group.children.len());
+    set_previous_parent(group, parent, position);
+}
+
+fn set_previous_parent(item: &mut Element, group: &[u8; UUID_LENGTH], position: usize) {
     let encoded = encode_uuid(group);
-    match entry.child_mut("PreviousParentGroup") {
+    match item.child_mut("PreviousParentGroup") {
         Some(existing) => replace_text(existing, &encoded),
-        None => {
-            let position = entry
-                .children
-                .iter()
-                .rposition(|child| is_element(child, "Times") || is_element(child, "QualityCheck"))
-                .map_or(0, |index| index + 1);
-            entry.children.insert(
-                position,
-                Node::Element(text("PreviousParentGroup", &encoded)),
-            );
-        }
+        None => item.children.insert(
+            position,
+            Node::Element(text("PreviousParentGroup", &encoded)),
+        ),
     }
 }
 
@@ -495,28 +607,20 @@ fn root_group_mut(document: &mut Element) -> Result<&mut Element> {
 }
 
 fn group_mut<'a>(document: &'a mut Element, uuid: &[u8; UUID_LENGTH]) -> Option<&'a mut Element> {
-    let root = document.child_mut("Root")?.child_mut("Group")?;
-    find_group_mut(root, uuid)
+    let path = group_path(document, uuid)?;
+    descend_mut(document, &path)
 }
 
-fn find_group_mut<'a>(group: &'a mut Element, uuid: &[u8; UUID_LENGTH]) -> Option<&'a mut Element> {
-    if group.child("UUID").and_then(decode_uuid).as_ref() == Some(uuid) {
-        return Some(group);
-    }
-    group
-        .children
-        .iter_mut()
-        .filter_map(|child| match child {
-            Node::Element(child) if child.name == "Group" => Some(child),
-            _ => None,
-        })
-        .find_map(|child| find_group_mut(child, uuid))
+/// Whether `uuid` names a group below `group`.
+fn contains_group(group: &Element, uuid: &[u8; UUID_LENGTH]) -> bool {
+    group.children_named("Group").any(|child| {
+        child.child("UUID").and_then(decode_uuid).as_ref() == Some(uuid)
+            || contains_group(child, uuid)
+    })
 }
 
-/// Child indices from the document down to the entry with `uuid`, outside
-/// history. Paths let the tree be read and then edited without holding a
-/// borrow across the two steps.
-fn entry_path(document: &Element, uuid: &[u8; UUID_LENGTH]) -> Option<Vec<usize>> {
+/// The root group with its path (`Root`, then `Group`) in the document.
+fn root_group_path(document: &Element) -> Option<(Vec<usize>, &Element)> {
     let root_index = document
         .children
         .iter()
@@ -531,7 +635,14 @@ fn entry_path(document: &Element, uuid: &[u8; UUID_LENGTH]) -> Option<Vec<usize>
     let Node::Element(group) = &root.children[group_index] else {
         return None;
     };
-    let mut path = vec![root_index, group_index];
+    Some((vec![root_index, group_index], group))
+}
+
+/// Child indices from the document down to the entry with `uuid`, outside
+/// history. Paths let the tree be read and then edited without holding a
+/// borrow across the two steps.
+fn entry_path(document: &Element, uuid: &[u8; UUID_LENGTH]) -> Option<Vec<usize>> {
+    let (mut path, group) = root_group_path(document)?;
     find_entry(group, uuid, &mut path).then_some(path)
 }
 
@@ -547,6 +658,33 @@ fn find_entry(group: &Element, uuid: &[u8; UUID_LENGTH], path: &mut Vec<usize>) 
             _ => false,
         };
         if found {
+            return true;
+        }
+        path.pop();
+    }
+    false
+}
+
+/// Child indices from the document down to the group with `uuid`, the root
+/// group included.
+fn group_path(document: &Element, uuid: &[u8; UUID_LENGTH]) -> Option<Vec<usize>> {
+    let (mut path, group) = root_group_path(document)?;
+    find_group(group, uuid, &mut path).then_some(path)
+}
+
+fn find_group(group: &Element, uuid: &[u8; UUID_LENGTH], path: &mut Vec<usize>) -> bool {
+    if group.child("UUID").and_then(decode_uuid).as_ref() == Some(uuid) {
+        return true;
+    }
+    for (index, child) in group.children.iter().enumerate() {
+        let Node::Element(child) = child else {
+            continue;
+        };
+        if child.name != "Group" {
+            continue;
+        }
+        path.push(index);
+        if find_group(child, uuid, path) {
             return true;
         }
         path.pop();
@@ -618,6 +756,9 @@ mod tests {
     const ENTRY: [u8; 16] = [0x10; 16];
     const ROOT: [u8; 16] = [0x01; 16];
     const BIN: [u8; 16] = [0x52; 16];
+    const BANKING: [u8; 16] = [0x20; 16];
+    const CARDS: [u8; 16] = [0x21; 16];
+    const CARD: [u8; 16] = [0x22; 16];
 
     fn build(meta: &str, groups: &str) -> Database {
         let xml = format!(
@@ -631,6 +772,8 @@ mod tests {
     }
 
     fn entry_xml(password: &str, history: &str) -> String {
+        let mut encrypted = password.as_bytes().to_vec();
+        ProtectedStream::new(&[0u8; 64]).apply(&mut encrypted);
         format!(
             "<Entry><UUID>{}</UUID><Times><LastModificationTime>old</LastModificationTime>\
              <LocationChanged>old</LocationChanged></Times>\
@@ -638,11 +781,34 @@ mod tests {
              <String><Key>Password</Key><Value Protected=\"True\">{}</Value></String>\
              <AutoType><Enabled>True</Enabled></AutoType><History>{history}</History></Entry>",
             encode_uuid(&ENTRY),
-            {
-                let mut bytes = password.as_bytes().to_vec();
-                ProtectedStream::new(&[0u8; 64]).apply(&mut bytes);
-                STANDARD.encode(bytes)
-            }
+            STANDARD.encode(encrypted)
+        )
+    }
+
+    /// Banking with a Cards subgroup holding one entry.
+    fn banking_xml() -> String {
+        format!(
+            "<Group><UUID>{}</UUID><Name>Banking</Name><Times><LocationChanged>old\
+             </LocationChanged></Times><Group><UUID>{}</UUID><Name>Cards</Name>\
+             <Entry><UUID>{}</UUID><String><Key>Title</Key><Value>Card</Value></String>\
+             </Entry></Group></Group>",
+            encode_uuid(&BANKING),
+            encode_uuid(&CARDS),
+            encode_uuid(&CARD)
+        )
+    }
+
+    fn enabled_bin_meta() -> String {
+        format!(
+            "<RecycleBinEnabled>True</RecycleBinEnabled><RecycleBinUUID>{}</RecycleBinUUID>",
+            encode_uuid(&BIN)
+        )
+    }
+
+    fn bin_xml() -> String {
+        format!(
+            "<Group><UUID>{}</UUID><Name>Recycle Bin</Name></Group>",
+            encode_uuid(&BIN)
         )
     }
 
@@ -654,6 +820,10 @@ mod tests {
             .map(|listed| listed.entry)
             .find(|entry| entry.uuid() == Some(ENTRY))
             .expect("entry exists")
+    }
+
+    fn group_names(group: &super::super::Group<'_>) -> Vec<String> {
+        group.groups().map(|g| g.name().to_string()).collect()
     }
 
     #[test]
@@ -843,15 +1013,99 @@ mod tests {
                 "<RecycleBinEnabled>False</RecycleBinEnabled><RecycleBinUUID>{}</RecycleBinUUID>",
                 encode_uuid(&BIN)
             ),
-            &format!(
-                "{}<Group><UUID>{}</UUID><Name>Recycle Bin</Name></Group>",
-                entry_xml("secret", ""),
-                encode_uuid(&BIN)
-            ),
+            &format!("{}{}", entry_xml("secret", ""), bin_xml()),
         );
         assert_eq!(database.deletes_permanently(&ENTRY), Ok(true));
         assert_eq!(database.delete_entry(&ENTRY, NOW), Ok(true));
         assert_eq!(database.deleted_objects().len(), 1);
         assert_eq!(database.root_group().unwrap().groups().count(), 1);
+    }
+
+    #[test]
+    fn deleting_a_group_moves_it_with_its_content_to_the_recycle_bin() {
+        let mut database = build(
+            &enabled_bin_meta(),
+            &format!("{}{}", banking_xml(), bin_xml()),
+        );
+        assert_eq!(database.deletes_permanently(&BANKING), Ok(false));
+        assert_eq!(database.delete_group(&BANKING, NOW), Ok(false));
+
+        let root = database.root_group().unwrap();
+        assert_eq!(group_names(&root), ["Recycle Bin"]);
+        let bin = root.groups().next().unwrap();
+        assert_eq!(group_names(&bin), ["Banking"]);
+        let banking = bin.groups().next().unwrap();
+        assert_eq!(group_names(&banking), ["Cards"]);
+        assert_eq!(banking.groups().next().unwrap().entries().count(), 1);
+        assert_eq!(
+            *banking
+                .element()
+                .child("Times")
+                .unwrap()
+                .child("LocationChanged")
+                .unwrap()
+                .text(),
+            kdbx_time(NOW)
+        );
+        let names: Vec<&str> = banking
+            .element()
+            .elements()
+            .map(|e| e.name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            ["UUID", "Name", "Times", "PreviousParentGroup", "Group"]
+        );
+        assert_eq!(
+            *banking
+                .element()
+                .child("PreviousParentGroup")
+                .unwrap()
+                .text(),
+            encode_uuid(&ROOT)
+        );
+        assert!(database.deleted_objects().is_empty());
+
+        // Inside the bin the next deletion is final and records everything.
+        assert_eq!(database.deletes_permanently(&CARDS), Ok(true));
+        assert_eq!(database.delete_group(&BANKING, NOW), Ok(true));
+        let deleted: Vec<[u8; 16]> = database
+            .deleted_objects()
+            .iter()
+            .map(|object| object.uuid)
+            .collect();
+        assert_eq!(deleted, [CARD, CARDS, BANKING]);
+        assert_eq!(database.entries().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn deleting_the_recycle_bin_or_its_holder_is_final_and_unsets_it() {
+        let mut database = build(
+            &enabled_bin_meta(),
+            &format!(
+                "<Group><UUID>{}</UUID><Name>Holder</Name>{}</Group>",
+                encode_uuid(&BANKING),
+                bin_xml()
+            ),
+        );
+        assert_eq!(database.deletes_permanently(&BIN), Ok(true));
+        assert_eq!(database.deletes_permanently(&BANKING), Ok(true));
+        assert_eq!(database.delete_group(&BANKING, NOW), Ok(true));
+        assert_eq!(database.recycle_bin(), None);
+        assert!(database.recycle_bin_enabled());
+        let deleted: Vec<[u8; 16]> = database
+            .deleted_objects()
+            .iter()
+            .map(|object| object.uuid)
+            .collect();
+        assert_eq!(deleted, [BIN, BANKING]);
+        assert_eq!(
+            database.delete_group(&ROOT, NOW),
+            Err(KdbxError::RootGroupProtected)
+        );
+        assert_eq!(
+            database.deletes_permanently(&ROOT),
+            Err(KdbxError::RootGroupProtected)
+        );
     }
 }

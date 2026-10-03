@@ -35,6 +35,7 @@ pub enum KdbxError {
     InvalidEntry(&'static str),
     UnknownGroup,
     UnknownEntry,
+    RootGroupProtected,
 }
 
 impl fmt::Display for KdbxError {
@@ -69,6 +70,7 @@ impl fmt::Display for KdbxError {
             Self::InvalidEntry(reason) => write!(f, "invalid entry: {reason}"),
             Self::UnknownGroup => f.write_str("group not found"),
             Self::UnknownEntry => f.write_str("entry not found"),
+            Self::RootGroupProtected => f.write_str("the root group cannot be deleted"),
         }
     }
 }

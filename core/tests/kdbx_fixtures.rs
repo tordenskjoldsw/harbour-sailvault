@@ -697,3 +697,37 @@ fn edited_and_deleted_entries_survive_a_save_and_keepassxc_reads_them() {
     );
     assert_eq!(shown, "rotated-password-4\n");
 }
+
+#[test]
+fn a_deleted_group_lands_in_the_recycle_bin_with_its_content() {
+    let mut database = open(TWOFISH_AESKDF, false);
+    let banking = subgroup(&database.root_group().unwrap(), "Banking")
+        .uuid()
+        .unwrap();
+    assert_eq!(database.deletes_permanently(&banking), Ok(false));
+    assert_eq!(database.delete_group(&banking, NOW), Ok(false));
+    assert_eq!(database.deletes_permanently(&banking), Ok(true));
+
+    let saved = database.save().unwrap();
+    let reopened = Database::open(&saved, key(false)).unwrap();
+    let root = reopened.root_group().unwrap();
+    assert!(root.groups().all(|group| *group.name() != "Banking"));
+    let bin = subgroup(&root, "Recycle Bin");
+    let cards = subgroup(&subgroup(&bin, "Banking"), "Cards");
+    assert_eq!(
+        value(&entry(&cards, "Example card"), "card_number"),
+        "4111111111111111"
+    );
+    assert!(
+        reopened.deleted_objects().len() == 1,
+        "nothing new is recorded"
+    );
+
+    let file = TempFile::write("deleted-group", &saved);
+    let listing = keepassxc_cli(&["ls", "-R", "-f"], &file, false, &[]);
+    assert!(
+        listing.contains("Recycle Bin/Banking/Cards/Example card\n"),
+        "{listing}"
+    );
+    assert!(!listing.contains("\nBanking/"), "{listing}");
+}
