@@ -418,6 +418,9 @@ Part C - Bitwarden/Vaultwarden import:
    an offer to delete the file afterwards
 6. Device test
 
+Status (2026-10-03): step 1 is done. Device test on the Jolla Phone: an
+entry was moved to another group with one tap.
+
 Not in Part C: creating a new database for the import, the zip export with
 attachments.
 
