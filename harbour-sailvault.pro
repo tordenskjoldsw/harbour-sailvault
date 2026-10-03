@@ -44,7 +44,9 @@ LIBS += $$RUST_STATICLIB -lpthread -ldl -lm
 DISTFILES += \
     qml/harbour-sailvault.qml \
     qml/cover/CoverPage.qml \
-    qml/pages/SpikePage.qml \
+    qml/pages/EntryListPage.qml \
+    qml/pages/EntryPage.qml \
+    qml/pages/UnlockPage.qml \
     rpm/harbour-sailvault.spec \
     harbour-sailvault.desktop
 
