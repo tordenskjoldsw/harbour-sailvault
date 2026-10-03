@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use super::error::{KdbxError, Result};
+use super::xml::predefined_entity;
 
 pub const KEY_LENGTH: usize = 32;
 
@@ -105,18 +106,24 @@ fn xml_key_file(content: &[u8]) -> Result<Option<Zeroizing<[u8; KEY_LENGTH]>>> {
                 let Ok(text) = text.xml10_content() else {
                     return Ok(None);
                 };
-                match path
-                    .iter()
-                    .map(Vec::as_slice)
-                    .collect::<Vec<_>>()
-                    .as_slice()
-                {
-                    [b"KeyFile", b"Meta", b"Version"] => version = Some(text.trim().to_owned()),
-                    [b"KeyFile", b"Key", b"Data"] => {
-                        data.extend(text.chars().filter(|c| !c.is_whitespace()))
-                    }
-                    _ => {}
-                }
+                append_text(&path, &text, &mut version, &mut data);
+            }
+            // Entity and character references arrive as separate events.
+            Event::GeneralRef(reference) => {
+                let character = match reference.resolve_char_ref() {
+                    Ok(Some(character)) => character,
+                    Ok(None) => match predefined_entity(&reference) {
+                        Ok(character) => character,
+                        Err(_) => return Ok(None),
+                    },
+                    Err(_) => return Ok(None),
+                };
+                append_text(
+                    &path,
+                    character.encode_utf8(&mut [0u8; 4]),
+                    &mut version,
+                    &mut data,
+                );
             }
             Event::End(_) => {
                 path.pop();
@@ -129,6 +136,7 @@ fn xml_key_file(content: &[u8]) -> Result<Option<Zeroizing<[u8; KEY_LENGTH]>>> {
     if !root_seen || data.is_empty() {
         return Ok(None);
     }
+    let version = version.map(|version| version.trim().to_owned());
     let decoded = match version.as_deref() {
         Some(version) if version.starts_with("1.0") => Zeroizing::new(
             STANDARD
@@ -153,6 +161,19 @@ fn xml_key_file(content: &[u8]) -> Result<Option<Zeroizing<[u8; KEY_LENGTH]>>> {
     let length = decoded.len().min(KEY_LENGTH);
     key[..length].copy_from_slice(&decoded[..length]);
     Ok(Some(key))
+}
+
+fn append_text(path: &[Vec<u8>], text: &str, version: &mut Option<String>, data: &mut String) {
+    match path
+        .iter()
+        .map(Vec::as_slice)
+        .collect::<Vec<_>>()
+        .as_slice()
+    {
+        [b"KeyFile", b"Meta", b"Version"] => version.get_or_insert_with(String::new).push_str(text),
+        [b"KeyFile", b"Key", b"Data"] => data.extend(text.chars().filter(|c| !c.is_whitespace())),
+        _ => {}
+    }
 }
 
 fn decode_hex(hex: &[u8]) -> Option<Vec<u8>> {
@@ -226,6 +247,25 @@ mod tests {
             key_file_key(xml("00000000").as_bytes()).map(|_| ()),
             Err(KdbxError::InvalidKeyFile)
         );
+    }
+
+    #[test]
+    fn xml_key_file_resolves_character_references() {
+        let raw = [7u8; 32];
+        let xml = format!(
+            "<?xml version=\"1.0\"?><KeyFile><Meta><Version>1&#46;0</Version></Meta>\
+             <Key><Data>{}</Data></Key></KeyFile>",
+            STANDARD.encode(raw).replace('=', "&#61;")
+        );
+        assert_eq!(key(xml.as_bytes()), raw);
+    }
+
+    #[test]
+    fn empty_password_differs_from_no_password() {
+        let key_file = [3u8; 32];
+        let none = CompositeKey::new(None, Some(&key_file)).unwrap();
+        let empty = CompositeKey::new(Some(b""), Some(&key_file)).unwrap();
+        assert_ne!(none.as_bytes(), empty.as_bytes());
     }
 
     #[test]

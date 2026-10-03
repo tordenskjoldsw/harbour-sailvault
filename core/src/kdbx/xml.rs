@@ -256,7 +256,7 @@ fn finish(element: &mut Element, stream: &mut ProtectedStream) -> Result<()> {
     Ok(())
 }
 
-fn predefined_entity(reference: &[u8]) -> Result<char> {
+pub(crate) fn predefined_entity(reference: &[u8]) -> Result<char> {
     match reference {
         b"lt" => Ok('<'),
         b"gt" => Ok('>'),

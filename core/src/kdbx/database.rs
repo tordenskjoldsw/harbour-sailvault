@@ -42,6 +42,7 @@ impl Database {
             document,
         };
         database.root_group()?;
+        validate_fields(&database.document)?;
         Ok(database)
     }
 
@@ -144,13 +145,25 @@ impl<'a> Entry<'a> {
         decode_uuid(self.0.child("UUID")?)
     }
 
+    /// Each field once, in document order. A repeated key takes the later
+    /// value, as in KeePassXC; `Database::open` has already rejected repeats
+    /// of a key whose earlier value is not empty.
     pub fn fields(&self) -> impl Iterator<Item = Field<'a>> {
-        self.0.children_named("String").filter_map(|string| {
-            Some(Field {
-                key: string.child("Key")?,
-                value: string.child("Value")?,
-            })
-        })
+        let mut fields: Vec<Field<'a>> = Vec::new();
+        for string in self.0.children_named("String") {
+            let (Some(key), Some(value)) = (string.child("Key"), string.child("Value")) else {
+                continue;
+            };
+            let field = Field { key, value };
+            match fields
+                .iter_mut()
+                .find(|existing| existing.key() == field.key())
+            {
+                Some(existing) => *existing = field,
+                None => fields.push(field),
+            }
+        }
+        fields.into_iter()
     }
 
     pub fn field(&self, key: &str) -> Option<Field<'a>> {
@@ -215,6 +228,84 @@ impl Attachment<'_> {
     }
 }
 
+/// Rejects an entry (including history entries) that repeats a field key
+/// whose earlier value is not empty, as KeePassXC does ("Duplicate custom
+/// attribute found"). Otherwise it would be ambiguous which value is shown,
+/// copied and later saved.
+pub(crate) fn validate_fields(document: &Element) -> Result<()> {
+    let mut pending = vec![document];
+    while let Some(element) = pending.pop() {
+        if element.name == "Entry" {
+            let mut filled_keys: Vec<Zeroizing<String>> = Vec::new();
+            for string in element.children_named("String") {
+                let (Some(key), Some(value)) = (string.child("Key"), string.child("Value")) else {
+                    continue;
+                };
+                let key = key.text();
+                if filled_keys.contains(&key) {
+                    return Err(KdbxError::InvalidXml("duplicate field"));
+                }
+                if !value.text().is_empty() {
+                    filled_keys.push(key);
+                }
+            }
+        }
+        pending.extend(element.elements());
+    }
+    Ok(())
+}
+
 fn decode_uuid(element: &Element) -> Option<[u8; UUID_LENGTH]> {
     STANDARD.decode(element.text().trim()).ok()?.try_into().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kdbx::inner_header::ProtectedStream;
+
+    fn document(strings: &str) -> Element {
+        let xml = format!(
+            "<KeePassFile><Root><Group><Entry>{strings}</Entry></Group></Root></KeePassFile>"
+        );
+        xml::parse(xml.as_bytes(), &mut ProtectedStream::new(&[0u8; 64])).unwrap()
+    }
+
+    fn string(key: &str, value: &str) -> String {
+        format!("<String><Key>{key}</Key><Value>{value}</Value></String>")
+    }
+
+    #[test]
+    fn rejects_repeated_keys_with_a_value() {
+        let repeated = document(&(string("Title", "a") + &string("Title", "b")));
+        assert_eq!(
+            validate_fields(&repeated),
+            Err(KdbxError::InvalidXml("duplicate field"))
+        );
+        let in_history = document(&format!(
+            "<History><Entry>{}{}</Entry></History>",
+            string("URL", "x"),
+            string("URL", "")
+        ));
+        assert_eq!(
+            validate_fields(&in_history),
+            Err(KdbxError::InvalidXml("duplicate field"))
+        );
+    }
+
+    #[test]
+    fn an_empty_earlier_value_is_replaced_by_the_later_one() {
+        let root =
+            document(&(string("Title", "") + &string("UserName", "u") + &string("Title", "kept")));
+        assert_eq!(validate_fields(&root), Ok(()));
+        let entry = Entry(
+            root.child("Root")
+                .and_then(|r| r.child("Group"))
+                .and_then(|g| g.child("Entry"))
+                .unwrap(),
+        );
+        let keys: Vec<String> = entry.fields().map(|f| f.key().to_string()).collect();
+        assert_eq!(keys, ["Title", "UserName"]);
+        assert_eq!(*entry.field("Title").unwrap().value(), "kept");
+    }
 }
