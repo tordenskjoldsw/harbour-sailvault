@@ -1,5 +1,6 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
+import harbour.sailvault 1.0
 
 // The history items of entryId, newest first; each opens read-only.
 Page {
@@ -13,7 +14,8 @@ Page {
         id: listView
 
         anchors.fill: parent
-        model: vault.history(page.entryId)
+        // Empties on lock even if the page stack cannot pop the page at once.
+        model: vault.state === Vault.Unlocked ? vault.history(page.entryId) : []
 
         header: PageHeader {
             title: qsTr("History")

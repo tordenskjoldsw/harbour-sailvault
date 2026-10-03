@@ -1,5 +1,6 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
+import harbour.sailvault 1.0
 
 // Creates an entry in groupId, or edits the entry entryId when it is set.
 Dialog {
@@ -9,8 +10,23 @@ Dialog {
     property string entryId
     readonly property bool editing: entryId.length > 0
 
-    canAccept: titleField.text.trim().length > 0
+    canAccept: titleField.text.trim().length > 0 && vault.state === Vault.Unlocked
     allowedOrientations: Orientation.All
+
+    // A lock empties the dialog even if the page stack cannot close it at
+    // once.
+    Connections {
+        target: vault
+        onStateChanged: {
+            if (vault.state !== Vault.Unlocked) {
+                titleField.text = ""
+                userNameField.text = ""
+                passwordField.text = ""
+                urlField.text = ""
+                notesField.text = ""
+            }
+        }
+    }
 
     Component.onCompleted: {
         if (editing) {
