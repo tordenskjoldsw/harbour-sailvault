@@ -14,10 +14,14 @@ aes = "0.8"
 argon2 = { version = "0.5", default-features = false, features = ["alloc", "zeroize"] }
 base64 = "0.22"
 cbc = "0.1"
+chacha20 = "0.9"
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 hkdf = "0.12"
 hmac = "0.12"
 pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+quick-xml = "0.39"
 sha2 = "0.10"
+twofish = "0.7"
 zeroize = { version = "1.8", features = ["derive"] }
 
 [dev-dependencies]
