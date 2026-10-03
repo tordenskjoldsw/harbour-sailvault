@@ -82,6 +82,11 @@ Decision (2026-10-03): the vault unlocks with the master password only.
 2. The master key decrypts the user key, which decrypts the local cache.
 3. On lock, all key material is zeroized. Nothing is stored that would
    allow unlocking without the master password.
+4. Session tokens: the access token lives only in RAM. The refresh token is
+   stored in the app data directory, encrypted by the Rust core with the
+   user key (the same EncString scheme the server uses). Without the master
+   password it is unusable, so syncing and refreshing require an unlocked
+   vault. No Sailfish Secrets dependency.
 
 Why no fingerprint: the Phase 1 spike showed that Sailfish Secrets, the only
 Harbour-allowed route, shows a plain Confirm dialog for DeviceLock
@@ -191,6 +196,8 @@ Exit: criterion 1 met.
 
 Decided:
 
+- Session tokens (2026-10-03): refresh token stored encrypted with the user
+  key, access token in RAM only; see section 6.
 - Build system: qmake (2026-10-02). Sailfish default, matches the SDK
   templates; the Rust core is built by cargo from a qmake extra target and
   linked statically.
