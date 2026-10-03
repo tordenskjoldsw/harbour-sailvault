@@ -135,6 +135,27 @@ unsafe fn read_uuid(uuid: *const u8) -> Option<[u8; UUID_LENGTH]> {
     Some(copy)
 }
 
+/// # Safety
+///
+/// `fields` must be null or valid for reads of `field_count` entries whose
+/// key and value pointers follow the rules of `bytes`.
+unsafe fn field_pairs<'a>(
+    fields: *const SvField,
+    field_count: usize,
+) -> Option<Vec<(&'a str, &'a str)>> {
+    if fields.is_null() {
+        return (field_count == 0).then(Vec::new);
+    }
+    slice::from_raw_parts(fields, field_count)
+        .iter()
+        .map(|field| {
+            let key = std::str::from_utf8(bytes(field.key, field.key_length)?).ok()?;
+            let value = std::str::from_utf8(bytes(field.value, field.value_length)?).ok()?;
+            Some((key, value))
+        })
+        .collect()
+}
+
 fn into_sv_string(text: &str) -> SvString {
     let boxed: Box<[u8]> = text.as_bytes().to_vec().into_boxed_slice();
     let length = boxed.len();
@@ -541,10 +562,11 @@ pub unsafe extern "C" fn sv_database_add_entry(
     now: i64,
     uuid_out: *mut u8,
 ) -> i32 {
-    let Some(database) = database.as_mut() else {
+    let (Some(database), Some(pairs)) = (database.as_mut(), field_pairs(fields, field_count))
+    else {
         return SV_INVALID_ARGUMENT;
     };
-    if uuid_out.is_null() || (fields.is_null() && field_count > 0) {
+    if uuid_out.is_null() {
         return SV_INVALID_ARGUMENT;
     }
     let group_uuid = if group_uuid.is_null() {
@@ -559,24 +581,104 @@ pub unsafe extern "C" fn sv_database_add_entry(
     let Some(group_uuid) = group_uuid else {
         return SV_NOT_FOUND;
     };
-    let fields = if fields.is_null() {
-        &[][..]
-    } else {
-        slice::from_raw_parts(fields, field_count)
-    };
-    let mut pairs = Vec::with_capacity(fields.len());
-    for field in fields {
-        let (Some(key), Some(value)) = (
-            bytes(field.key, field.key_length).and_then(|k| std::str::from_utf8(k).ok()),
-            bytes(field.value, field.value_length).and_then(|v| std::str::from_utf8(v).ok()),
-        ) else {
-            return SV_INVALID_ARGUMENT;
-        };
-        pairs.push((key, value));
-    }
     match database.database.add_entry(&group_uuid, &pairs, now) {
         Ok(uuid) => {
             slice::from_raw_parts_mut(uuid_out, UUID_LENGTH).copy_from_slice(&uuid);
+            SV_OK
+        }
+        Err(error) => status(error),
+    }
+}
+
+/// Sets fields of the entry with `entry_uuid` (see `Database::update_entry`).
+/// `changed_out` receives whether anything changed, so the caller knows
+/// whether a save is due.
+///
+/// # Safety
+///
+/// `database` must be a live handle not in use by another thread;
+/// `entry_uuid` valid for 16 bytes; `fields` as for `sv_database_add_entry`;
+/// `changed_out` valid for one write.
+#[no_mangle]
+pub unsafe extern "C" fn sv_database_update_entry(
+    database: *mut SvDatabase,
+    entry_uuid: *const u8,
+    fields: *const SvField,
+    field_count: usize,
+    now: i64,
+    changed_out: *mut bool,
+) -> i32 {
+    let (Some(database), Some(uuid), Some(pairs), Some(changed_out)) = (
+        database.as_mut(),
+        read_uuid(entry_uuid),
+        field_pairs(fields, field_count),
+        changed_out.as_mut(),
+    ) else {
+        return SV_INVALID_ARGUMENT;
+    };
+    *changed_out = false;
+    match database.database.update_entry(&uuid, &pairs, now) {
+        Ok(changed) => {
+            *changed_out = changed;
+            SV_OK
+        }
+        Err(error) => status(error),
+    }
+}
+
+/// Moves the entry to the recycle bin, or removes it for good when it is
+/// already there or the recycle bin is disabled (see
+/// `Database::delete_entry`). `permanent_out` receives which happened.
+///
+/// # Safety
+///
+/// `database` must be a live handle not in use by another thread;
+/// `entry_uuid` valid for 16 bytes; `permanent_out` valid for one write.
+#[no_mangle]
+pub unsafe extern "C" fn sv_database_delete_entry(
+    database: *mut SvDatabase,
+    entry_uuid: *const u8,
+    now: i64,
+    permanent_out: *mut bool,
+) -> i32 {
+    let (Some(database), Some(uuid), Some(permanent_out)) = (
+        database.as_mut(),
+        read_uuid(entry_uuid),
+        permanent_out.as_mut(),
+    ) else {
+        return SV_INVALID_ARGUMENT;
+    };
+    *permanent_out = false;
+    match database.database.delete_entry(&uuid, now) {
+        Ok(permanent) => {
+            *permanent_out = permanent;
+            SV_OK
+        }
+        Err(error) => status(error),
+    }
+}
+
+/// Whether `sv_database_delete_entry` would remove the entry for good.
+///
+/// # Safety
+///
+/// `database` must be a live handle; `entry_uuid` valid for 16 bytes; `out`
+/// valid for one write.
+#[no_mangle]
+pub unsafe extern "C" fn sv_database_delete_is_permanent(
+    database: *const SvDatabase,
+    entry_uuid: *const u8,
+    out: *mut bool,
+) -> i32 {
+    let (Some(database), Some(uuid), Some(out)) =
+        (database.as_ref(), read_uuid(entry_uuid), out.as_mut())
+    else {
+        return SV_INVALID_ARGUMENT;
+    };
+    *out = false;
+    match database.database.deletes_permanently(&uuid) {
+        Ok(permanent) => {
+            *out = permanent;
             SV_OK
         }
         Err(error) => status(error),
@@ -853,6 +955,81 @@ mod tests {
                 data: std::ptr::null_mut(),
                 length: 0,
             });
+        }
+    }
+
+    #[test]
+    fn updates_and_deletes_entries() {
+        unsafe {
+            let (status, database) = open(PASSWORD);
+            assert_eq!(status, SV_OK);
+            let mut list = std::ptr::null_mut();
+            let query = "alice";
+            assert_eq!(
+                sv_database_search(database, query.as_ptr(), query.len(), &mut list),
+                SV_OK
+            );
+            assert_eq!(sv_list_length(list), 1);
+            let mut uuid = [0u8; UUID_LENGTH];
+            assert_eq!(sv_list_uuid(list, 0, uuid.as_mut_ptr()), SV_OK);
+            sv_list_free(list);
+
+            let key = "Password";
+            let value = "rotated";
+            let field = SvField {
+                key: key.as_ptr(),
+                key_length: key.len(),
+                value: value.as_ptr(),
+                value_length: value.len(),
+            };
+            let mut changed = false;
+            assert_eq!(
+                sv_database_update_entry(database, uuid.as_ptr(), &field, 1, 0, &mut changed),
+                SV_OK
+            );
+            assert!(changed);
+            assert_eq!(
+                sv_database_update_entry(database, uuid.as_ptr(), &field, 1, 0, &mut changed),
+                SV_OK
+            );
+            assert!(!changed);
+            let mut shown = SvString {
+                data: std::ptr::null_mut(),
+                length: 0,
+            };
+            assert_eq!(
+                sv_database_field_value(
+                    database,
+                    uuid.as_ptr(),
+                    key.as_ptr(),
+                    key.len(),
+                    &mut shown
+                ),
+                SV_OK
+            );
+            assert_eq!(take(shown), "rotated");
+
+            let mut permanent = true;
+            assert_eq!(
+                sv_database_delete_is_permanent(database, uuid.as_ptr(), &mut permanent),
+                SV_OK
+            );
+            assert!(!permanent);
+            assert_eq!(
+                sv_database_delete_entry(database, uuid.as_ptr(), 0, &mut permanent),
+                SV_OK
+            );
+            assert!(!permanent);
+            assert_eq!(
+                sv_database_delete_entry(database, uuid.as_ptr(), 0, &mut permanent),
+                SV_OK
+            );
+            assert!(permanent);
+            assert_eq!(
+                sv_database_delete_entry(database, uuid.as_ptr(), 0, &mut permanent),
+                SV_NOT_FOUND
+            );
+            sv_database_free(database);
         }
     }
 

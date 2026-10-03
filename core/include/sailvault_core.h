@@ -108,6 +108,18 @@ int32_t sv_database_add_entry(SvDatabase *database, const uint8_t *group_uuid,
                               const SvField *fields, size_t field_count, int64_t now,
                               uint8_t *uuid_out);
 
+/* Sets fields of an entry. A changed entry keeps its previous state as a
+ * history item; changed_out says whether anything changed. */
+int32_t sv_database_update_entry(SvDatabase *database, const uint8_t *entry_uuid,
+                                 const SvField *fields, size_t field_count, int64_t now,
+                                 bool *changed_out);
+/* Moves an entry to the recycle bin, or removes it for good when it is already
+ * there or the recycle bin is disabled (permanent_out says which). */
+int32_t sv_database_delete_entry(SvDatabase *database, const uint8_t *entry_uuid, int64_t now,
+                                 bool *permanent_out);
+int32_t sv_database_delete_is_permanent(const SvDatabase *database, const uint8_t *entry_uuid,
+                                        bool *out);
+
 /* Serializes the database with fresh seeds and verifies it by decrypting it
  * again. Runs the KDF; call off the UI thread. Other threads may read the
  * database meanwhile but must not modify or free it. */
