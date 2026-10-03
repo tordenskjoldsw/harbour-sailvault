@@ -54,6 +54,13 @@ Page {
 
     allowedOrientations: Orientation.All
 
+    // Swiping back from the entry list leaves the database, so it locks
+    // instead of staying open behind a page that looks locked.
+    onStatusChanged: {
+        if (status === PageStatus.Active && vault.state === Vault.Unlocked)
+            vault.lock()
+    }
+
     Connections {
         target: vault
         onStateChanged: {

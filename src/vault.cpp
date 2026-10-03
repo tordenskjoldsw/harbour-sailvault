@@ -386,7 +386,8 @@ QString Vault::databasePath() const
 
 void Vault::setDatabasePath(const QString &path)
 {
-    if (m_databasePath == path)
+    // Saves write to this path, so it changes only while locked.
+    if (m_state != Locked || m_databasePath == path)
         return;
     m_databasePath = path;
     setError(NoError);
@@ -400,7 +401,7 @@ QString Vault::keyFilePath() const
 
 void Vault::setKeyFilePath(const QString &path)
 {
-    if (m_keyFilePath == path)
+    if (m_state != Locked || m_keyFilePath == path)
         return;
     m_keyFilePath = path;
     setError(NoError);
