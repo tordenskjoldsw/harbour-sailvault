@@ -48,6 +48,15 @@ Page {
                     color: Theme.secondaryHighlightColor
                     text: qsTr("Version %1").arg(appVersion)
                 }
+
+                Label {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    visible: appBuild.length > 0
+                    textFormat: Text.PlainText
+                    font.pixelSize: Theme.fontSizeExtraSmall
+                    color: Theme.secondaryColor
+                    text: qsTr("Development build %1").arg(appBuild)
+                }
             }
 
             Repeater {

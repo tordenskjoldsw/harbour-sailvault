@@ -48,8 +48,14 @@ int main(int argc, char *argv[])
     QScopedPointer<QQuickView> view(SailfishApp::createView());
     view->rootContext()->setContextProperty(QStringLiteral("vault"), &vault);
     view->rootContext()->setContextProperty(QStringLiteral("importer"), &importer);
+    // Development builds carry SemVer build metadata after "+" (branch, time
+    // and commit); the About page shows it apart from the release number.
+    const QString version = QStringLiteral(APP_VERSION);
+    QCoreApplication::setApplicationVersion(version);
     view->rootContext()->setContextProperty(QStringLiteral("appVersion"),
-                                            QStringLiteral(APP_VERSION));
+                                            version.section(QLatin1Char('+'), 0, 0));
+    view->rootContext()->setContextProperty(QStringLiteral("appBuild"),
+                                            version.section(QLatin1Char('+'), 1));
 
     if (app->arguments().contains(QStringLiteral("--startup-trace")))
         printFirstFrameTimestamp(view.data());
