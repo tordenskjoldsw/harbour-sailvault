@@ -30,6 +30,7 @@ Page {
 
             PageHeader {
                 title: page.groupName
+                description: vault.saving ? qsTr("Saving") : vault.dirty ? qsTr("Not saved") : ""
             }
 
             SearchField {
@@ -43,9 +44,22 @@ Page {
         }
 
         PullDownMenu {
+            busy: vault.saving
+
             MenuItem {
                 text: qsTr("Lock")
                 onClicked: vault.lock()
+            }
+            MenuItem {
+                text: qsTr("Save")
+                visible: vault.dirty && !vault.saving
+                onClicked: vault.save()
+            }
+            MenuItem {
+                text: qsTr("New entry")
+                enabled: !vault.saving
+                onClicked: pageStack.push(Qt.resolvedUrl("NewEntryDialog.qml"),
+                                          { "groupId": page.groupId })
             }
         }
 

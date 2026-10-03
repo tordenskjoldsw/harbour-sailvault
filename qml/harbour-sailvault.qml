@@ -25,5 +25,14 @@ ApplicationWindow {
             }
         }
         onLockedAutomatically: window.lockedAutomatically = true
+        onSaveFailed: {
+            Notices.show(vault.error === Vault.FileUnwritable
+                         ? qsTr("The database file could not be written")
+                         : qsTr("The database could not be saved"), Notice.Long)
+        }
+        onSavedOverChangedFile: {
+            Notices.show(qsTr("Another program had changed the database file. Its version is kept in the backups."),
+                         Notice.Long)
+        }
     }
 }
