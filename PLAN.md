@@ -436,6 +436,14 @@ Part C is complete.
 Not in Part C: creating a new database for the import, the zip export with
 attachments.
 
+Follow-ups (2026-10-03), implemented, device test pending: renaming and
+moving groups (`Group::setName`, `Group::setParent`; never into the group
+itself), restoring entries and groups from the recycle bin to their previous
+group or the root group (KeePassXC restores only entries with a known
+previous group), emptying the recycle bin (`Database::emptyRecycleBin`),
+and a read-only history view. `keepassxc-cli` reads a saved file with all of
+these changes.
+
 Exit: criterion 3 (lossless KeePassXC round trip) met for every fixture and
 for files changed on the phone.
 
