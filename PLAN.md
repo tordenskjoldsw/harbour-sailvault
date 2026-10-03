@@ -443,8 +443,9 @@ group or the root group (KeePassXC restores only entries with a known
 previous group), emptying the recycle bin (`Database::emptyRecycleBin`),
 and a read-only history view. `keepassxc-cli` reads a saved file with all of
 these changes.
-Device test on the Jolla Phone: groups were renamed and moved, and items
-were restored from and deleted by emptying the recycle bin.
+Device test on the Jolla Phone: groups were renamed and moved, items were
+restored from and deleted by emptying the recycle bin, and history items
+were opened.
 
 Security review fixes (2026-10-03): the temporary file of a save is created
 exclusively and never through a symlink; database content is shown as plain
