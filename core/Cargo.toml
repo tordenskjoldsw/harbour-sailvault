@@ -14,7 +14,6 @@ aes = "0.8"
 argon2 = { version = "0.5", default-features = false, features = ["alloc", "zeroize"] }
 base64 = "0.22"
 cbc = "0.1"
-getrandom = "0.2"
 hkdf = "0.12"
 hmac = "0.12"
 pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }

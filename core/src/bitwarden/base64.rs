@@ -3,7 +3,7 @@ use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig};
 use base64::engine::DecodePaddingMode;
 use base64::Engine;
 
-use super::error::{CryptoError, Result};
+use super::error::{ImportError, Result};
 
 // Bitwarden clients accept standard base64 with or without padding.
 const ENGINE: GeneralPurpose = GeneralPurpose::new(
@@ -14,5 +14,5 @@ const ENGINE: GeneralPurpose = GeneralPurpose::new(
 pub(crate) fn decode(value: &str) -> Result<Vec<u8>> {
     ENGINE
         .decode(value)
-        .map_err(|_| CryptoError::InvalidEncString)
+        .map_err(|_| ImportError::InvalidEncString)
 }
