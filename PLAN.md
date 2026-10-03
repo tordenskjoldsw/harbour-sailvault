@@ -526,6 +526,15 @@ Proposed in review (2026-10-03), not decided:
 
 Decided:
 
+- Versioning (2026-10-03): Semantic Versioning. A new feature raises the
+  minor version, a release with fixes only the patch version; 1.0.0 comes
+  after the first Harbour round and outside feedback, not before. Releases
+  are tagged `<major>.<minor>.<patch>` without a prefix (sfdk derives the
+  package version from the tag; Harbour accepts digits and dots only).
+  Before tagging, the spec version and `rpm/harbour-sailvault.changes` are
+  updated in one commit. The About page shows the release number; a
+  development build adds its build metadata (branch, time, commit) on a
+  second line.
 - New databases (2026-10-03): created in the app before the first Harbour
   submission, like KeePassXC's wizard (KDBX 4.0, AES-256, its metadata and
   root group) but with Argon2id instead of a benchmarked Argon2d, as RFC
