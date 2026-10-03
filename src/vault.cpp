@@ -99,14 +99,25 @@ private:
             if (status != SV_OK)
                 return status;
         }
-        status = sv_database_open(reinterpret_cast<const uint8_t *>(data.constData()),
-                                  static_cast<size_t>(data.size()),
-                                  reinterpret_cast<const uint8_t *>(m_password.constData()),
-                                  static_cast<size_t>(m_password.size()), !m_password.isEmpty(),
-                                  reinterpret_cast<const uint8_t *>(keyFile.constData()),
-                                  static_cast<size_t>(keyFile.size()), database);
+        // KDBX distinguishes "no password" from an empty one. Like KeePassXC,
+        // an empty field means no password, and a failed attempt is retried
+        // with an empty password.
+        status = openWith(data, keyFile, !m_password.isEmpty(), database);
+        if (status == SV_INVALID_CREDENTIALS && m_password.isEmpty())
+            status = openWith(data, keyFile, true, database);
         secureWipe(keyFile);
         return status;
+    }
+
+    int openWith(const QByteArray &data, const QByteArray &keyFile, bool hasPassword,
+                 SvDatabase **database) const
+    {
+        return sv_database_open(reinterpret_cast<const uint8_t *>(data.constData()),
+                                static_cast<size_t>(data.size()),
+                                reinterpret_cast<const uint8_t *>(m_password.constData()),
+                                static_cast<size_t>(m_password.size()), hasPassword,
+                                reinterpret_cast<const uint8_t *>(keyFile.constData()),
+                                static_cast<size_t>(keyFile.size()), database);
     }
 
     // The vault outlives every task: its destructor cancels and waits for
