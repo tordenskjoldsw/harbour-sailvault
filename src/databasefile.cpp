@@ -5,6 +5,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QRegularExpression>
 #include <QStringList>
 
 #include <cerrno>
@@ -65,21 +66,28 @@ bool writeTemporary(const QString &tempPath, mode_t mode, const QByteArray &data
 }
 
 // Backups are named after the database with a UTC timestamp, so sorting by
-// name sorts by age.
-bool backUp(const QString &databasePath, const QByteArray &current, const QString &backupDir)
+// name sorts by age. A version another program wrote is replaced without a
+// merge, so its backup is marked and stays out of the rotation.
+bool backUp(const QString &databasePath, const QByteArray &current, const QString &backupDir,
+            bool changedElsewhere)
 {
     QDir dir(backupDir);
     if (!dir.mkpath(QStringLiteral(".")))
         return false;
     const QString base = QFileInfo(databasePath).completeBaseName();
     const QString stamp = QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMdd-HHmmss-zzz"));
-    QFile backup(dir.filePath(base + QLatin1Char('-') + stamp + QStringLiteral(".kdbx")));
+    const QString suffix = changedElsewhere ? QStringLiteral("-changed-elsewhere.kdbx")
+                                            : QStringLiteral(".kdbx");
+    QFile backup(dir.filePath(base + QLatin1Char('-') + stamp + suffix));
     if (!backup.open(QIODevice::WriteOnly | QIODevice::Truncate) || !writeAndSync(backup, current))
         return false;
     backup.setPermissions(QFile::ReadOwner | QFile::WriteOwner);
 
-    QStringList backups = dir.entryList(QStringList(base + QStringLiteral("-*.kdbx")),
-                                        QDir::Files, QDir::Name);
+    // Exactly this database's rotating backups: a wildcard would also match
+    // those of "Work-old" for "Work".
+    const QRegularExpression rotating(QStringLiteral("^%1-\\d{8}-\\d{6}-\\d{3}\\.kdbx$")
+                                          .arg(QRegularExpression::escape(base)));
+    QStringList backups = dir.entryList(QDir::Files, QDir::Name).filter(rotating);
     while (backups.size() > BackupsToKeep)
         dir.remove(backups.takeFirst());
     return syncDirectory(backupDir);
@@ -135,7 +143,7 @@ int writeDatabaseFile(const QString &path, const QByteArray &data, const QString
     if (status != SV_OK)
         return status;
     replacedChangedFile = fileDigest(current) != expectedDigest;
-    if (!backUp(path, current, backupDir))
+    if (!backUp(path, current, backupDir, replacedChangedFile))
         return StatusFileUnwritable;
 
     // The replacement keeps the database file's permissions.

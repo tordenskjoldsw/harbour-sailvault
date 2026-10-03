@@ -27,8 +27,8 @@ QByteArray fileDigest(const QByteArray &data);
 // copies the current file into backupDir (keeping the newest three), writes
 // data to a temporary file next to the database, syncs and re-reads it, then
 // renames it over the original. A file that no longer matches expectedDigest
-// was changed by another program; it is replaced too, and the backup keeps
-// that version, which replacedChangedFile reports.
+// was changed by another program; it is replaced too, its backup is kept
+// outside the rotation, and replacedChangedFile reports it.
 int writeDatabaseFile(const QString &path, const QByteArray &data, const QString &backupDir,
                       const QByteArray &expectedDigest, bool &replacedChangedFile);
 
