@@ -17,6 +17,8 @@ Page {
         if (moved) {
             Notices.show(qsTr("Moved to %1").arg(groupName), Notice.Short)
             pageStack.pop()
+        } else {
+            Notices.show(qsTr("Cannot move to %1").arg(groupName), Notice.Short)
         }
     }
 
