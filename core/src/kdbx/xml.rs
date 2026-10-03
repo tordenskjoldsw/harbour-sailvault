@@ -243,3 +243,66 @@ fn predefined_entity(reference: &[u8]) -> Result<char> {
         _ => Err(KdbxError::InvalidXml("unknown entity")),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stream() -> ProtectedStream {
+        ProtectedStream::new(&[0u8; 64])
+    }
+
+    #[test]
+    fn keeps_unknown_elements_attributes_and_text() {
+        let xml = "<?xml version=\"1.0\"?>\n<KeePassFile>\n\t<Meta>\n\t\t<FutureField Mode=\"x &amp; y\">\
+                   kept</FutureField>\n\t</Meta>\n\t<Notes>  leading and trailing  \n</Notes>\
+                   <Mixed>a &lt;b&gt; &#x1F510; <![CDATA[<raw>]]></Mixed><Empty/></KeePassFile>";
+        let root = parse(xml.as_bytes(), &mut stream()).unwrap();
+
+        let future = root.child("Meta").unwrap().child("FutureField").unwrap();
+        assert_eq!(future.attribute("Mode"), Some("x & y"));
+        assert_eq!(*future.text(), "kept");
+        assert_eq!(
+            *root.child("Notes").unwrap().text(),
+            "  leading and trailing  \n"
+        );
+        assert_eq!(*root.child("Mixed").unwrap().text(), "a <b> 🔐 <raw>");
+        assert!(root.child("Empty").unwrap().children.is_empty());
+        let names: Vec<&str> = root.elements().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["Meta", "Notes", "Mixed", "Empty"]);
+    }
+
+    #[test]
+    fn decrypts_protected_values_in_document_order() {
+        let mut keystream = stream();
+        let encrypt = |plaintext: &str, keystream: &mut ProtectedStream| {
+            let mut bytes = plaintext.as_bytes().to_vec();
+            keystream.apply(&mut bytes);
+            STANDARD.encode(bytes)
+        };
+        let first = encrypt("first secret", &mut keystream);
+        let second = encrypt("second secret", &mut keystream);
+        let xml = format!(
+            "<KeePassFile><Value Protected=\"True\">{first}</Value><Value>plain</Value>\
+             <Value Protected=\"True\"/><Value Protected=\"True\">{second}</Value></KeePassFile>"
+        );
+        let root = parse(xml.as_bytes(), &mut stream()).unwrap();
+        let values: Vec<String> = root.elements().map(|e| e.text().to_string()).collect();
+        assert_eq!(values, ["first secret", "plain", "", "second secret"]);
+        assert!(root.elements().next().unwrap().is_protected());
+    }
+
+    #[test]
+    fn rejects_malformed_and_oversized_documents() {
+        let deep = "<a>".repeat(MAX_DEPTH + 1) + &"</a>".repeat(MAX_DEPTH + 1);
+        for xml in [
+            "<KeePassFile><Open></KeePassFile>",
+            "<KeePassFile>&unknown;</KeePassFile>",
+            "<KeePassFile/><Second/>",
+            "text only",
+            deep.as_str(),
+        ] {
+            assert!(parse(xml.as_bytes(), &mut stream()).is_err(), "{xml}");
+        }
+    }
+}

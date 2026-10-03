@@ -91,7 +91,7 @@ impl InnerHeader {
 pub(crate) struct ProtectedStream(ChaCha20);
 
 impl ProtectedStream {
-    fn new(stream_key: &[u8]) -> Self {
+    pub(crate) fn new(stream_key: &[u8]) -> Self {
         let digest = Zeroizing::new(<[u8; 64]>::from(Sha512::digest(stream_key)));
         Self(ChaCha20::new(digest[..32].into(), digest[32..44].into()))
     }
