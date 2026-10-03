@@ -1,0 +1,147 @@
+#include "entrylistmodel.h"
+
+#include "secure.h"
+
+namespace {
+
+QString listText(const SvList *list, size_t index, uint32_t column)
+{
+    SvString text = emptyCoreString();
+    return sv_list_text(list, index, column, &text) == SV_OK ? takeCoreString(text) : QString();
+}
+
+} // namespace
+
+EntryListModel::EntryListModel(QObject *parent)
+    : QAbstractListModel(parent)
+{
+}
+
+Vault *EntryListModel::vault() const
+{
+    return m_vault;
+}
+
+void EntryListModel::setVault(Vault *vault)
+{
+    if (m_vault == vault)
+        return;
+    if (m_vault)
+        disconnect(m_vault, nullptr, this, nullptr);
+    m_vault = vault;
+    if (m_vault)
+        connect(m_vault, &Vault::stateChanged, this, &EntryListModel::reload);
+    emit vaultChanged();
+    reload();
+}
+
+QString EntryListModel::groupId() const
+{
+    return m_groupId;
+}
+
+void EntryListModel::setGroupId(const QString &groupId)
+{
+    if (m_groupId == groupId)
+        return;
+    m_groupId = groupId;
+    emit groupIdChanged();
+    reload();
+}
+
+QString EntryListModel::query() const
+{
+    return m_query;
+}
+
+void EntryListModel::setQuery(const QString &query)
+{
+    if (m_query == query)
+        return;
+    m_query = query;
+    emit queryChanged();
+    reload();
+}
+
+int EntryListModel::count() const
+{
+    return m_items.size();
+}
+
+int EntryListModel::rowCount(const QModelIndex &parent) const
+{
+    return parent.isValid() ? 0 : m_items.size();
+}
+
+QVariant EntryListModel::data(const QModelIndex &index, int role) const
+{
+    if (!index.isValid() || index.row() >= m_items.size())
+        return QVariant();
+    const Item &item = m_items.at(index.row());
+    switch (role) {
+    case IdRole:
+        return item.id;
+    case TitleRole:
+        return item.title;
+    case UserNameRole:
+        return item.userName;
+    case GroupNameRole:
+        return item.groupName;
+    case IsGroupRole:
+        return item.isGroup;
+    default:
+        return QVariant();
+    }
+}
+
+QHash<int, QByteArray> EntryListModel::roleNames() const
+{
+    return {
+        {IdRole, "id"},
+        {TitleRole, "title"},
+        {UserNameRole, "userName"},
+        {GroupNameRole, "groupName"},
+        {IsGroupRole, "isGroup"},
+    };
+}
+
+void EntryListModel::reload()
+{
+    const int previousCount = m_items.size();
+    beginResetModel();
+    m_items.clear();
+
+    const SvDatabase *database = m_vault ? m_vault->database() : nullptr;
+    SvList *list = nullptr;
+    int status = SV_INVALID_ARGUMENT;
+    if (database && !m_query.trimmed().isEmpty()) {
+        const QByteArray query = m_query.toUtf8();
+        status = sv_database_search(database, reinterpret_cast<const uint8_t *>(query.constData()),
+                                    static_cast<size_t>(query.size()), &list);
+    } else if (database) {
+        const QByteArray group = QByteArray::fromHex(m_groupId.toLatin1());
+        status = sv_database_group(
+            database,
+            group.size() == SV_UUID_LENGTH ? reinterpret_cast<const uint8_t *>(group.constData())
+                                           : nullptr,
+            &list);
+    }
+
+    if (status == SV_OK) {
+        const size_t length = sv_list_length(list);
+        m_items.reserve(static_cast<int>(length));
+        for (size_t index = 0; index < length; ++index) {
+            QByteArray uuid(SV_UUID_LENGTH, Qt::Uninitialized);
+            if (sv_list_uuid(list, index, reinterpret_cast<uint8_t *>(uuid.data())) != SV_OK)
+                continue;
+            m_items.append(Item{QString::fromLatin1(uuid.toHex()), sv_list_is_group(list, index),
+                                listText(list, index, SV_COLUMN_TITLE),
+                                listText(list, index, SV_COLUMN_USER_NAME),
+                                listText(list, index, SV_COLUMN_GROUP)});
+        }
+    }
+    sv_list_free(list);
+    endResetModel();
+    if (m_items.size() != previousCount)
+        emit countChanged();
+}

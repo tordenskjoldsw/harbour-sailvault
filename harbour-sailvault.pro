@@ -2,7 +2,17 @@ TARGET = harbour-sailvault
 
 CONFIG += sailfishapp
 
-SOURCES += src/main.cpp
+HEADERS += \
+    src/clipboardguard.h \
+    src/entrylistmodel.h \
+    src/secure.h \
+    src/vault.h
+
+SOURCES += \
+    src/clipboardguard.cpp \
+    src/entrylistmodel.cpp \
+    src/main.cpp \
+    src/vault.cpp
 
 INCLUDEPATH += core/include
 
