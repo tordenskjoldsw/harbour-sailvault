@@ -7,6 +7,7 @@ HEADERS += \
     src/clipboardguard.h \
     src/databasefile.h \
     src/entrylistmodel.h \
+    src/importer.h \
     src/secure.h \
     src/vault.h
 
@@ -14,6 +15,7 @@ SOURCES += \
     src/clipboardguard.cpp \
     src/databasefile.cpp \
     src/entrylistmodel.cpp \
+    src/importer.cpp \
     src/main.cpp \
     src/vault.cpp
 
@@ -53,6 +55,7 @@ DISTFILES += \
     qml/cover/CoverPage.qml \
     qml/pages/EntryListPage.qml \
     qml/pages/GroupDialog.qml \
+    qml/pages/ImportPage.qml \
     qml/pages/EntryPage.qml \
     qml/pages/EntryDialog.qml \
     qml/pages/MoveEntryPage.qml \

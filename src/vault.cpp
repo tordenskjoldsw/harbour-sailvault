@@ -533,6 +533,19 @@ bool Vault::updateEntry(const QString &entryId, const QVariantMap &fields)
     return true;
 }
 
+bool Vault::addImport(const SvImport *import)
+{
+    if (m_saving || !database())
+        return false;
+    QByteArray uuid(SV_UUID_LENGTH, Qt::Uninitialized);
+    if (sv_database_import(m_database, import, unixSeconds(),
+                           reinterpret_cast<uint8_t *>(uuid.data()))
+        != SV_OK)
+        return false;
+    commitChange();
+    return true;
+}
+
 bool Vault::addGroup(const QString &parentId, const QString &name)
 {
     if (m_saving || !database())

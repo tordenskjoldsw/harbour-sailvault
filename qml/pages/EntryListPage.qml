@@ -1,5 +1,6 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
+import Sailfish.Pickers 1.0
 import harbour.sailvault 1.0
 
 Page {
@@ -9,6 +10,17 @@ Page {
     property string groupName
     // Nothing new is added in the recycle bin, as in KeePassXC.
     property bool inRecycleBin: vault.inRecycleBin(groupId)
+    // The file picker closes itself after a selection; the import page opens
+    // once this page is back.
+    property string pendingImportPath
+
+    onStatusChanged: {
+        if (status === PageStatus.Active && pendingImportPath.length > 0) {
+            var path = pendingImportPath
+            pendingImportPath = ""
+            pageStack.push(Qt.resolvedUrl("ImportPage.qml"), { "path": path })
+        }
+    }
 
     allowedOrientations: Orientation.All
 
@@ -26,6 +38,15 @@ Page {
 
     RemorsePopup {
         id: remorse
+    }
+
+    Component {
+        id: exportPicker
+
+        FilePickerPage {
+            nameFilters: ["*.json"]
+            onSelectedContentPropertiesChanged: page.pendingImportPath = selectedContentProperties.filePath
+        }
     }
 
     Connections {
@@ -72,6 +93,12 @@ Page {
             MenuItem {
                 text: qsTr("Lock")
                 onClicked: vault.lock()
+            }
+            MenuItem {
+                text: qsTr("Import from Bitwarden")
+                visible: page.groupId.length === 0
+                enabled: !vault.saving && !importer.busy
+                onClicked: pageStack.push(exportPicker)
             }
             MenuItem {
                 text: qsTr("Save")

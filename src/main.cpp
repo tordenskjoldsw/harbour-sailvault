@@ -12,6 +12,7 @@
 
 #include "boottime.h"
 #include "entrylistmodel.h"
+#include "importer.h"
 #include "sailvault_core.h"
 #include "vault.h"
 
@@ -40,10 +41,14 @@ int main(int argc, char *argv[])
     qmlRegisterType<EntryListModel>("harbour.sailvault", 1, 0, "EntryListModel");
     qmlRegisterUncreatableType<Vault>("harbour.sailvault", 1, 0, "Vault",
                                       QStringLiteral("Use the vault context property"));
+    qmlRegisterUncreatableType<Importer>("harbour.sailvault", 1, 0, "Importer",
+                                         QStringLiteral("Use the importer context property"));
 
     Vault vault;
+    Importer importer(&vault);
     QScopedPointer<QQuickView> view(SailfishApp::createView());
     view->rootContext()->setContextProperty(QStringLiteral("vault"), &vault);
+    view->rootContext()->setContextProperty(QStringLiteral("importer"), &importer);
     view->rootContext()->setContextProperty(
         QStringLiteral("coreVersion"),
         QString::fromUtf8(sailvault_core_version()));
