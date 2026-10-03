@@ -1,5 +1,6 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
+import harbour.sailvault 1.0
 
 // Creates a group in parentId (empty for the root group), or renames the
 // group groupId when it is set.
@@ -11,14 +12,14 @@ Dialog {
     property string currentName
     readonly property bool renaming: groupId.length > 0
 
-    canAccept: nameField.text.trim().length > 0
+    canAccept: nameField.text.trim().length > 0 && vault.state === Vault.Unlocked
+               && !vault.saving
     allowedOrientations: Orientation.All
 
     onAccepted: {
-        if (renaming)
-            vault.renameGroup(groupId, nameField.text.trim())
-        else
-            vault.addGroup(parentId, nameField.text.trim())
+        var name = nameField.text.trim()
+        if (!(renaming ? vault.renameGroup(groupId, name) : vault.addGroup(parentId, name)))
+            Notices.show(qsTr("The group could not be saved"), Notice.Long)
     }
 
     Column {

@@ -10,7 +10,10 @@ Dialog {
     property string entryId
     readonly property bool editing: entryId.length > 0
 
+    // The vault takes no change while a save runs; accepting then would
+    // drop the input.
     canAccept: titleField.text.trim().length > 0 && vault.state === Vault.Unlocked
+               && !vault.saving
     allowedOrientations: Orientation.All
 
     // A lock empties the dialog even if the page stack cannot close it at
@@ -46,10 +49,9 @@ Dialog {
             "URL": urlField.text.trim(),
             "Notes": notesField.text
         }
-        if (editing)
-            vault.updateEntry(entryId, fields)
-        else
-            vault.addEntry(groupId, fields)
+        var saved = editing ? vault.updateEntry(entryId, fields) : vault.addEntry(groupId, fields)
+        if (!saved)
+            Notices.show(qsTr("The entry could not be saved"), Notice.Long)
     }
 
     SilicaFlickable {
