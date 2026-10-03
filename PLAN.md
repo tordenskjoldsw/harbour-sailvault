@@ -80,6 +80,11 @@ Lessons from the Bitwarden clients (desk research 2026-10-03), still valid:
 - KDBX 3.x writing; KeePass 1.x (KDB) files
 - YubiKey challenge-response unlock (no practical path on the phone)
 - Passkey provider; Android AppSupport integration
+- TOTP code generation: password and second factor in one app turn 2FA into
+  a single factor for anyone who gets the database and the master password.
+  `otp` attributes from KeePassXC are kept losslessly and shown as hidden
+  fields, but no codes are generated. A separate authenticator app may be a
+  later, independent project.
 
 Reading KDBX 3.1 is an open decision, see section 14.
 
@@ -98,7 +103,7 @@ Reading KDBX 3.1 is an open decision, see section 14.
 | Rust core (static lib, C FFI, no I/O)            |
 |  - KDBX4 codec: KDFs, ciphers, HMAC blocks, XML  |
 |  - lossless entry model, history, merge          |
-|  - Bitwarden export import, TOTP, search         |
+|  - Bitwarden export import, search               |
 +--------------------------------------------------+
 ```
 
@@ -268,10 +273,28 @@ Result (2026-10-03, host only):
 
 ### Phase 3 - Read-only MVP
 
-- Open a local KDBX file, unlock, auto-lock
-- List, search, entry detail, copy with clipboard timeout, TOTP
+- Open a local KDBX file (picked from Documents or Downloads), unlock,
+  auto-lock
+- List, search, entry detail, copy with clipboard timeout
 - Groups and tags as navigation and filters
-- Cover with lock state
+- Cover with lock state and a lock action
+- No TOTP codes (section 4)
+
+Work order:
+
+1. Search in the core
+2. C FFI with opaque handles: open, entry list, single field on demand,
+   search, lock
+3. C++ bridge: unlock on a worker thread, list model, clipboard with timeout
+   (cleared on lock and exit), auto-lock
+4. Silica pages: unlock, entry list with search, entry detail, cover
+5. Device test and measurements (criteria 2, 5, 6)
+6. `docs/threat-model.md`
+
+Auto-lock defaults: 5 minutes idle in the foreground, 1 minute in the
+background (another app or display off), manual lock from the pulley menu
+and the cover. Locking on device lock would need a system D-Bus service,
+which the sandbox does not allow; the background rule covers it.
 
 Exit: usable as a daily read-only KeePass app on the Jolla Phone; criteria 2,
 5 and 6 measured and met.
@@ -339,7 +362,6 @@ Exit: usable as a daily read-only KeePass app on the Jolla Phone; criteria 2,
     already exist for that.
 - License (must be compatible with any reference code that gets reused)
 - Convenience unlock after the MVP: none, PIN, or the Secrets Confirm dialog
-- Exact import and export file location (Downloads, Documents, or file picker)
 
 Proposed in review (2026-10-03), not decided:
 
@@ -360,6 +382,12 @@ Proposed in review (2026-10-03), not decided:
 
 Decided:
 
+- TOTP (2026-10-03): SailVault generates no TOTP codes; see section 4.
+- File location for Phase 3 (2026-10-03): the user picks the KDBX file with
+  the Sailfish file picker from Documents or Downloads; Sailjail permissions
+  `Documents` and `Downloads`, not the broader `UserDirs`.
+- Auto-lock (2026-10-03): 5 minutes idle, 1 minute in the background,
+  manual lock from pulley menu and cover.
 - Direction (2026-10-03): KDBX4 password manager with Bitwarden import
   instead of a Bitwarden client. Reasons: no sandboxed KDBX4 writer exists in
   Harbour, no server product needed, standard format with KeePassXC on the
