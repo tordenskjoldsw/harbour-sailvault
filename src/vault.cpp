@@ -43,14 +43,13 @@ class UnlockTask : public QRunnable
 {
 public:
     UnlockTask(Vault *vault, std::shared_ptr<std::atomic_bool> cancelled, int attempt,
-               const QString &databasePath, const QString &keyFilePath,
-               const QByteArray &password)
+               const QString &databasePath, const QString &keyFilePath, QByteArray password)
         : m_vault(vault)
         , m_cancelled(std::move(cancelled))
         , m_attempt(attempt)
         , m_databasePath(databasePath)
         , m_keyFilePath(keyFilePath)
-        , m_password(password)
+        , m_password(std::move(password))
     {
     }
 
@@ -174,14 +173,13 @@ class CreateTask : public QRunnable
 {
 public:
     CreateTask(Vault *vault, std::shared_ptr<std::atomic_bool> cancelled, int attempt,
-               const QString &path, const QString &name, const QByteArray &password,
-               uint32_t kdfLevel)
+               const QString &path, const QString &name, QByteArray password, uint32_t kdfLevel)
         : m_vault(vault)
         , m_cancelled(std::move(cancelled))
         , m_attempt(attempt)
         , m_path(path)
         , m_name(name.toUtf8())
-        , m_password(password)
+        , m_password(std::move(password))
         , m_kdfLevel(kdfLevel)
     {
     }
@@ -428,13 +426,12 @@ void Vault::unlock(const QString &password)
 {
     if (m_state != Locked || m_databasePath.isEmpty())
         return;
-    QByteArray passwordBytes = password.toUtf8();
     setError(NoError);
     setState(Unlocking);
+    // The task owns the only copy of the password bytes and wipes it.
     QThreadPool::globalInstance()->start(new UnlockTask(this, m_unlockCancelled, ++m_attempt,
                                                         m_databasePath, m_keyFilePath,
-                                                        passwordBytes));
-    secureWipe(passwordBytes);
+                                                        password.toUtf8()));
 }
 
 void Vault::onUnlockFinished(int attempt, int status, qulonglong handle, const QByteArray &digest)
@@ -489,13 +486,11 @@ void Vault::createDatabase(int location, const QString &name, const QString &pas
     if (m_state != Locked || path.isEmpty() || password.isEmpty()
         || (kdfLevel != KdfStandard && kdfLevel != KdfHigh && kdfLevel != KdfMaximum))
         return;
-    QByteArray passwordBytes = password.toUtf8();
     setError(NoError);
     setState(Unlocking);
     QThreadPool::globalInstance()->start(new CreateTask(this, m_unlockCancelled, ++m_attempt, path,
-                                                        name.trimmed(), passwordBytes,
+                                                        name.trimmed(), password.toUtf8(),
                                                         static_cast<uint32_t>(kdfLevel)));
-    secureWipe(passwordBytes);
 }
 
 void Vault::onCreateFinished(int attempt, int status, qulonglong handle,
