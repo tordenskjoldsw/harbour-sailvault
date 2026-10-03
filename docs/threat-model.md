@@ -103,9 +103,9 @@ Protected:
 Limits:
 
 - During the 30 seconds, any app that can read the clipboard can read the
-  copied value. Whether Sailfish OS keeps a clipboard history (for example
-  in the keyboard), and whether a Wayland client in the background may clear
-  the selection, is **unverified** (device test pending).
+  copied value. Clearing works from the background and on exit (tested on
+  the Jolla Phone, 5.2.0.18). Whether Sailfish OS keeps a clipboard history
+  (for example in the keyboard) is **unverified**.
 - Apps with the `Documents` or `Downloads` permission can read the KDBX file
   and a key file stored there. The KDBX file is encrypted; the key file is
   not.

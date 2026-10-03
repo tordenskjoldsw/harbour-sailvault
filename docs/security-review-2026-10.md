@@ -45,13 +45,22 @@ correct and authenticates every byte before using it.
 | L11 small unwiped copies | fixed | `fcc1f38` |
 | L12 pre-authentication bounds | fixed: header hash before KDF, fallible Argon2 memory, tighter Argon2 caps | `fcc1f38` |
 | L13 compatibility | fixed: UUID names pinned by a test, KeePassXC boolean rules, Comment field, VariantDictionary Bool and trailing bytes; Salsa20 inner stream stays unsupported (fails closed) | `fcc1f38` |
-| I1 clipboard on exit | mitigated: `QGuiApplication::sync()` after clearing; device test pending | `a5f8585` |
+| I1 clipboard on exit | fixed: `QGuiApplication::sync()` after clearing; verified on the device | `a5f8585` |
 | I2 keyboard input | fixed | `a5f8585` |
 | I3 empty password | open: needs a separate "no password" control in the UI | - |
 | I4 Send assertion | fixed | `fcc1f38` |
 | I5 key file during unlock | fixed | `98a82c6` |
 | I6 unused dependencies | fixed for argon2 alloc (password-hash, rand_core removed); libQt5Network stays (sailfishapp) | `0afd2d5` |
 | I7 duplicate keys, `&amp;` in key file | open, behavior documented | - |
+
+Device tests on the Jolla Phone (Sailfish OS 5.2.0.18), 2026-10-03, after
+installing the fixed build:
+
+- Copy a password, lock the phone for more than 2 minutes, wake it: the app
+  is locked and the clipboard is empty (M1).
+- Copy a password, switch to another app, paste after 35 seconds: empty, so
+  a sandboxed app in the background can clear the selection (M1, L10).
+- Copy a password, close the app, paste in another app: empty (I1).
 
 ## Medium
 
