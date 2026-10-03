@@ -40,7 +40,26 @@ SailVault does not compete on feature breadth in the first year. It competes on:
 - **Sailfish-native UX**: built to Silica conventions, not ported from another platform
 
 Action item: use BitSailor and SailWarden daily for one week and log every
-annoyance. That list becomes the differentiation backlog (Phase 6).
+annoyance. That list extends the differentiation backlog below.
+
+### Differentiation backlog (desk research, 2026-10-03)
+
+Sources: BitSailor source (v1.9.3, commit eb3d91a), its GitHub issues and
+forum thread; SailWarden forum thread and OpenRepos page. Not tested
+first-hand. Neither competitor has fingerprint unlock in its Harbour build.
+
+| # | Gap | Competitor evidence | SailVault answer | Phase |
+|---|-----|---------------------|------------------|-------|
+| 1 | Decrypted data in the UI layer | BitSailor passes the whole decrypted vault, passwords included, to QML/JS as JSON | Plaintext stays in the Rust core; QML gets list names and only the field being shown | 3 |
+| 2 | Weak lock model | BitSailor: key in a DeviceLockKeepUnlocked collection, PIN is only a UI check, no idle lock | Master password KDF on every unlock; idle and device-lock auto-lock; key zeroized | 3 |
+| 3 | Clipboard leaks | BitSailor clears only some fields, via a QML timer that dies with the app | Every copied field clears; timer in C++, clipboard cleared on lock and exit | 3 |
+| 4 | Login failures | BitSailor: HTTP 400 on login is the top complaint, no email 2FA | Clear error messages, API key login, email 2FA early | 2-3 |
+| 5 | Slow large vaults | SailWarden: 1500 items sat on "Please Wait", search froze per keystroke | Search index in Rust, C++ list model, lazy decryption, measured with 1000+ items | 2-3 |
+| 6 | Non-native navigation | Both use Android-style tab bars and custom toasts | Pulley menus and page stack only, search always visible, system notices | 3 |
+| 7 | Missing organization | BitSailor has no folders, favorites, collections or attachments in the UI | Read-only folders, favorites and collections as list filters | 3 |
+| 8 | Missing item types | BitSailor: no SSH key view, identities cannot be created | All item types readable from the first release | 3 |
+| 9 | Secrets daemon fragility | Both suffer from Secrets prompt loops and daemon failures | No Secrets dependency at all | done |
+| 10 | Logs and trust | BitSailor writes a warnings log to disk; SailWarden is closed source, machine-translated, reports itself as "Android" | No log files; open source, threat model, human translations, honest client identity | 3-6 |
 
 ## 4. Non-goals
 
@@ -131,7 +150,7 @@ Exit: all of the above works on the device; results written to `docs/spike-resul
 ### Phase 2 - Core
 
 - Prelogin, KDF (PBKDF2-SHA256 and Argon2id), key stretching, EncString decryption, RSA for organization keys
-- Login with master password, API key, and TOTP as second factor; token refresh
+- Login with master password, API key, and TOTP or email as second factor; token refresh
 - Sync and data model
 - Test vectors against Vaultwarden and the official Bitwarden cloud
 
@@ -143,6 +162,7 @@ source, not against this summary.
 
 - Login, unlock with master password, auto-lock
 - List, search, item detail, copy with clipboard timeout, TOTP codes
+- All item types readable; folders, favorites and collections as read-only list filters
 - Offline cache, background sync
 - Cover with lock state
 
@@ -156,9 +176,9 @@ Exit: criterion 1 met.
 
 ### Phase 5 - Write support and parity
 
-- Create, edit, delete (with remorse), folders, favorites, trash
-- Organizations and collections, attachments, Send, generator
-- Further second factors (email, Duo, YubiKey OTP)
+- Create, edit, delete (with remorse), editing folders and favorites, trash
+- Organization and collection management, attachments, Send, generator
+- Further second factors (Duo, YubiKey OTP, FIDO2)
 
 ### Phase 6 - Differentiation
 
