@@ -626,30 +626,33 @@ pub unsafe extern "C" fn sv_database_update_entry(
     }
 }
 
-/// Moves the entry to the recycle bin, or removes it for good when it is
-/// already there or the recycle bin is disabled (see
-/// `Database::delete_entry`). `permanent_out` receives which happened.
+/// Moves the entry or group with `uuid` to the recycle bin, or removes it
+/// for good when it is already there or the recycle bin is disabled (see
+/// `Database::delete_entry` and `delete_group`). `permanent_out` receives
+/// which happened. UUIDs are unique across entries and groups.
 ///
 /// # Safety
 ///
-/// `database` must be a live handle not in use by another thread;
-/// `entry_uuid` valid for 16 bytes; `permanent_out` valid for one write.
+/// `database` must be a live handle not in use by another thread; `uuid`
+/// valid for 16 bytes; `permanent_out` valid for one write.
 #[no_mangle]
-pub unsafe extern "C" fn sv_database_delete_entry(
+pub unsafe extern "C" fn sv_database_delete_item(
     database: *mut SvDatabase,
-    entry_uuid: *const u8,
+    uuid: *const u8,
     now: i64,
     permanent_out: *mut bool,
 ) -> i32 {
-    let (Some(database), Some(uuid), Some(permanent_out)) = (
-        database.as_mut(),
-        read_uuid(entry_uuid),
-        permanent_out.as_mut(),
-    ) else {
+    let (Some(database), Some(uuid), Some(permanent_out)) =
+        (database.as_mut(), read_uuid(uuid), permanent_out.as_mut())
+    else {
         return SV_INVALID_ARGUMENT;
     };
     *permanent_out = false;
-    match database.database.delete_entry(&uuid, now) {
+    let result = match database.database.delete_entry(&uuid, now) {
+        Err(KdbxError::UnknownEntry) => database.database.delete_group(&uuid, now),
+        result => result,
+    };
+    match result {
         Ok(permanent) => {
             *permanent_out = permanent;
             SV_OK
@@ -658,20 +661,20 @@ pub unsafe extern "C" fn sv_database_delete_entry(
     }
 }
 
-/// Whether `sv_database_delete_entry` would remove the entry for good.
+/// Whether `sv_database_delete_item` would remove the item for good.
 ///
 /// # Safety
 ///
-/// `database` must be a live handle; `entry_uuid` valid for 16 bytes; `out`
-/// valid for one write.
+/// `database` must be a live handle; `uuid` valid for 16 bytes; `out` valid
+/// for one write.
 #[no_mangle]
 pub unsafe extern "C" fn sv_database_delete_is_permanent(
     database: *const SvDatabase,
-    entry_uuid: *const u8,
+    uuid: *const u8,
     out: *mut bool,
 ) -> i32 {
     let (Some(database), Some(uuid), Some(out)) =
-        (database.as_ref(), read_uuid(entry_uuid), out.as_mut())
+        (database.as_ref(), read_uuid(uuid), out.as_mut())
     else {
         return SV_INVALID_ARGUMENT;
     };
@@ -1016,19 +1019,44 @@ mod tests {
             );
             assert!(!permanent);
             assert_eq!(
-                sv_database_delete_entry(database, uuid.as_ptr(), 0, &mut permanent),
+                sv_database_delete_item(database, uuid.as_ptr(), 0, &mut permanent),
                 SV_OK
             );
             assert!(!permanent);
             assert_eq!(
-                sv_database_delete_entry(database, uuid.as_ptr(), 0, &mut permanent),
+                sv_database_delete_item(database, uuid.as_ptr(), 0, &mut permanent),
                 SV_OK
             );
             assert!(permanent);
             assert_eq!(
-                sv_database_delete_entry(database, uuid.as_ptr(), 0, &mut permanent),
+                sv_database_delete_item(database, uuid.as_ptr(), 0, &mut permanent),
                 SV_NOT_FOUND
             );
+
+            let mut root = std::ptr::null_mut();
+            assert_eq!(
+                sv_database_group(database, std::ptr::null(), &mut root),
+                SV_OK
+            );
+            assert!(sv_list_is_group(root, 0));
+            let mut group = [0u8; UUID_LENGTH];
+            assert_eq!(sv_list_uuid(root, 0, group.as_mut_ptr()), SV_OK);
+            sv_list_free(root);
+            assert_eq!(
+                sv_database_delete_is_permanent(database, group.as_ptr(), &mut permanent),
+                SV_OK
+            );
+            assert!(!permanent);
+            assert_eq!(
+                sv_database_delete_item(database, group.as_ptr(), 0, &mut permanent),
+                SV_OK
+            );
+            assert!(!permanent);
+            assert_eq!(
+                sv_database_delete_is_permanent(database, group.as_ptr(), &mut permanent),
+                SV_OK
+            );
+            assert!(permanent);
             sv_database_free(database);
         }
     }
