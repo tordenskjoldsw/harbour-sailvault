@@ -16,12 +16,16 @@ CoverBackground {
         }
 
         Label {
+
+            textFormat: Text.PlainText
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             text: qsTr("SailVault")
         }
 
         Label {
+
+            textFormat: Text.PlainText
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             font.pixelSize: Theme.fontSizeSmall

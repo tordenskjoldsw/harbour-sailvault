@@ -80,6 +80,8 @@ Page {
             }
 
             Label {
+
+                textFormat: Text.PlainText
                 x: Theme.horizontalPageMargin
                 width: parent.width - 2 * Theme.horizontalPageMargin
                 wrapMode: Text.Wrap
@@ -113,6 +115,8 @@ Page {
             }
 
             Label {
+
+                textFormat: Text.PlainText
                 x: Theme.horizontalPageMargin
                 width: parent.width - 2 * Theme.horizontalPageMargin
                 visible: page.error >= 0 && page.error !== Importer.WrongPassword

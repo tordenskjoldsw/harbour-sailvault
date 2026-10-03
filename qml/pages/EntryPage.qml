@@ -171,6 +171,8 @@ Page {
                         width: parent.width - 2 * Theme.horizontalPageMargin
 
                         Label {
+
+                            textFormat: Text.PlainText
                             width: parent.width
                             font.pixelSize: Theme.fontSizeExtraSmall
                             color: fieldItem.highlighted ? Theme.secondaryHighlightColor
@@ -179,6 +181,8 @@ Page {
                         }
 
                         Label {
+
+                            textFormat: Text.PlainText
                             width: parent.width
                             wrapMode: Text.Wrap
                             color: fieldItem.highlighted ? Theme.highlightColor : Theme.primaryColor

@@ -39,6 +39,8 @@ Page {
                 anchors.verticalCenter: parent.verticalCenter
 
                 Label {
+
+                    textFormat: Text.PlainText
                     width: parent.width
                     truncationMode: TruncationMode.Fade
                     color: item.highlighted ? Theme.highlightColor : Theme.primaryColor
@@ -46,6 +48,8 @@ Page {
                 }
 
                 Label {
+
+                    textFormat: Text.PlainText
                     width: parent.width
                     truncationMode: TruncationMode.Fade
                     font.pixelSize: Theme.fontSizeExtraSmall

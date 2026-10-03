@@ -64,6 +64,8 @@ Page {
                 }
 
                 Label {
+
+                    textFormat: Text.PlainText
                     width: parent.width
                     truncationMode: TruncationMode.Fade
                     color: item.highlighted ? Theme.highlightColor : Theme.primaryColor
@@ -71,6 +73,8 @@ Page {
                 }
 
                 Label {
+
+                    textFormat: Text.PlainText
                     width: parent.width
                     visible: text.length > 0
                     truncationMode: TruncationMode.Fade
