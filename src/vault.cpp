@@ -533,6 +533,30 @@ bool Vault::updateEntry(const QString &entryId, const QVariantMap &fields)
     return true;
 }
 
+bool Vault::addGroup(const QString &parentId, const QString &name)
+{
+    if (m_saving || !database())
+        return false;
+    const QByteArray parent = itemUuid(parentId);
+    const QByteArray nameBytes = name.toUtf8();
+    QByteArray uuid(SV_UUID_LENGTH, Qt::Uninitialized);
+    if (sv_database_add_group(m_database, parent.isEmpty() ? nullptr : bytePointer(parent),
+                              bytePointer(nameBytes), static_cast<size_t>(nameBytes.size()),
+                              unixSeconds(), reinterpret_cast<uint8_t *>(uuid.data()))
+        != SV_OK)
+        return false;
+    commitChange();
+    return true;
+}
+
+bool Vault::inRecycleBin(const QString &itemId)
+{
+    const QByteArray uuid = itemUuid(itemId);
+    bool inside = false;
+    return !uuid.isEmpty() && database()
+        && sv_database_in_recycle_bin(m_database, bytePointer(uuid), &inside) == SV_OK && inside;
+}
+
 bool Vault::moveEntry(const QString &entryId, const QString &groupId)
 {
     const QByteArray uuid = itemUuid(entryId);

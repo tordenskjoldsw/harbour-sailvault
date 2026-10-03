@@ -52,6 +52,7 @@ DISTFILES += \
     qml/harbour-sailvault.qml \
     qml/cover/CoverPage.qml \
     qml/pages/EntryListPage.qml \
+    qml/pages/GroupDialog.qml \
     qml/pages/EntryPage.qml \
     qml/pages/EntryDialog.qml \
     qml/pages/MoveEntryPage.qml \

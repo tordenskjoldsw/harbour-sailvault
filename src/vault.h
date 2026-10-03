@@ -84,6 +84,11 @@ public:
     // group. Each change starts a save.
     Q_INVOKABLE bool addEntry(const QString &groupId, const QVariantMap &fields);
     Q_INVOKABLE bool updateEntry(const QString &entryId, const QVariantMap &fields);
+    // An empty parentId means the root group.
+    Q_INVOKABLE bool addGroup(const QString &parentId, const QString &name);
+    // True for the recycle bin and everything in it, where nothing new is
+    // added.
+    Q_INVOKABLE bool inRecycleBin(const QString &itemId);
     // Moves an entry into another group; moving out of the recycle bin
     // restores it.
     Q_INVOKABLE bool moveEntry(const QString &entryId, const QString &groupId);

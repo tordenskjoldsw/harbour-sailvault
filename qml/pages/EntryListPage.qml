@@ -7,6 +7,8 @@ Page {
 
     property string groupId
     property string groupName
+    // Nothing new is added in the recycle bin, as in KeePassXC.
+    property bool inRecycleBin: vault.inRecycleBin(groupId)
 
     allowedOrientations: Orientation.All
 
@@ -24,6 +26,11 @@ Page {
 
     RemorsePopup {
         id: remorse
+    }
+
+    Connections {
+        target: vault
+        onContentChanged: page.inRecycleBin = vault.inRecycleBin(page.groupId)
     }
 
     SilicaListView {
@@ -72,7 +79,15 @@ Page {
                 onClicked: vault.save()
             }
             MenuItem {
+                text: qsTr("New group")
+                visible: !page.inRecycleBin
+                enabled: !vault.saving
+                onClicked: pageStack.push(Qt.resolvedUrl("GroupDialog.qml"),
+                                          { "parentId": page.groupId })
+            }
+            MenuItem {
                 text: qsTr("New entry")
+                visible: !page.inRecycleBin
                 enabled: !vault.saving
                 onClicked: pageStack.push(Qt.resolvedUrl("EntryDialog.qml"),
                                           { "groupId": page.groupId })
