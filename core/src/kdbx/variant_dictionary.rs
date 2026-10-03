@@ -87,10 +87,6 @@ impl VariantDictionary {
             .find(|(key, _)| key == name)
             .map(|(_, value)| value)
     }
-
-    pub fn entries(&self) -> &[(String, Value)] {
-        &self.entries
-    }
 }
 
 fn read_sized<'a>(reader: &mut ByteReader<'a>, invalid: KdbxError) -> Result<&'a [u8]> {
@@ -160,11 +156,7 @@ mod tests {
         data.push(TYPE_END);
 
         let dictionary = VariantDictionary::parse(&data).unwrap();
-        let names: Vec<&str> = dictionary
-            .entries()
-            .iter()
-            .map(|(n, _)| n.as_str())
-            .collect();
+        let names: Vec<&str> = dictionary.entries.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(names, ["a", "b", "c", "d", "e", "f", "g"]);
         assert_eq!(dictionary.get("b"), Some(&Value::UInt64(8)));
         assert_eq!(dictionary.get("f"), Some(&Value::String("text".into())));

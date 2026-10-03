@@ -25,5 +25,4 @@ pub use inner_header::Binary;
 pub use kdf::{Argon2Variant, KdfParameters};
 pub use key::CompositeKey;
 pub use search::ListedEntry;
-pub use variant_dictionary::{Value, VariantDictionary};
 pub use xml::{Element, Node};

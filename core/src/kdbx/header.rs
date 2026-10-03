@@ -226,11 +226,6 @@ impl OuterHeader {
         write_field(&mut out, FIELD_END, END_OF_HEADER)?;
         Ok(out)
     }
-
-    /// Plugin data that KeePass clients store unencrypted in the header.
-    pub fn public_custom_data(&self) -> Option<&VariantDictionary> {
-        self.public_custom_data.as_ref()
-    }
 }
 
 /// Writes a header field as both the outer and the inner header encode it:

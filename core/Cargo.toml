@@ -26,7 +26,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 twofish = { version = "0.7", features = ["zeroize"] }
-zeroize = { version = "1.8", features = ["derive", "serde"] }
+zeroize = { version = "1.8", features = ["derive"] }
 
 [profile.release]
 # Unwinding across the C FFI boundary is undefined behavior.

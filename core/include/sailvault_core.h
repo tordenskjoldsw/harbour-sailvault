@@ -9,9 +9,6 @@
 extern "C" {
 #endif
 
-/* Static, NUL-terminated string. Valid for the process lifetime, never free it. */
-const char *sailvault_core_version(void);
-
 /* Status codes returned by the functions below. */
 enum {
     SV_OK = 0,
