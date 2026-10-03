@@ -117,7 +117,7 @@ Importer::Importer(Vault *vault, QObject *parent)
     , m_cancelled(std::make_shared<std::atomic_bool>(false))
 {
     connect(m_vault, &Vault::stateChanged, this, &Importer::onVaultStateChanged);
-    connect(m_vault, &Vault::savingChanged, this, &Importer::addPendingImport);
+    connect(m_vault, &Vault::savingChanged, this, &Importer::onSavingChanged);
 }
 
 Importer::~Importer()
@@ -209,10 +209,29 @@ void Importer::addPendingImport()
         fail(NotAdded);
         return;
     }
-    if (m_unencrypted)
-        m_removablePath = m_path;
-    setBusy(false);
-    emit finished(added, updated, m_unencrypted);
+    m_added = added;
+    m_updated = updated;
+    // A merge that changed something started a save; the export may only
+    // be deleted once its entries are on disk.
+    if (m_vault->saving())
+        m_awaitingSave = true;
+    else
+        finish();
+}
+
+void Importer::onSavingChanged()
+{
+    if (m_vault->saving())
+        return;
+    if (m_awaitingSave) {
+        m_awaitingSave = false;
+        if (m_vault->dirty())
+            fail(NotSaved);
+        else
+            finish();
+        return;
+    }
+    addPendingImport();
 }
 
 void Importer::onVaultStateChanged()
@@ -220,8 +239,17 @@ void Importer::onVaultStateChanged()
     if (m_vault->state() == Vault::Unlocked || !m_busy)
         return;
     ++m_attempt;
+    m_awaitingSave = false;
     discardPendingImport();
     fail(Locked);
+}
+
+void Importer::finish()
+{
+    if (m_unencrypted && !m_vault->dirty())
+        m_removablePath = m_path;
+    setBusy(false);
+    emit finished(m_added, m_updated, !m_removablePath.isEmpty());
 }
 
 bool Importer::removeImportedFile()

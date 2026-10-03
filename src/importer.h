@@ -35,6 +35,8 @@ public:
         Unsupported,
         Locked,
         NotAdded,
+        // Merged, but the save failed; the entries are unsaved changes.
+        NotSaved,
         // The file is no longer the one that was inspected.
         FileChanged
     };
@@ -52,21 +54,25 @@ public:
     // about a plain file first.
     Q_INVOKABLE int inspect(const QString &path) const;
     Q_INVOKABLE void start(const QString &path, const QString &password);
-    // Deletes the last unencrypted export that was imported successfully;
-    // no other file can be deleted this way.
+    // Deletes the last unencrypted export whose import was merged and
+    // saved; no other file can be deleted this way.
     Q_INVOKABLE bool removeImportedFile();
 
 signals:
     void busyChanged();
-    void finished(int added, int updated, bool wasUnencrypted);
+    // fileRemovable: the export is unencrypted and everything in it is
+    // saved, so removeImportedFile may delete it.
+    void finished(int added, int updated, bool fileRemovable);
     void failed(int status);
 
 private slots:
     void onReadFinished(int attempt, int status, qulonglong handle);
-    void addPendingImport();
+    void onSavingChanged();
     void onVaultStateChanged();
 
 private:
+    void addPendingImport();
+    void finish();
     void fail(Status status);
     void setBusy(bool busy);
     void discardPendingImport();
@@ -76,6 +82,10 @@ private:
     int m_attempt = 0;
     bool m_busy = false;
     bool m_unencrypted = false;
+    // Merged; finished once the vault's save succeeds.
+    bool m_awaitingSave = false;
+    int m_added = 0;
+    int m_updated = 0;
     QString m_path;
     QString m_removablePath;
     SvImport *m_pending = nullptr;

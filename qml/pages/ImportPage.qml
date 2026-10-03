@@ -5,7 +5,7 @@ import "../components"
 
 // Imports the Bitwarden/Vaultwarden export at path into the import group,
 // merging with an earlier import, and offers to delete an unencrypted export
-// afterwards.
+// once its entries are saved.
 Page {
     id: page
 
@@ -27,6 +27,7 @@ Page {
         case Importer.WrongPassword: return qsTr("Wrong export password")
         case Importer.Corrupted: return qsTr("The export is damaged")
         case Importer.NotAdded: return qsTr("The entries could not be added to the database")
+        case Importer.NotSaved: return qsTr("The entries were added but could not be saved. The export file is kept.")
         case Importer.FileChanged: return qsTr("The file changed while it was read. Select it again.")
         default: return ""
         }
@@ -52,10 +53,14 @@ Page {
     allowedOrientations: Orientation.All
     backNavigation: !importer.busy
 
+    RemorsePopup {
+        id: remorse
+    }
+
     Connections {
         target: importer
         onFinished: {
-            if (wasUnencrypted) {
+            if (fileRemovable) {
                 page.resultText = page.summary(added, updated)
             } else {
                 Notices.show(page.summary(added, updated), Notice.Short)
@@ -146,12 +151,12 @@ Page {
                 anchors.horizontalCenter: parent.horizontalCenter
                 visible: page.resultText.length > 0
                 text: qsTr("Delete file")
-                onClicked: {
+                onClicked: remorse.execute(qsTr("Deleting the export file"), function() {
                     Notices.show(importer.removeImportedFile() ? qsTr("Export file deleted")
                                                                : qsTr("The export file could not be deleted"),
                                  Notice.Short)
                     pageStack.pop()
-                }
+                })
             }
 
             Button {
