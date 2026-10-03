@@ -168,4 +168,17 @@ mod tests {
         ProtectedStream::new(&key).apply(&mut expected);
         assert_eq!(probe, expected);
     }
+
+    #[test]
+    fn rejects_inner_streams_other_than_chacha20() {
+        const STREAM_SALSA20: u32 = 2;
+        let mut bytes = Vec::new();
+        write_field(&mut bytes, FIELD_STREAM_ID, &STREAM_SALSA20.to_le_bytes()).unwrap();
+        write_field(&mut bytes, FIELD_STREAM_KEY, &[7u8; 32]).unwrap();
+        write_field(&mut bytes, FIELD_END, &[]).unwrap();
+        assert_eq!(
+            InnerHeader::parse(&bytes).map(|_| ()),
+            Err(KdbxError::InvalidInnerHeader("unsupported stream"))
+        );
+    }
 }
