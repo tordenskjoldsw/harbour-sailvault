@@ -1,5 +1,6 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
+import harbour.sailvault 1.0
 
 Page {
     id: page
@@ -8,6 +9,9 @@ Page {
     property string entryTitle
 
     readonly property var standardKeys: ["UserName", "Password", "URL", "Notes"]
+    // Every value on this page depends on this, so a lock empties the page
+    // even if the page stack cannot pop it right away.
+    readonly property bool unlocked: vault.state === Vault.Unlocked
 
     function displayName(key) {
         switch (key) {
@@ -65,8 +69,18 @@ Page {
                     property bool revealed: false
                     property string revealedValue
                     readonly property bool isProtected: modelData.protected
-                    readonly property string plainValue:
-                        isProtected ? "" : vault.fieldValue(page.entryId, modelData.key)
+                    readonly property string plainValue: !page.unlocked || isProtected
+                                                         ? "" : vault.fieldValue(page.entryId, modelData.key)
+
+                    Connections {
+                        target: page
+                        onUnlockedChanged: {
+                            if (!page.unlocked) {
+                                fieldItem.revealed = false
+                                fieldItem.revealedValue = ""
+                            }
+                        }
+                    }
 
                     contentHeight: fieldColumn.height + 2 * Theme.paddingMedium
                     visible: isProtected || plainValue.length > 0

@@ -70,7 +70,7 @@ Page {
         contentHeight: column.height + Theme.paddingLarge
 
         PullDownMenu {
-            visible: vault.keyFilePath.length > 0
+            visible: vault.keyFilePath.length > 0 && !page.unlocking
             MenuItem {
                 text: qsTr("Remove key file")
                 onClicked: vault.keyFilePath = ""
