@@ -283,3 +283,209 @@ pub(super) fn origin(entry: &Element) -> Option<&'static str> {
         .copied()
         .find(|known| *known == value.as_str())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kdbx::database::encode_uuid;
+    use crate::kdbx::inner_header::ProtectedStream;
+    use crate::kdbx::layout::NewField;
+    use crate::kdbx::{xml, Group, ORIGIN_BITWARDEN};
+
+    const NOW: i64 = 1_767_261_600;
+    const ROOT: [u8; UUID_LENGTH] = [0xA0; UUID_LENGTH];
+    const BIN: [u8; UUID_LENGTH] = [0x52; UUID_LENGTH];
+
+    fn database(meta: &str, groups: &str, deleted: &str) -> Database {
+        let xml = format!(
+            "<KeePassFile><Meta>{meta}</Meta><Root><Group><UUID>{}</UUID><Name>Root</Name>\
+             {groups}</Group><DeletedObjects>{deleted}</DeletedObjects></Root></KeePassFile>",
+            encode_uuid(&ROOT)
+        );
+        Database::from_document(
+            xml::parse(xml.as_bytes(), &mut ProtectedStream::new(&[0u8; 64])).unwrap(),
+        )
+    }
+
+    fn imported(id: u8, title: &str, modified: i64) -> NewEntry {
+        NewEntry {
+            uuid: Some([id; UUID_LENGTH]),
+            origin: Some(ORIGIN_BITWARDEN),
+            fields: vec![NewField::new("Title", title, false)],
+            modified: Some(modified),
+            ..NewEntry::default()
+        }
+    }
+
+    fn group(name: &str, entries: Vec<NewEntry>, groups: Vec<NewGroup>) -> NewGroup {
+        NewGroup {
+            name: Zeroizing::new(name.to_owned()),
+            entries,
+            groups,
+        }
+    }
+
+    fn summary(added: usize, updated: usize) -> Result<MergeSummary> {
+        Ok(MergeSummary { added, updated })
+    }
+
+    fn title(database: &Database, id: u8) -> String {
+        let entry = database.entry(&[id; UUID_LENGTH]).unwrap();
+        entry.field("Title").unwrap().value().to_string()
+    }
+
+    /// "group path: title" for every entry, in document order.
+    fn layout(database: &Database) -> Vec<String> {
+        fn walk(group: Group<'_>, parent: &str, out: &mut Vec<String>) {
+            let path = format!("{parent}/{}", group.name().as_str());
+            for entry in group.entries() {
+                let title = entry.field("Title").unwrap().value();
+                out.push(format!("{path}: {}", title.as_str()));
+            }
+            for child in group.groups() {
+                walk(child, &path, out);
+            }
+        }
+        let mut out = Vec::new();
+        walk(database.root_group().unwrap(), "", &mut out);
+        out
+    }
+
+    #[test]
+    fn new_entries_land_in_their_groups_in_import_order() {
+        let mut database = database("", "", "");
+        let first = group(
+            "Import",
+            vec![imported(1, "a", NOW), imported(2, "b", NOW)],
+            vec![group(
+                "A",
+                vec![imported(3, "c", NOW)],
+                vec![group("B", vec![imported(4, "d", NOW)], Vec::new())],
+            )],
+        );
+        assert_eq!(database.merge_group_tree(&first, NOW), summary(4, 0));
+        // Entries added at every level shift the positions of the groups
+        // below them.
+        let second = group(
+            "Import",
+            vec![imported(5, "e", NOW)],
+            vec![group(
+                "A",
+                vec![imported(6, "f", NOW)],
+                vec![group("B", vec![imported(7, "g", NOW)], Vec::new())],
+            )],
+        );
+        assert_eq!(database.merge_group_tree(&second, NOW), summary(3, 0));
+        assert_eq!(
+            layout(&database),
+            [
+                "/Root/Import: a",
+                "/Root/Import: b",
+                "/Root/Import: e",
+                "/Root/Import/A: c",
+                "/Root/Import/A: f",
+                "/Root/Import/A/B: d",
+                "/Root/Import/A/B: g",
+            ]
+        );
+    }
+
+    #[test]
+    fn deleted_entries_stay_deleted_and_group_uuids_are_not_taken() {
+        let deleted = format!(
+            "<DeletedObject><UUID>{}</UUID><DeletionTime>x</DeletionTime></DeletedObject>",
+            encode_uuid(&[9; UUID_LENGTH])
+        );
+        let other = format!(
+            "<Group><UUID>{}</UUID><Name>Other</Name></Group>",
+            encode_uuid(&[8; UUID_LENGTH])
+        );
+        let mut database = database("", &other, &deleted);
+        let import = group(
+            "Import",
+            vec![imported(9, "deleted", NOW), imported(8, "group's", NOW)],
+            Vec::new(),
+        );
+        assert_eq!(database.merge_group_tree(&import, NOW), summary(1, 0));
+        assert_eq!(layout(&database), ["/Root/Import: group's"]);
+        assert!(database.entry(&[8; UUID_LENGTH]).is_none());
+        assert!(database.entry(&[9; UUID_LENGTH]).is_none());
+    }
+
+    #[test]
+    fn equal_times_change_nothing_and_newer_imports_win_with_trimmed_history() {
+        let mut database = database("<HistoryMaxItems>2</HistoryMaxItems>", "", "");
+        let at =
+            |title: &str, time: i64| group("Import", vec![imported(1, title, time)], Vec::new());
+        assert_eq!(
+            database.merge_group_tree(&at("v1", NOW - 300), NOW),
+            summary(1, 0)
+        );
+        assert_eq!(
+            database.merge_group_tree(&at("v1", NOW - 300), NOW),
+            summary(0, 0)
+        );
+        for (version, time) in [("v2", NOW - 200), ("v3", NOW - 100), ("v4", NOW)] {
+            assert_eq!(
+                database.merge_group_tree(&at(version, time), NOW),
+                summary(0, 1)
+            );
+        }
+        assert_eq!(title(&database, 1), "v4");
+        let entry = database.entry(&[1; UUID_LENGTH]).unwrap();
+        let history: Vec<String> = entry
+            .history()
+            .map(|item| item.field("Title").unwrap().value().to_string())
+            .collect();
+        assert_eq!(history, ["v2", "v3"]);
+    }
+
+    #[test]
+    fn an_error_leaves_the_database_unchanged() {
+        let mut database = database("", "", "");
+        let before = database.document().clone();
+        let mut repeated_key = imported(2, "twice", NOW);
+        repeated_key
+            .fields
+            .push(NewField::new("Title", "again", false));
+        let import = group(
+            "Import",
+            vec![imported(1, "fine", NOW), repeated_key],
+            Vec::new(),
+        );
+        assert_eq!(
+            database.merge_group_tree(&import, NOW),
+            Err(KdbxError::InvalidEntry("duplicate field"))
+        );
+        assert!(*database.document() == before);
+    }
+
+    #[test]
+    fn an_import_named_like_the_recycle_bin_gets_its_own_group() {
+        let meta = format!(
+            "<RecycleBinEnabled>True</RecycleBinEnabled><RecycleBinUUID>{}</RecycleBinUUID>",
+            encode_uuid(&BIN)
+        );
+        let bin = format!(
+            "<Group><UUID>{}</UUID><Name>Recycle Bin</Name></Group>",
+            encode_uuid(&BIN)
+        );
+        let mut database = database(&meta, &bin, "");
+        let import = group("Recycle Bin", vec![imported(1, "a", NOW)], Vec::new());
+        assert_eq!(database.merge_group_tree(&import, NOW), summary(1, 0));
+        assert_eq!(database.group(&BIN).unwrap().entries().count(), 0);
+        assert_eq!(database.root_group().unwrap().groups().count(), 2);
+    }
+
+    #[test]
+    fn the_same_item_twice_in_one_export_becomes_one_entry() {
+        let mut database = database("", "", "");
+        let import = group(
+            "Import",
+            vec![imported(1, "older", NOW - 100), imported(1, "newer", NOW)],
+            Vec::new(),
+        );
+        assert_eq!(database.merge_group_tree(&import, NOW), summary(1, 1));
+        assert_eq!(layout(&database), ["/Root/Import: newer"]);
+    }
+}
