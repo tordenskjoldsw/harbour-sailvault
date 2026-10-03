@@ -1,6 +1,6 @@
 Name:       harbour-sailvault
 
-Summary:    Unofficial Bitwarden-compatible password manager
+Summary:    Password manager for KeePass databases
 Version:    0.1.0
 Release:    1
 License:    TBD
@@ -16,8 +16,8 @@ BuildRequires:  rust
 BuildRequires:  cargo
 
 %description
-SailVault is an unofficial, open-source client for Bitwarden-compatible
-servers such as Vaultwarden.
+SailVault is an independent, open-source password manager for KeePass
+(KDBX4) databases, with import from Bitwarden and Vaultwarden exports.
 
 
 %prep
