@@ -9,8 +9,9 @@ as the reference implementation. No real secrets.
 ## Generated with keepassxc-cli
 
 `tools/gen-kdbx-fixtures.sh` creates these and checks their format version.
-`keepassxc-cli import` writes AES-KDF with AES-256; CustomData in the content
-forces KDBX 4.0, so the 3.1 files are imported without CustomData.
+`keepassxc-cli import` writes AES-KDF with AES-256; entry CustomData in the
+content forces KDBX 4.0 (Meta CustomData alone does not), so the 3.1 files are
+imported without CustomData.
 
 | File | Format | KDF | Cipher | Key file | Content |
 |------|--------|-----|--------|----------|---------|
@@ -18,6 +19,7 @@ forces KDBX 4.0, so the 3.1 files are imported without CustomData.
 | `kdbx31-aeskdf-keyfile.kdbx` | KDBX 3.1 | AES-KDF | AES 256-bit | yes | without CustomData |
 | `kdbx4-aes-aeskdf.kdbx` | KDBX 4.0 | AES-KDF | AES 256-bit | no | full |
 | `kdbx4-aes-aeskdf-keyfile.kdbx` | KDBX 4.0 | AES-KDF | AES 256-bit | yes | full |
+| `kdbx4-1000-entries.kdbx` | KDBX 4.0 | AES-KDF | AES 256-bit | no | 1000 entries from `tools/kdbx-fixtures/gen-large-content.py` |
 
 ## Made in the KeePassXC GUI
 

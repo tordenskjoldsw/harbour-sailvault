@@ -227,8 +227,8 @@ Preparation (done):
   (AES-KDF, AES-256), each with and without a key file
 
 Finding: `keepassxc-cli import` writes AES-KDF with AES-256 and picks the
-format from the content: CustomData forces KDBX 4.0, without it the file
-stays 3.1. Other KDFs and ciphers need the KeePassXC GUI. KeePassXC may save
+format from the content: entry CustomData forces KDBX 4.0 (Meta CustomData
+alone does not), without it the file stays 3.1. Other KDFs and ciphers need the KeePassXC GUI. KeePassXC may save
 after every settings change, so GUI fixtures are edited in place on a copy.
 
 Manual step (done 2026-10-03, verified from the file headers) - three KDBX4

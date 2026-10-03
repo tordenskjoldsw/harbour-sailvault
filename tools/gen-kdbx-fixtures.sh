@@ -3,8 +3,8 @@
 # tools/kdbx-fixtures/content.xml.
 #
 # keepassxc-cli import writes AES-KDF with AES-256. KeePassXC picks the format
-# from the content: CustomData forces KDBX 4.0, without it the file stays
-# KDBX 3.1. The other KDBX 4 variants are made in the KeePassXC GUI as
+# from the content: entry CustomData forces KDBX 4.0 (Meta CustomData alone
+# does not), without it the file stays KDBX 3.1. The other KDBX 4 variants are made in the KeePassXC GUI as
 # described in core/tests/fixtures/README.md.
 #
 # Usage: tools/gen-kdbx-fixtures.sh
@@ -21,6 +21,8 @@ decryption_time_ms=100
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+
+"$root/tools/kdbx-fixtures/gen-large-content.py" > "$work/content-large.xml"
 
 python3 - "$content" "$work/content-kdbx31.xml" <<'EOF'
 import re
@@ -56,11 +58,13 @@ import_database "$work/content-kdbx31.xml" kdbx31-aeskdf.kdbx
 import_database "$work/content-kdbx31.xml" kdbx31-aeskdf-keyfile.kdbx --set-key-file "$key_file"
 import_database "$content" kdbx4-aes-aeskdf.kdbx
 import_database "$content" kdbx4-aes-aeskdf-keyfile.kdbx -k "$key_file"
+import_database "$work/content-large.xml" kdbx4-1000-entries.kdbx
 chmod 644 "$key_file"
 
 assert_version kdbx31-aeskdf.kdbx 00030001
 assert_version kdbx31-aeskdf-keyfile.kdbx 00030001
 assert_version kdbx4-aes-aeskdf.kdbx 00040000
 assert_version kdbx4-aes-aeskdf-keyfile.kdbx 00040000
+assert_version kdbx4-1000-entries.kdbx 00040000
 
 keepassxc-cli --version

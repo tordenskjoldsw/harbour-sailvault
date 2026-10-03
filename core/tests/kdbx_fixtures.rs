@@ -338,3 +338,24 @@ fn search_matches_visible_fields_and_tags_but_not_secrets() {
         ["Example login", "Special characters äöü 🔐", "Example card"]
     );
 }
+
+const LARGE: &[u8] = include_bytes!("fixtures/kdbx4-1000-entries.kdbx");
+
+#[test]
+fn large_fixture_lists_and_searches_1000_entries() {
+    let database = open(LARGE, false);
+    let entries = database.entries().unwrap();
+    assert_eq!(entries.len(), 1000);
+    assert_eq!(database.root_group().unwrap().groups().count(), 10);
+
+    let with_history = entries
+        .iter()
+        .filter(|listed| listed.entry.history().count() == 2)
+        .count();
+    assert_eq!(with_history, 100);
+
+    let found = database.search("user0500@example.org").unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(value(&found[0].entry, "Password"), "password-0500");
+    assert_eq!(database.search("example.org").unwrap().len(), 1000);
+}
