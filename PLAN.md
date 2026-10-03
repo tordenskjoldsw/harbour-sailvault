@@ -4,9 +4,10 @@ Status: 2026-10-03 - direction changed from a Bitwarden client to a KeePass
 (KDBX4) password manager with Bitwarden import. Phase 1 (device spike) is
 complete and carries over. The cleanup of the Bitwarden server client is
 done and Phase 2 (KDBX4 read core) has started.
-Next step: write the KDBX4 reader. All test fixtures are in place; the KDBX
-3.1 decision (section 14) is still open, so 3.1 files are detected and
-reported until then.
+The KDBX4 reader is written and opens every KeePassXC-made fixture
+(2026-10-03). Next step: measure the KDFs on the Jolla Phone, then close
+Phase 2. The KDBX 3.1 decision (section 14) is still open; 3.1 files are
+detected and reported until then.
 
 ## 1. Goal
 
@@ -199,7 +200,7 @@ passes, fingerprint not available to Harbour apps, cold start baseline about
 - Verified after the cleanup: all tests pass, the target build with Rust 1.75
   works, the Harbour validator passes
 
-### Phase 2 - KDBX4 read core (started)
+### Phase 2 - KDBX4 read core (reader done, device KDF measurement open)
 
 Scope:
 
@@ -245,6 +246,20 @@ GUI. Exact steps are in `core/tests/fixtures/README.md`:
 
 Exit: the core opens every test database created with KeePassXC and exposes
 all entries; nothing unknown is dropped from the model.
+
+Result (2026-10-03, host only):
+
+- `kdbx::Database::open` reads all five KDBX4 fixtures (AES-256, ChaCha20,
+  Twofish; AES-KDF, Argon2d, Argon2id; with and without key file) and the
+  tests assert their full content: fields, protected values, history,
+  attachment bytes, tags, groups, recycle bin, deleted objects, custom data
+- Wrong password, missing key file and tampered header or payload are
+  rejected; KDBX 3.1 is reported as `Kdbx3Unsupported`
+- The XML is a lossless element tree; not kept are XML comments, processing
+  instructions and indentation between elements, none of which carry data
+- KeePassXC adds its own `_LAST_MODIFIED` custom data item on import; the
+  reader keeps it like any other item
+- Builds with the target's Rust 1.75; not yet run on the device
 
 ### Phase 3 - Read-only MVP
 
