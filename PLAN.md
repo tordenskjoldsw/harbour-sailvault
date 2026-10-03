@@ -303,8 +303,9 @@ the 1000-entry fixture unlocks, lists and searches without noticeable delay.
 Measured: cold start to the unlock page 557 ms (median, target < 1 s); with
 1000 entries the core opens the database in 33 ms after the KDF and searches
 in about 2 ms (target: list < 0.5 s after key derivation). Details in
-`docs/spike-results.md`. Not yet verified on the device: auto-lock after 1
-minute in the background and 5 minutes idle, cover action, landscape.
+`docs/spike-results.md`. Threat model written (`docs/threat-model.md`).
+Not yet verified on the device: auto-lock after 1 minute in the background
+and 5 minutes idle, cover action, landscape.
 
 Auto-lock defaults: 5 minutes idle in the foreground, 1 minute in the
 background (another app or display off), manual lock from the pulley menu
