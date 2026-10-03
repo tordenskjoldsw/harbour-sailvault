@@ -6,6 +6,7 @@ use chacha20::ChaCha20;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use hmac::{Hmac, Mac};
+use sha2::digest::generic_array::GenericArray;
 use sha2::{Digest, Sha256, Sha512};
 use zeroize::Zeroizing;
 
@@ -13,6 +14,7 @@ use super::error::{KdbxError, Result};
 use super::header::{Cipher, Compression, OuterHeader};
 use super::key::KEY_LENGTH;
 use super::reader::ByteReader;
+use crate::secret::{ByteSink, SecretBuffer};
 
 const HASH_LENGTH: usize = 32;
 const HEADER_HMAC_BLOCK_INDEX: u64 = u64::MAX;
@@ -21,6 +23,7 @@ const MAX_XML_LENGTH: usize = 512 << 20;
 // KeePassXC's HmacBlockStream block size.
 const BLOCK_LENGTH: usize = 1 << 20;
 const CBC_BLOCK_LENGTH: usize = 16;
+const GUNZIP_CHUNK_LENGTH: usize = 64 << 10;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -33,20 +36,16 @@ pub(crate) struct PayloadKeys {
 impl PayloadKeys {
     pub(crate) fn derive(header: &OuterHeader, transformed: &[u8; KEY_LENGTH]) -> Self {
         let mut cipher_key = Zeroizing::new([0u8; KEY_LENGTH]);
-        cipher_key.copy_from_slice(
-            &Sha256::new()
-                .chain_update(header.master_seed)
-                .chain_update(transformed)
-                .finalize(),
-        );
+        Sha256::new()
+            .chain_update(header.master_seed)
+            .chain_update(transformed)
+            .finalize_into(GenericArray::from_mut_slice(cipher_key.as_mut()));
         let mut hmac_key = Zeroizing::new([0u8; 64]);
-        hmac_key.copy_from_slice(
-            &Sha512::new()
-                .chain_update(header.master_seed)
-                .chain_update(transformed)
-                .chain_update([1u8])
-                .finalize(),
-        );
+        Sha512::new()
+            .chain_update(header.master_seed)
+            .chain_update(transformed)
+            .chain_update([1u8])
+            .finalize_into(GenericArray::from_mut_slice(hmac_key.as_mut()));
         Self {
             cipher_key,
             hmac_key,
@@ -54,12 +53,11 @@ impl PayloadKeys {
     }
 
     fn block_hmac(&self, index: u64) -> HmacSha256 {
-        let block_key = Zeroizing::new(<[u8; 64]>::from(
-            Sha512::new()
-                .chain_update(index.to_le_bytes())
-                .chain_update(self.hmac_key.as_ref())
-                .finalize(),
-        ));
+        let mut block_key = Zeroizing::new([0u8; 64]);
+        Sha512::new()
+            .chain_update(index.to_le_bytes())
+            .chain_update(self.hmac_key.as_ref())
+            .finalize_into(GenericArray::from_mut_slice(block_key.as_mut()));
         HmacSha256::new_from_slice(block_key.as_ref()).expect("HMAC accepts keys of any length")
     }
 
@@ -170,17 +168,30 @@ fn decrypt_payload(
     Ok(buffer)
 }
 
+/// The gzip trailer's size field sizes the output, so it rarely has to grow.
+/// The payload is authenticated at this point; the limit still applies.
 fn gunzip(compressed: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
-    let mut decompressed = Zeroizing::new(Vec::new());
-    let limit = u64::try_from(MAX_XML_LENGTH).expect("limit fits in u64") + 1;
-    GzDecoder::new(compressed)
-        .take(limit)
-        .read_to_end(&mut decompressed)
-        .map_err(|_| KdbxError::DecompressionFailed)?;
-    if decompressed.len() > MAX_XML_LENGTH {
-        return Err(KdbxError::LimitExceeded("decompressed size"));
+    let stated_length = compressed
+        .len()
+        .checked_sub(4)
+        .and_then(|start| compressed[start..].try_into().ok())
+        .map_or(0, |size: [u8; 4]| u32::from_le_bytes(size) as usize);
+    let mut decompressed = SecretBuffer::with_capacity(stated_length.min(MAX_XML_LENGTH));
+    let mut decoder = GzDecoder::new(compressed);
+    let mut chunk = Zeroizing::new(vec![0u8; GUNZIP_CHUNK_LENGTH]);
+    loop {
+        let length = decoder
+            .read(&mut chunk)
+            .map_err(|_| KdbxError::DecompressionFailed)?;
+        if length == 0 {
+            break;
+        }
+        if decompressed.len() + length > MAX_XML_LENGTH {
+            return Err(KdbxError::LimitExceeded("decompressed size"));
+        }
+        decompressed.extend_from_slice(&chunk[..length]);
     }
-    Ok(decompressed)
+    Ok(decompressed.into_inner())
 }
 
 /// Appends the header SHA-256 and HMAC that follow the header in the file.
@@ -202,7 +213,11 @@ pub(crate) fn encrypt(
     out: &mut Vec<u8>,
 ) -> Result<()> {
     let compressed = match header.compression {
-        Compression::None => Zeroizing::new(plaintext.to_vec()),
+        Compression::None => {
+            let mut copy = SecretBuffer::with_capacity(padded_length(plaintext.len()));
+            copy.extend_from_slice(plaintext);
+            copy
+        }
         Compression::Gzip => gzip(plaintext)?,
     };
     let ciphertext = encrypt_payload(header, keys, compressed)?;
@@ -225,21 +240,23 @@ pub(crate) fn encrypt(
 fn encrypt_payload(
     header: &OuterHeader,
     keys: &PayloadKeys,
-    mut buffer: Zeroizing<Vec<u8>>,
+    mut plaintext: SecretBuffer,
 ) -> Result<Vec<u8>> {
     let key = keys.cipher_key.as_ref();
     let iv = header.encryption_iv.as_slice();
-    let plaintext_length = buffer.len();
+    let plaintext_length = plaintext.len();
+    if header.cipher != Cipher::ChaCha20 {
+        plaintext.resize(padded_length(plaintext_length));
+    }
+    let mut buffer = plaintext.into_inner();
     match header.cipher {
         Cipher::Aes256 => {
-            buffer.resize(padded_length(plaintext_length), 0);
             cbc::Encryptor::<aes::Aes256>::new_from_slices(key, iv)
                 .map_err(|_| KdbxError::DecryptionFailed)?
                 .encrypt_padded_mut::<Pkcs7>(&mut buffer, plaintext_length)
                 .map_err(|_| KdbxError::DecryptionFailed)?;
         }
         Cipher::Twofish => {
-            buffer.resize(padded_length(plaintext_length), 0);
             cbc::Encryptor::<twofish::Twofish>::new_from_slices(key, iv)
                 .map_err(|_| KdbxError::DecryptionFailed)?
                 .encrypt_padded_mut::<Pkcs7>(&mut buffer, plaintext_length)
@@ -257,12 +274,14 @@ fn padded_length(length: usize) -> usize {
     length + CBC_BLOCK_LENGTH - length % CBC_BLOCK_LENGTH
 }
 
-fn gzip(data: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
-    let mut encoder = GzEncoder::new(Vec::new(), flate2::Compression::default());
+/// The output starts at a quarter of the input, typical for KeePass XML, and
+/// grows through `SecretBuffer` when needed.
+fn gzip(data: &[u8]) -> Result<SecretBuffer> {
+    let output = SecretBuffer::with_capacity(data.len() / 4 + CBC_BLOCK_LENGTH);
+    let mut encoder = GzEncoder::new(output, flate2::Compression::default());
     encoder
         .write_all(data)
         .and_then(|_| encoder.finish())
-        .map(Zeroizing::new)
         .map_err(|_| KdbxError::CompressionFailed)
 }
 

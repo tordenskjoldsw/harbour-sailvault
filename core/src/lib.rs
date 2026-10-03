@@ -4,6 +4,7 @@ pub mod ffi;
 pub mod kdbx;
 pub mod password;
 mod random;
+mod secret;
 
 use std::os::raw::c_char;
 

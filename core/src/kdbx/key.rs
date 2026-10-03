@@ -4,6 +4,7 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use quick_xml::events::Event;
 use quick_xml::Reader;
+use sha2::digest::generic_array::GenericArray;
 use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
@@ -24,14 +25,18 @@ impl CompositeKey {
         }
         let mut hasher = Sha256::new();
         if let Some(password) = password {
-            hasher.update(Zeroizing::new(<[u8; KEY_LENGTH]>::from(Sha256::digest(
-                password,
-            ))));
+            let mut hashed = Zeroizing::new([0u8; KEY_LENGTH]);
+            Sha256::new()
+                .chain_update(password)
+                .finalize_into(GenericArray::from_mut_slice(hashed.as_mut()));
+            hasher.update(hashed);
         }
         if let Some(key_file) = key_file {
             hasher.update(key_file_key(key_file)?);
         }
-        Ok(Self(hasher.finalize().into()))
+        let mut key = Self([0; KEY_LENGTH]);
+        hasher.finalize_into(GenericArray::from_mut_slice(&mut key.0));
+        Ok(key)
     }
 
     pub(crate) fn as_bytes(&self) -> &[u8; KEY_LENGTH] {
@@ -58,10 +63,12 @@ fn key_file_key(content: &[u8]) -> Result<Zeroizing<[u8; KEY_LENGTH]>> {
     if content.len() == KEY_LENGTH {
         key.copy_from_slice(content);
     } else if content.len() == 2 * KEY_LENGTH && content.iter().all(u8::is_ascii_hexdigit) {
-        let decoded = Zeroizing::new(decode_hex(content).ok_or(KdbxError::InvalidKeyFile)?);
+        let decoded = decode_hex(content).ok_or(KdbxError::InvalidKeyFile)?;
         key.copy_from_slice(&decoded);
     } else {
-        key.copy_from_slice(&Sha256::digest(content));
+        Sha256::new()
+            .chain_update(content)
+            .finalize_into(GenericArray::from_mut_slice(key.as_mut()));
     }
     Ok(key)
 }
@@ -74,7 +81,8 @@ fn xml_key_file(content: &[u8]) -> Result<Option<Zeroizing<[u8; KEY_LENGTH]>>> {
     let mut path: Vec<Vec<u8>> = Vec::new();
     let mut version = None;
     let mut hash = None;
-    let mut data = Zeroizing::new(String::new());
+    // Reserved up front: the key data is at most as long as the file.
+    let mut data = Zeroizing::new(String::with_capacity(content.len()));
     let mut root_seen = false;
 
     loop {
@@ -144,8 +152,7 @@ fn xml_key_file(content: &[u8]) -> Result<Option<Zeroizing<[u8; KEY_LENGTH]>>> {
                 .map_err(|_| KdbxError::InvalidKeyFile)?,
         ),
         Some("2.0") => {
-            let decoded =
-                Zeroizing::new(decode_hex(data.as_bytes()).ok_or(KdbxError::InvalidKeyFile)?);
+            let decoded = decode_hex(data.as_bytes()).ok_or(KdbxError::InvalidKeyFile)?;
             let expected = hash
                 .as_deref()
                 .and_then(|hash| decode_hex(hash.as_bytes()))
@@ -176,16 +183,16 @@ fn append_text(path: &[Vec<u8>], text: &str, version: &mut Option<String>, data:
     }
 }
 
-fn decode_hex(hex: &[u8]) -> Option<Vec<u8>> {
+fn decode_hex(hex: &[u8]) -> Option<Zeroizing<Vec<u8>>> {
     if hex.len() % 2 != 0 {
         return None;
     }
-    hex.chunks_exact(2)
-        .map(|pair| {
-            let digits = std::str::from_utf8(pair).ok()?;
-            u8::from_str_radix(digits, 16).ok()
-        })
-        .collect()
+    let mut bytes = Zeroizing::new(Vec::with_capacity(hex.len() / 2));
+    for pair in hex.chunks_exact(2) {
+        let digits = std::str::from_utf8(pair).ok()?;
+        bytes.push(u8::from_str_radix(digits, 16).ok()?);
+    }
+    Some(bytes)
 }
 
 #[cfg(test)]

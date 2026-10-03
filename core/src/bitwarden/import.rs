@@ -357,13 +357,29 @@ fn otp_url(totp: &str, title: &str, user_name: &str) -> Zeroizing<String> {
     } else {
         percent_encode(user_name)
     };
-    Zeroizing::new(format!(
-        "otpauth://totp/{issuer}:{account}?secret={}&period={DEFAULT_PERIOD}&digits={digits}\
-         &issuer={issuer}{encoder}",
-        percent_encode(&sanitize_base32(secret)).as_str(),
-        issuer = issuer.as_str(),
-        account = account.as_str(),
-    ))
+    let secret = percent_encode(&sanitize_base32(secret));
+    let parameters = format!("&period={DEFAULT_PERIOD}&digits={digits}&issuer=");
+    concat(&[
+        "otpauth://totp/",
+        &issuer,
+        ":",
+        &account,
+        "?secret=",
+        &secret,
+        &parameters,
+        &issuer,
+        encoder,
+    ])
+}
+
+/// Joins `parts` in one exact allocation; `format!` may grow its buffer and
+/// leave unwiped copies of a secret.
+fn concat(parts: &[&str]) -> Zeroizing<String> {
+    let mut joined = Zeroizing::new(String::with_capacity(parts.iter().map(|p| p.len()).sum()));
+    for part in parts {
+        joined.push_str(part);
+    }
+    joined
 }
 
 /// KeePassXC's `Base32::sanitizeInput`: maps the look-alikes 0, 1 and 8,
@@ -390,12 +406,15 @@ fn sanitize_base32(secret: &str) -> Zeroizing<String> {
 
 /// `QUrl::toPercentEncoding`: everything but RFC 3986 unreserved characters.
 fn percent_encode(value: &str) -> Zeroizing<String> {
-    let mut encoded = Zeroizing::new(String::with_capacity(value.len()));
+    const HEX_DIGITS: &[u8; 16] = b"0123456789ABCDEF";
+    let mut encoded = Zeroizing::new(String::with_capacity(3 * value.len()));
     for byte in value.bytes() {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
             encoded.push(char::from(byte));
         } else {
-            encoded.push_str(&format!("%{byte:02X}"));
+            encoded.push('%');
+            encoded.push(char::from(HEX_DIGITS[usize::from(byte >> 4)]));
+            encoded.push(char::from(HEX_DIGITS[usize::from(byte & 0x0F)]));
         }
     }
     encoded
@@ -424,10 +443,8 @@ fn private_key_pem(key_value: &str) -> Zeroizing<String> {
     match URL_SAFE_LENIENT.decode(key_value) {
         Ok(key) => {
             let key = Zeroizing::new(key);
-            Zeroizing::new(format!(
-                "{PASSKEY_PEM_START}{}{PASSKEY_PEM_END}",
-                Zeroizing::new(STANDARD.encode(key.as_slice())).as_str()
-            ))
+            let encoded = Zeroizing::new(STANDARD.encode(key.as_slice()));
+            concat(&[PASSKEY_PEM_START, &encoded, PASSKEY_PEM_END])
         }
         Err(_) => Zeroizing::new(key_value.to_owned()),
     }

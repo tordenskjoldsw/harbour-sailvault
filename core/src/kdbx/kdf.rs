@@ -3,6 +3,7 @@ use std::ops::RangeInclusive;
 use aes::cipher::{BlockEncrypt, KeyInit};
 use aes::Aes256;
 use argon2::{Algorithm, Params, Version};
+use sha2::digest::generic_array::GenericArray;
 use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
@@ -186,8 +187,8 @@ impl KdfParameters {
                     cipher.encrypt_block(first.into());
                     cipher.encrypt_block(second.into());
                 }
-                let digest = Sha256::digest(transformed.as_ref());
-                transformed.copy_from_slice(&digest);
+                let hasher = Sha256::new().chain_update(transformed.as_ref());
+                hasher.finalize_into(GenericArray::from_mut_slice(transformed.as_mut()));
             }
             Self::Argon2 {
                 variant,

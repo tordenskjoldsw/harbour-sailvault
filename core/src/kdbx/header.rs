@@ -3,6 +3,7 @@ use super::kdf::KdfParameters;
 use super::reader::ByteReader;
 use super::variant_dictionary::VariantDictionary;
 use crate::random;
+use crate::secret::ByteSink;
 
 const SIGNATURE_1: u32 = 0x9AA2_D903;
 const SIGNATURE_2_KDBX: u32 = 0xB54B_FB67;
@@ -234,7 +235,7 @@ impl OuterHeader {
 
 /// Writes a header field as both the outer and the inner header encode it:
 /// id, little-endian length, value.
-pub(crate) fn write_field(out: &mut Vec<u8>, id: u8, value: &[u8]) -> Result<()> {
+pub(crate) fn write_field(out: &mut impl ByteSink, id: u8, value: &[u8]) -> Result<()> {
     let length =
         u32::try_from(value.len()).map_err(|_| KdbxError::LimitExceeded("header field"))?;
     out.push(id);

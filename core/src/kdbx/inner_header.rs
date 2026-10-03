@@ -2,12 +2,14 @@ use std::fmt;
 
 use chacha20::cipher::{KeyIvInit, StreamCipher};
 use chacha20::ChaCha20;
+use sha2::digest::generic_array::GenericArray;
 use sha2::{Digest, Sha512};
 use zeroize::Zeroizing;
 
 use super::error::{KdbxError, Result};
 use super::header::write_field;
 use super::reader::ByteReader;
+use crate::secret::{ByteSink, SecretBuffer};
 
 const FIELD_END: u8 = 0;
 const FIELD_STREAM_ID: u8 = 1;
@@ -96,7 +98,7 @@ impl InnerHeader {
     pub(crate) fn serialize(
         &self,
         stream_key: &[u8; STREAM_KEY_LENGTH],
-        out: &mut Vec<u8>,
+        out: &mut SecretBuffer,
     ) -> Result<()> {
         write_field(out, FIELD_STREAM_ID, &STREAM_CHACHA20.to_le_bytes())?;
         write_field(out, FIELD_STREAM_KEY, stream_key)?;
@@ -122,7 +124,10 @@ pub(crate) struct ProtectedStream(ChaCha20);
 
 impl ProtectedStream {
     pub(crate) fn new(stream_key: &[u8]) -> Self {
-        let digest = Zeroizing::new(<[u8; 64]>::from(Sha512::digest(stream_key)));
+        let mut digest = Zeroizing::new([0u8; 64]);
+        Sha512::new()
+            .chain_update(stream_key)
+            .finalize_into(GenericArray::from_mut_slice(digest.as_mut()));
         Self(ChaCha20::new(digest[..32].into(), digest[32..44].into()))
     }
 
@@ -150,7 +155,7 @@ mod tests {
             ],
         };
         let key = [9u8; STREAM_KEY_LENGTH];
-        let mut bytes = Vec::new();
+        let mut bytes = SecretBuffer::default();
         original.serialize(&key, &mut bytes).unwrap();
         bytes.extend_from_slice(b"<xml/>");
 

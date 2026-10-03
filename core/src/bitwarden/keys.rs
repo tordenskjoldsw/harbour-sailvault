@@ -12,8 +12,17 @@ pub struct SymmetricKey {
 }
 
 impl SymmetricKey {
-    pub(crate) fn new(enc: [u8; KEY_LENGTH], mac: [u8; KEY_LENGTH]) -> Self {
-        Self { enc, mac }
+    /// Filled in place through `parts_mut`, so no copy of the key is left
+    /// on the stack.
+    pub(crate) fn zeroed() -> Self {
+        Self {
+            enc: [0; KEY_LENGTH],
+            mac: [0; KEY_LENGTH],
+        }
+    }
+
+    pub(crate) fn parts_mut(&mut self) -> (&mut [u8; KEY_LENGTH], &mut [u8; KEY_LENGTH]) {
+        (&mut self.enc, &mut self.mac)
     }
 
     pub(crate) fn enc_key(&self) -> &[u8; KEY_LENGTH] {

@@ -111,11 +111,11 @@ impl Kdf {
 fn stretch(derived: &[u8; KEY_LENGTH]) -> SymmetricKey {
     let hkdf =
         Hkdf::<Sha256>::from_prk(derived).expect("a 32-byte PRK matches the SHA-256 output length");
-    let mut enc = [0u8; KEY_LENGTH];
-    let mut mac = [0u8; KEY_LENGTH];
-    hkdf.expand(b"enc", &mut enc)
+    let mut key = SymmetricKey::zeroed();
+    let (enc, mac) = key.parts_mut();
+    hkdf.expand(b"enc", enc)
         .expect("32 bytes is a valid HKDF-SHA256 output length");
-    hkdf.expand(b"mac", &mut mac)
+    hkdf.expand(b"mac", mac)
         .expect("32 bytes is a valid HKDF-SHA256 output length");
-    SymmetricKey::new(enc, mac)
+    key
 }

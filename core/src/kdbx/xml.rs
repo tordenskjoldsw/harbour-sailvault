@@ -8,6 +8,7 @@ use zeroize::{Zeroize, Zeroizing};
 
 use super::error::{KdbxError, Result};
 use super::inner_header::ProtectedStream;
+use crate::secret::{self, ByteSink, SecretBuffer};
 
 const MAX_DEPTH: usize = 128;
 const MAX_ELEMENTS: usize = 5_000_000;
@@ -64,7 +65,15 @@ impl Element {
 
     /// Concatenated text of the element. Empty for elements without text.
     pub fn text(&self) -> Zeroizing<String> {
-        let mut text = Zeroizing::new(String::new());
+        let length = self
+            .children
+            .iter()
+            .map(|child| match child {
+                Node::Text(part) => part.len(),
+                Node::Element(_) => 0,
+            })
+            .sum();
+        let mut text = Zeroizing::new(String::with_capacity(length));
         for child in &self.children {
             if let Node::Text(part) = child {
                 text.push_str(part);
@@ -229,7 +238,7 @@ fn push_text(stack: &mut [Element], text: &str) -> Result<()> {
         };
     };
     match parent.children.last_mut() {
-        Some(Node::Text(existing)) => existing.push_str(text),
+        Some(Node::Text(existing)) => secret::push_str(existing, text),
         _ => parent
             .children
             .push(Node::Text(Zeroizing::new(text.to_owned()))),
@@ -267,7 +276,7 @@ fn finish(element: &mut Element, stream: &mut ProtectedStream) -> Result<()> {
 /// Serializes the document as KeePassXC does: tab indentation, empty
 /// elements self-closed, protected values encrypted with the inner stream in
 /// document order and base64 encoded.
-pub(crate) fn write(root: &Element, stream: &mut ProtectedStream, out: &mut Vec<u8>) {
+pub(crate) fn write(root: &Element, stream: &mut ProtectedStream, out: &mut SecretBuffer) {
     out.extend_from_slice(DECLARATION);
     write_element(root, Some(0), stream, out);
     out.push(b'\n');
@@ -279,7 +288,7 @@ fn write_element(
     element: &Element,
     depth: Option<usize>,
     stream: &mut ProtectedStream,
-    out: &mut Vec<u8>,
+    out: &mut SecretBuffer,
 ) {
     if let Some(depth) = depth {
         indent(depth, out);
@@ -329,14 +338,16 @@ fn write_element(
     out.push(b'>');
 }
 
-fn indent(depth: usize, out: &mut Vec<u8>) {
+fn indent(depth: usize, out: &mut SecretBuffer) {
     out.push(b'\n');
-    out.extend(std::iter::repeat(b'\t').take(depth));
+    for _ in 0..depth {
+        out.push(b'\t');
+    }
 }
 
 /// Escapes markup and drops the characters XML 1.0 forbids, the same set
 /// KeePassXC strips (`KdbxXmlWriter::stripInvalidXml10Chars`).
-fn escape(text: &str, attribute: bool, out: &mut Vec<u8>) {
+fn escape(text: &str, attribute: bool, out: &mut SecretBuffer) {
     for character in text.chars() {
         match character {
             '<' => out.extend_from_slice(b"&lt;"),
@@ -444,9 +455,9 @@ mod tests {
     }
 
     fn written(root: &Element) -> Vec<u8> {
-        let mut out = Vec::new();
+        let mut out = SecretBuffer::default();
         write(root, &mut stream(), &mut out);
-        out
+        out.to_vec()
     }
 
     #[test]

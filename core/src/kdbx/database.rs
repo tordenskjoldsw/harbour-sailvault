@@ -9,6 +9,7 @@ use super::key::{CompositeKey, KEY_LENGTH};
 use super::payload::{self, PayloadKeys};
 use super::xml::{self, Element};
 use crate::random;
+use crate::secret::SecretBuffer;
 
 pub(crate) const UUID_LENGTH: usize = 16;
 
@@ -69,7 +70,8 @@ impl Database {
         let keys = PayloadKeys::derive(&header, &transformed);
 
         let stream_key = Zeroizing::new(random::array::<STREAM_KEY_LENGTH>()?);
-        let mut plaintext = Zeroizing::new(Vec::new());
+        let attachment_bytes: usize = self.inner.binaries.iter().map(|b| b.data.len()).sum();
+        let mut plaintext = SecretBuffer::with_capacity(attachment_bytes + (1 << 20));
         self.inner.serialize(&stream_key, &mut plaintext)?;
         xml::write(
             &self.document,
