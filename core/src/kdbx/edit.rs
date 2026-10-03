@@ -1,103 +1,28 @@
-//! Changes to the document tree. New elements follow the layout KeePassXC
-//! writes (`KdbxXmlWriter.cpp`), and edits follow its `Entry.cpp`,
-//! `Group.cpp` and `Database.cpp`, so files changed on the phone look like
-//! files changed in KeePassXC.
-
-use base64::engine::general_purpose::STANDARD;
-use base64::Engine;
-use zeroize::Zeroizing;
+//! Changes to the document tree, following KeePassXC's `Entry.cpp`,
+//! `Group.cpp` and `Database.cpp`.
 
 use super::database::{decode_uuid, encode_uuid, Database, UUID_LENGTH};
 use super::error::{KdbxError, Result};
+use super::layout::{
+    build_entry, build_group, child_or_append, deleted_object, element, field_value, insert_entry,
+    is_element, new_uuid, set_child_text, set_entry_previous_parent, set_field,
+    set_group_previous_parent, set_time, validate_keys, NewEntry, NewField,
+    DEFAULT_HISTORY_MAX_ITEMS, DEFAULT_HISTORY_MAX_SIZE, GROUP_ICON, NO_UUID, RECYCLE_BIN_ICON,
+    STANDARD_KEYS,
+};
+use super::time::kdbx_time;
+use super::tree::{
+    contains_group, descend, descend_mut, entry_path, group_height, group_mut, group_path,
+    groups_on_path, parent_uuid, remove_at, root_group_mut, root_mut, ROOT_GROUP_PATH_LENGTH,
+};
 use super::xml::{self, Element, Node};
-use crate::random;
 
-const STANDARD_KEYS: [&str; 5] = ["Title", "UserName", "Password", "URL", "Notes"];
-/// KDBX 4 stores times as base64 of a little-endian i64 counting seconds from
-/// 0001-01-01T00:00:00Z. This is where the Unix epoch falls on that scale.
-const UNIX_EPOCH_SECONDS: i64 = 62_135_596_800;
-// KeePassXC's defaults for Meta/HistoryMaxItems and Meta/HistoryMaxSize.
-pub(super) const DEFAULT_HISTORY_MAX_ITEMS: i64 = 10;
-pub(super) const DEFAULT_HISTORY_MAX_SIZE: i64 = 6 * 1024 * 1024;
-// KeePassXC's Group::DefaultIconNumber and Group::RecycleBinIconNumber.
-pub(super) const GROUP_ICON: &str = "48";
-const RECYCLE_BIN_ICON: &str = "43";
-pub(super) const NO_UUID: [u8; UUID_LENGTH] = [0; UUID_LENGTH];
-/// The entry CustomData key that records `NewEntry::origin`.
-const ORIGIN_KEY: &str = "SailVault/ImportedFrom";
-pub const ORIGIN_BITWARDEN: &str = "Bitwarden";
-const KNOWN_ORIGINS: [&str; 1] = [ORIGIN_BITWARDEN];
-// Entry children that KeePassXC writes after the String elements.
-const AFTER_STRINGS: [&str; 4] = ["Binary", "AutoType", "CustomData", "History"];
-// A path of this length (Root, Group) is the root group itself.
-const ROOT_GROUP_PATH_LENGTH: usize = 2;
 // The reader accepts 128 levels of XML. A group's entries, their history
 // and fields need up to 8 more, and unknown elements may add some.
 const MAX_GROUP_PATH_LENGTH: usize = 100;
 
-/// A field of an entry built in the core. The standard keys are protected
-/// as `Meta/MemoryProtection` says; `protected` applies to the others.
-pub struct NewField {
-    pub key: String,
-    pub value: Zeroizing<String>,
-    pub protected: bool,
-}
-
-impl NewField {
-    pub fn new(key: impl Into<String>, value: &str, protected: bool) -> Self {
-        Self {
-            key: key.into(),
-            value: Zeroizing::new(value.to_owned()),
-            protected,
-        }
-    }
-}
-
-/// An entry built in the core, such as an imported one. Times are seconds
-/// since the Unix epoch; missing times are the time of the change.
-#[derive(Default)]
-pub struct NewEntry {
-    /// The identity used to recognise the entry when it is merged again; a
-    /// random UUID when missing.
-    pub uuid: Option<[u8; UUID_LENGTH]>,
-    /// Where an imported entry came from, kept in its CustomData. A later
-    /// merge only updates entries of the same origin, so an import can never
-    /// change an entry it did not create, whatever UUID it claims.
-    pub origin: Option<&'static str>,
-    pub fields: Vec<NewField>,
-    pub tags: Vec<String>,
-    pub created: Option<i64>,
-    pub modified: Option<i64>,
-    /// Oldest first. History items keep only their fields and times.
-    pub history: Vec<NewEntry>,
-}
-
-/// A group with its content, merged in one step by
-/// `Database::merge_group_tree`.
-pub struct NewGroup {
-    pub name: Zeroizing<String>,
-    pub entries: Vec<NewEntry>,
-    pub groups: Vec<NewGroup>,
-}
-
-/// What `Database::merge_group_tree` changed.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct MergeSummary {
-    pub added: usize,
-    pub updated: usize,
-}
-
-struct MergeContext {
-    protected_keys: Vec<&'static str>,
-    limits: HistoryLimits,
-    attachment_sizes: Vec<usize>,
-    deleted: Vec<[u8; UUID_LENGTH]>,
-    recycle_bin: Option<[u8; UUID_LENGTH]>,
-    now: i64,
-}
-
 /// `None` means unlimited (-1 in the file).
-struct HistoryLimits {
+pub(super) struct HistoryLimits {
     max_items: Option<usize>,
     max_size: Option<usize>,
 }
@@ -127,47 +52,6 @@ impl Database {
         let group = group_mut(self.document_mut(), group_uuid).ok_or(KdbxError::UnknownGroup)?;
         insert_entry(group, entry);
         Ok(uuid)
-    }
-
-    /// Merges `group` into the group of the same name in the root group,
-    /// created when missing, in one step: on an error nothing changes.
-    /// Subgroups are matched by name. Entries are matched by UUID wherever
-    /// they are now, so entries moved elsewhere stay there; entries in the
-    /// recycle bin or under `DeletedObjects` are left deleted. A matched
-    /// entry is merged as KeePassXC's `Merger` does: the newer side wins and
-    /// the other becomes a history item. Fields and attachments that only
-    /// the database has are kept, and nothing is removed.
-    pub fn merge_group_tree(&mut self, group: &NewGroup, now: i64) -> Result<MergeSummary> {
-        if group.name.is_empty() {
-            return Err(KdbxError::InvalidGroup("empty name"));
-        }
-        let context = MergeContext {
-            protected_keys: self.protected_standard_keys(),
-            limits: self.history_limits(),
-            attachment_sizes: self
-                .binaries()
-                .iter()
-                .map(|binary| binary.data.len())
-                .collect(),
-            deleted: self
-                .deleted_objects()
-                .iter()
-                .map(|deleted| deleted.uuid)
-                .collect(),
-            recycle_bin: self.recycle_bin(),
-            now,
-        };
-        let mut document = self.document().clone();
-        let (root_path, _) =
-            root_group_path(&document).ok_or(KdbxError::InvalidXml("missing root group"))?;
-        let target = subgroup_or_create(&mut document, &root_path, &group.name, &context)?;
-        let mut summary = MergeSummary::default();
-        merge_into(&mut document, &target, group, &context, &mut summary)?;
-        if summary != MergeSummary::default() {
-            *self.document_mut() = document;
-            self.drop_unused_binaries();
-        }
-        Ok(summary)
     }
 
     /// Adds a group named `name` at the end of the group with `parent_uuid`
@@ -578,7 +462,7 @@ impl Database {
 
     /// Standard keys that `Meta/MemoryProtection` protects, with KeePassXC's
     /// default (only the password) for missing settings.
-    fn protected_standard_keys(&self) -> Vec<&'static str> {
+    pub(super) fn protected_standard_keys(&self) -> Vec<&'static str> {
         let settings = self.meta().and_then(|meta| meta.child("MemoryProtection"));
         STANDARD_KEYS
             .into_iter()
@@ -591,7 +475,7 @@ impl Database {
             .collect()
     }
 
-    fn history_limits(&self) -> HistoryLimits {
+    pub(super) fn history_limits(&self) -> HistoryLimits {
         let setting = |name: &str, default: i64| {
             let value = self
                 .meta()
@@ -605,380 +489,6 @@ impl Database {
             max_size: setting("HistoryMaxSize", DEFAULT_HISTORY_MAX_SIZE),
         }
     }
-}
-
-fn validate_keys(keys: &[&str]) -> Result<()> {
-    for (index, key) in keys.iter().enumerate() {
-        if key.is_empty() {
-            return Err(KdbxError::InvalidEntry("empty field name"));
-        }
-        if keys[..index].contains(key) {
-            return Err(KdbxError::InvalidEntry("duplicate field"));
-        }
-    }
-    Ok(())
-}
-
-/// An entry as KeePassXC's `KdbxXmlWriter::writeEntry` writes it; its
-/// history items share its UUID.
-fn build_entry(
-    entry: &NewEntry,
-    uuid: &[u8; UUID_LENGTH],
-    protected_keys: &[&str],
-    now: i64,
-) -> Result<Element> {
-    let mut element = entry_element(uuid, entry, protected_keys, now)?;
-    let history = history_elements(entry, uuid, protected_keys, now)?;
-    if let Some(history_element) = element.child_mut("History") {
-        history_element
-            .children
-            .extend(history.into_iter().map(Node::Element));
-    }
-    Ok(element)
-}
-
-fn history_elements(
-    entry: &NewEntry,
-    uuid: &[u8; UUID_LENGTH],
-    protected_keys: &[&str],
-    now: i64,
-) -> Result<Vec<Element>> {
-    entry
-        .history
-        .iter()
-        .map(|item| {
-            let mut element = entry_element(uuid, item, protected_keys, now)?;
-            element
-                .children
-                .retain(|child| !is_element(child, "History"));
-            Ok(element)
-        })
-        .collect()
-}
-
-fn entry_element(
-    uuid: &[u8; UUID_LENGTH],
-    entry: &NewEntry,
-    protected_keys: &[&str],
-    now: i64,
-) -> Result<Element> {
-    validate_keys(
-        &entry
-            .fields
-            .iter()
-            .map(|field| field.key.as_str())
-            .collect::<Vec<_>>(),
-    )?;
-    let now_time = kdbx_time(now);
-    // A time in the future would win every later merge, here and in
-    // KeePassXC; it counts as now.
-    let created = kdbx_time(entry.created.map_or(now, |time| time.min(now)));
-    let modified = kdbx_time(entry.modified.map_or(now, |time| time.min(now)));
-    let mut tags: Vec<&str> = entry.tags.iter().map(String::as_str).collect();
-    tags.sort_unstable();
-    tags.dedup();
-    let mut children = vec![
-        text("UUID", &encode_uuid(uuid)),
-        text("IconID", "0"),
-        text("ForegroundColor", ""),
-        text("BackgroundColor", ""),
-        text("OverrideURL", ""),
-        text("Tags", &tags.join(",")),
-        times(&modified, &created, &now_time),
-    ];
-    let field = |key: &str| entry.fields.iter().find(|field| field.key == key);
-    for key in STANDARD_KEYS {
-        let value = field(key).map_or("", |field| field.value.as_str());
-        children.push(string_field(key, value, protected_keys.contains(&key)));
-    }
-    for field in entry
-        .fields
-        .iter()
-        .filter(|field| !STANDARD_KEYS.contains(&field.key.as_str()))
-    {
-        children.push(string_field(&field.key, &field.value, field.protected));
-    }
-    children.push(element(
-        "AutoType",
-        vec![
-            text("Enabled", "True"),
-            text("DataTransferObfuscation", "0"),
-            text("DefaultSequence", ""),
-        ],
-    ));
-    if let Some(origin) = entry.origin {
-        children.push(element(
-            "CustomData",
-            vec![element(
-                "Item",
-                vec![text("Key", ORIGIN_KEY), text("Value", origin)],
-            )],
-        ));
-    }
-    children.push(element("History", Vec::new()));
-    Ok(element("Entry", children))
-}
-
-fn merge_into(
-    document: &mut Element,
-    target_path: &[usize],
-    group: &NewGroup,
-    context: &MergeContext,
-    summary: &mut MergeSummary,
-) -> Result<()> {
-    for entry in &group.entries {
-        let mut known = entry
-            .uuid
-            .filter(|uuid| group_path(document, uuid).is_none());
-        if let Some(uuid) = known {
-            if context.deleted.contains(&uuid) {
-                continue;
-            }
-            if let Some(path) = entry_path(document, &uuid) {
-                let same_origin = descend(document, &path).is_some_and(|existing| {
-                    entry.origin.is_some() && origin(existing) == entry.origin
-                });
-                if same_origin {
-                    let in_recycle_bin = context.recycle_bin.is_some_and(|bin| {
-                        groups_on_path(document, &path)
-                            .iter()
-                            .any(|group| group.child("UUID").and_then(decode_uuid) == Some(bin))
-                    });
-                    if in_recycle_bin {
-                        continue;
-                    }
-                    let existing = descend_mut(document, &path).ok_or(KdbxError::UnknownEntry)?;
-                    if merge_entry(existing, entry, &uuid, context)? {
-                        summary.updated += 1;
-                    }
-                    continue;
-                }
-                // The UUID belongs to an entry this origin did not create.
-                known = None;
-            }
-        }
-        let uuid = match known {
-            Some(uuid) => uuid,
-            None => new_uuid()?,
-        };
-        let element = build_entry(entry, &uuid, &context.protected_keys, context.now)?;
-        let target = descend_mut(document, target_path).ok_or(KdbxError::UnknownGroup)?;
-        insert_entry(target, element);
-        summary.added += 1;
-    }
-    for child in &group.groups {
-        let child_path = subgroup_or_create(document, target_path, &child.name, context)?;
-        merge_into(document, &child_path, child, context, summary)?;
-    }
-    Ok(())
-}
-
-/// The path of the subgroup named `name` below `parent_path`, appended as a
-/// new group when there is none. The recycle bin never matches.
-fn subgroup_or_create(
-    document: &mut Element,
-    parent_path: &[usize],
-    name: &str,
-    context: &MergeContext,
-) -> Result<Vec<usize>> {
-    if name.is_empty() {
-        return Err(KdbxError::InvalidGroup("empty name"));
-    }
-    require_group_depth(parent_path.len() + 1)?;
-    let parent = descend_mut(document, parent_path).ok_or(KdbxError::UnknownGroup)?;
-    let existing = parent.children.iter().position(|child| match child {
-        Node::Element(group) if group.name == "Group" => {
-            group.child("Name").is_some_and(|n| *n.text() == *name)
-                && group.child("UUID").and_then(decode_uuid) != context.recycle_bin
-        }
-        _ => false,
-    });
-    let index = match existing {
-        Some(index) => index,
-        None => {
-            let uuid = new_uuid()?;
-            let time = kdbx_time(context.now);
-            parent.children.push(Node::Element(build_group(
-                &uuid, name, GROUP_ICON, "null", &time,
-            )));
-            parent.children.len() - 1
-        }
-    };
-    let mut path = parent_path.to_vec();
-    path.push(index);
-    Ok(path)
-}
-
-/// Merges `imported` into `existing` like KeePassXC's
-/// `Merger::resolveEntryConflict_MergeHistories`: when the import is newer
-/// its fields replace the current ones and the current state becomes a
-/// history item; otherwise the import becomes a history item. History items
-/// are combined by modification time. Returns whether anything changed.
-fn merge_entry(
-    existing: &mut Element,
-    imported: &NewEntry,
-    uuid: &[u8; UUID_LENGTH],
-    context: &MergeContext,
-) -> Result<bool> {
-    let local_time = existing
-        .child("Times")
-        .and_then(|times| times.child("LastModificationTime"))
-        .and_then(|time| parse_kdbx_time(&time.text()));
-    let imported_time = imported
-        .modified
-        .map_or(context.now, |time| time.min(context.now));
-    let mut candidates = history_elements(imported, uuid, &context.protected_keys, context.now)?;
-    let mut changed = false;
-    match local_time {
-        Some(local_time) if local_time == imported_time => {}
-        Some(local_time) if local_time > imported_time => {
-            let mut snapshot = entry_element(uuid, imported, &context.protected_keys, context.now)?;
-            snapshot
-                .children
-                .retain(|child| !is_element(child, "History"));
-            candidates.push(snapshot);
-        }
-        _ => {
-            let mut previous = existing.clone();
-            previous
-                .children
-                .retain(|child| !is_element(child, "History"));
-            candidates.push(previous);
-            for field in &imported.fields {
-                let protected = if STANDARD_KEYS.contains(&field.key.as_str()) {
-                    context.protected_keys.contains(&field.key.as_str())
-                } else {
-                    field.protected
-                };
-                set_field(existing, &field.key, &field.value, protected);
-            }
-            let current_tags = existing
-                .child("Tags")
-                .map(|tags| tags.text())
-                .unwrap_or_default();
-            let mut tags: Vec<&str> = current_tags
-                .split([',', ';'])
-                .map(str::trim)
-                .filter(|tag| !tag.is_empty())
-                .chain(imported.tags.iter().map(String::as_str))
-                .collect();
-            tags.sort_unstable();
-            tags.dedup();
-            let tags = tags.join(",");
-            set_child_text(existing, "Tags", &tags);
-            let time = kdbx_time(imported_time);
-            set_time(existing, "LastModificationTime", &time);
-            set_time(existing, "LastAccessTime", &time);
-            changed = true;
-        }
-    }
-    if add_history_items(existing, candidates) {
-        changed = true;
-    }
-    if changed {
-        truncate_history(existing, &context.limits, &context.attachment_sizes);
-    }
-    Ok(changed)
-}
-
-/// Adds the items whose modification time the history lacks and sorts the
-/// history by that time, oldest first. Returns whether any were added.
-fn add_history_items(entry: &mut Element, items: Vec<Element>) -> bool {
-    let modification_time = |item: &Element| {
-        item.child("Times")
-            .and_then(|times| times.child("LastModificationTime"))
-            .map(|time| time.text().to_string())
-    };
-    let history = child_or_append(entry, "History");
-    let mut known: Vec<String> = history
-        .children
-        .iter()
-        .filter_map(|child| match child {
-            Node::Element(item) if item.name == "Entry" => modification_time(item),
-            _ => None,
-        })
-        .collect();
-    let mut added = false;
-    for item in items {
-        let Some(time) = modification_time(&item) else {
-            continue;
-        };
-        if known.contains(&time) {
-            continue;
-        }
-        known.push(time);
-        history.children.push(Node::Element(item));
-        added = true;
-    }
-    if added {
-        history.children.sort_by_key(|child| match child {
-            Node::Element(item) => modification_time(item)
-                .and_then(|time| parse_kdbx_time(&time))
-                .unwrap_or(i64::MIN),
-            Node::Text(_) => i64::MIN,
-        });
-    }
-    added
-}
-
-/// A group as KeePassXC's `KdbxXmlWriter::writeGroup` writes it;
-/// `enabled` is the tri-state for auto-type and searching.
-pub(super) fn build_group(
-    uuid: &[u8; UUID_LENGTH],
-    name: &str,
-    icon: &str,
-    enabled: &str,
-    time: &str,
-) -> Element {
-    element(
-        "Group",
-        vec![
-            text("UUID", &encode_uuid(uuid)),
-            text("Name", name),
-            text("Notes", ""),
-            text("IconID", icon),
-            times(time, time, time),
-            text("IsExpanded", "True"),
-            text("DefaultAutoTypeSequence", ""),
-            text("EnableAutoType", enabled),
-            text("EnableSearching", enabled),
-            text("LastTopVisibleEntry", &encode_uuid(&NO_UUID)),
-        ],
-    )
-}
-
-/// Access counts as modification, as in KeePassXC's importers.
-fn times(modified: &str, created: &str, now: &str) -> Element {
-    element(
-        "Times",
-        vec![
-            text("LastModificationTime", modified),
-            text("CreationTime", created),
-            text("LastAccessTime", modified),
-            text("ExpiryTime", now),
-            text("Expires", "False"),
-            text("UsageCount", "0"),
-            text("LocationChanged", now),
-        ],
-    )
-}
-
-fn string_field(key: &str, value: &str, protected: bool) -> Element {
-    let mut value_element = element("Value", Vec::new());
-    if protected {
-        value_element
-            .attributes
-            .push(("Protected".to_owned(), "True".to_owned()));
-    }
-    replace_text(&mut value_element, value);
-    element("String", vec![text("Key", key), value_element])
-}
-
-fn deleted_object(uuid: &[u8; UUID_LENGTH], time: &str) -> Element {
-    element(
-        "DeletedObject",
-        vec![text("UUID", &encode_uuid(uuid)), text("DeletionTime", time)],
-    )
 }
 
 /// Records a removed group as KeePassXC does: its entries, then each
@@ -1001,95 +511,16 @@ fn record_deleted(group: &Element, time: &str, deleted: &mut Element) {
     }
 }
 
-/// The current value of a field: the last `String` with that key, as
-/// `Entry::fields` resolves repeats.
-fn field_value(entry: &Element, key: &str) -> Option<Zeroizing<String>> {
-    entry
-        .children_named("String")
-        .filter(|string| string.child("Key").is_some_and(|k| *k.text() == *key))
-        .last()
-        .and_then(|string| string.child("Value"))
-        .map(Element::text)
-}
-
-/// Replaces the value of an existing field, keeping its `Protected`
-/// attribute, or appends a new `String` where KeePassXC writes them.
-fn set_field(entry: &mut Element, key: &str, value: &str, protected: bool) {
-    let existing = entry
-        .children
-        .iter_mut()
-        .filter_map(|child| match child {
-            Node::Element(string) if string.name == "String" => Some(string),
-            _ => None,
-        })
-        .filter(|string| string.child("Key").is_some_and(|k| *k.text() == *key))
-        .last()
-        .and_then(|string| string.child_mut("Value"));
-    match existing {
-        Some(value_element) => replace_text(value_element, value),
-        None => {
-            let position = entry
-                .children
-                .iter()
-                .rposition(|child| is_element(child, "String"))
-                .map(|index| index + 1)
-                .or_else(|| {
-                    entry
-                        .children
-                        .iter()
-                        .position(|child| AFTER_STRINGS.iter().any(|name| is_element(child, name)))
-                })
-                .unwrap_or(entry.children.len());
-            entry
-                .children
-                .insert(position, Node::Element(string_field(key, value, protected)));
-        }
-    }
-}
-
-fn set_time(item: &mut Element, name: &str, time: &str) {
-    set_child_text(child_or_append(item, "Times"), name, time);
-}
-
-/// KeePassXC writes an entry's `PreviousParentGroup` right after `Times`
-/// and `QualityCheck`.
-fn set_entry_previous_parent(entry: &mut Element, group: &[u8; UUID_LENGTH]) {
-    let position = entry
-        .children
-        .iter()
-        .rposition(|child| is_element(child, "Times") || is_element(child, "QualityCheck"))
-        .map_or(0, |index| index + 1);
-    set_previous_parent(entry, group, position);
-}
-
-/// KeePassXC writes a group's `PreviousParentGroup` after its own fields,
-/// before its entries and subgroups.
-fn set_group_previous_parent(group: &mut Element, parent: &[u8; UUID_LENGTH]) {
-    let position = group
-        .children
-        .iter()
-        .position(|child| is_element(child, "Entry") || is_element(child, "Group"))
-        .unwrap_or(group.children.len());
-    set_previous_parent(group, parent, position);
-}
-
-fn set_previous_parent(item: &mut Element, group: &[u8; UUID_LENGTH], position: usize) {
-    let encoded = encode_uuid(group);
-    match item.child_mut("PreviousParentGroup") {
-        Some(existing) => replace_text(existing, &encoded),
-        None => item.children.insert(
-            position,
-            Node::Element(text("PreviousParentGroup", &encoded)),
-        ),
-    }
-}
-
 /// Drops the oldest history items beyond `Meta/HistoryMaxItems`, then the
 /// oldest ones once the newest items together exceed `Meta/HistoryMaxSize`,
 /// as `Entry::truncateHistory` does. KeePassXC sizes an item by its
 /// attributes, auto-type, attachments, custom data and tags; this counts
 /// every text node and the attachments, about a hundred bytes more per item.
-fn truncate_history(entry: &mut Element, limits: &HistoryLimits, attachment_sizes: &[usize]) {
+pub(super) fn truncate_history(
+    entry: &mut Element,
+    limits: &HistoryLimits,
+    attachment_sizes: &[usize],
+) {
     let Some(history) = entry.child_mut("History") else {
         return;
     };
@@ -1142,288 +573,21 @@ fn history_item_size(item: &Element, attachment_sizes: &[usize]) -> usize {
     size
 }
 
-/// Inserts an entry where KeePassXC lists it: after the group's entries,
-/// before its subgroups.
-fn insert_entry(group: &mut Element, entry: Element) {
-    let position = group
-        .children
-        .iter()
-        .rposition(|child| is_element(child, "Entry"))
-        .map(|index| index + 1)
-        .or_else(|| {
-            group
-                .children
-                .iter()
-                .position(|child| is_element(child, "Group"))
-        })
-        .unwrap_or(group.children.len());
-    group.children.insert(position, Node::Element(entry));
-}
-
-pub(super) fn element(name: &str, children: Vec<Element>) -> Element {
-    Element {
-        name: name.to_owned(),
-        attributes: Vec::new(),
-        children: children.into_iter().map(Node::Element).collect(),
-    }
-}
-
-/// A leaf element; an empty value gives an empty element, as KeePassXC
-/// writes it.
-pub(super) fn text(name: &str, value: &str) -> Element {
-    let mut leaf = element(name, Vec::new());
-    replace_text(&mut leaf, value);
-    leaf
-}
-
-/// Unprotected text is stored as the writer represents it, so a save reads
-/// back as the same document; protected values are encrypted and kept as
-/// they are.
-fn replace_text(leaf: &mut Element, value: &str) {
-    leaf.children.clear();
-    let mut text = Zeroizing::new(String::with_capacity(value.len()));
-    if leaf.is_protected() {
-        text.push_str(value);
-    } else {
-        text.extend(value.chars().filter(|&c| xml::is_xml10_char(c)));
-    }
-    if !text.is_empty() {
-        leaf.children.push(Node::Text(text));
-    }
-}
-
-fn set_child_text(parent: &mut Element, name: &str, value: &str) {
-    replace_text(child_or_append(parent, name), value);
-}
-
-fn child_or_append<'a>(parent: &'a mut Element, name: &str) -> &'a mut Element {
-    if parent.child(name).is_none() {
-        parent
-            .children
-            .push(Node::Element(element(name, Vec::new())));
-    }
-    parent.child_mut(name).expect("the child was just appended")
-}
-
-fn is_element(node: &Node, name: &str) -> bool {
-    matches!(node, Node::Element(element) if element.name == name)
-}
-
-fn root_mut(document: &mut Element) -> Result<&mut Element> {
-    document
-        .child_mut("Root")
-        .ok_or(KdbxError::InvalidXml("missing root group"))
-}
-
-fn root_group_mut(document: &mut Element) -> Result<&mut Element> {
-    root_mut(document)?
-        .child_mut("Group")
-        .ok_or(KdbxError::InvalidXml("missing root group"))
-}
-
-fn group_mut<'a>(document: &'a mut Element, uuid: &[u8; UUID_LENGTH]) -> Option<&'a mut Element> {
-    let path = group_path(document, uuid)?;
-    descend_mut(document, &path)
-}
-
 /// Whether `uuid` names a group below `group`.
 /// Refuses groups nested so deep that a saved file could not be read back.
-fn require_group_depth(path_length: usize) -> Result<()> {
+pub(super) fn require_group_depth(path_length: usize) -> Result<()> {
     if path_length > MAX_GROUP_PATH_LENGTH {
         return Err(KdbxError::LimitExceeded("group depth"));
     }
     Ok(())
 }
 
-/// Levels of groups in `group`, itself included.
-fn group_height(group: &Element) -> usize {
-    1 + group
-        .children_named("Group")
-        .map(group_height)
-        .max()
-        .unwrap_or(0)
-}
-
-fn contains_group(group: &Element, uuid: &[u8; UUID_LENGTH]) -> bool {
-    group.children_named("Group").any(|child| {
-        child.child("UUID").and_then(decode_uuid).as_ref() == Some(uuid)
-            || contains_group(child, uuid)
-    })
-}
-
-/// The root group with its path (`Root`, then `Group`) in the document.
-fn root_group_path(document: &Element) -> Option<(Vec<usize>, &Element)> {
-    let root_index = document
-        .children
-        .iter()
-        .position(|child| is_element(child, "Root"))?;
-    let Node::Element(root) = &document.children[root_index] else {
-        return None;
-    };
-    let group_index = root
-        .children
-        .iter()
-        .position(|child| is_element(child, "Group"))?;
-    let Node::Element(group) = &root.children[group_index] else {
-        return None;
-    };
-    Some((vec![root_index, group_index], group))
-}
-
-/// Child indices from the document down to the entry with `uuid`, outside
-/// history. Paths let the tree be read and then edited without holding a
-/// borrow across the two steps.
-fn entry_path(document: &Element, uuid: &[u8; UUID_LENGTH]) -> Option<Vec<usize>> {
-    let (mut path, group) = root_group_path(document)?;
-    find_entry(group, uuid, &mut path).then_some(path)
-}
-
-fn find_entry(group: &Element, uuid: &[u8; UUID_LENGTH], path: &mut Vec<usize>) -> bool {
-    for (index, child) in group.children.iter().enumerate() {
-        let Node::Element(child) = child else {
-            continue;
-        };
-        path.push(index);
-        let found = match child.name.as_str() {
-            "Entry" => child.child("UUID").and_then(decode_uuid).as_ref() == Some(uuid),
-            "Group" => find_entry(child, uuid, path),
-            _ => false,
-        };
-        if found {
-            return true;
-        }
-        path.pop();
-    }
-    false
-}
-
-/// Child indices from the document down to the group with `uuid`, the root
-/// group included.
-fn group_path(document: &Element, uuid: &[u8; UUID_LENGTH]) -> Option<Vec<usize>> {
-    let (mut path, group) = root_group_path(document)?;
-    find_group(group, uuid, &mut path).then_some(path)
-}
-
-fn find_group(group: &Element, uuid: &[u8; UUID_LENGTH], path: &mut Vec<usize>) -> bool {
-    if group.child("UUID").and_then(decode_uuid).as_ref() == Some(uuid) {
-        return true;
-    }
-    for (index, child) in group.children.iter().enumerate() {
-        let Node::Element(child) = child else {
-            continue;
-        };
-        if child.name != "Group" {
-            continue;
-        }
-        path.push(index);
-        if find_group(child, uuid, path) {
-            return true;
-        }
-        path.pop();
-    }
-    false
-}
-
-fn descend<'a>(element: &'a Element, path: &[usize]) -> Option<&'a Element> {
-    path.iter().try_fold(element, |current, &index| {
-        match current.children.get(index) {
-            Some(Node::Element(child)) => Some(child),
-            _ => None,
-        }
-    })
-}
-
-fn descend_mut<'a>(element: &'a mut Element, path: &[usize]) -> Option<&'a mut Element> {
-    path.iter().try_fold(element, |current, &index| {
-        match current.children.get_mut(index) {
-            Some(Node::Element(child)) => Some(child),
-            _ => None,
-        }
-    })
-}
-
-/// The groups along a path, outermost first.
-fn groups_on_path<'a>(document: &'a Element, path: &[usize]) -> Vec<&'a Element> {
-    let mut groups = Vec::new();
-    let mut current = document;
-    for &index in path {
-        match current.children.get(index) {
-            Some(Node::Element(child)) => {
-                if child.name == "Group" {
-                    groups.push(child);
-                }
-                current = child;
-            }
-            _ => break,
-        }
-    }
-    groups
-}
-
-/// The `NewEntry::origin` recorded in an entry's CustomData.
-fn origin(entry: &Element) -> Option<&'static str> {
-    let value = entry
-        .child("CustomData")?
-        .children_named("Item")
-        .find(|item| {
-            item.child("Key")
-                .is_some_and(|key| *key.text() == *ORIGIN_KEY)
-        })?
-        .child("Value")?
-        .text();
-    KNOWN_ORIGINS
-        .iter()
-        .copied()
-        .find(|known| *known == value.as_str())
-}
-
-/// The UUID of the group holding the entry at `path`.
-fn parent_uuid(document: &Element, path: &[usize]) -> Option<[u8; UUID_LENGTH]> {
-    groups_on_path(document, path)
-        .last()
-        .and_then(|group| group.child("UUID"))
-        .and_then(decode_uuid)
-}
-
-fn remove_at(document: &mut Element, path: &[usize]) -> Option<Element> {
-    let (&last, parents) = path.split_last()?;
-    let parent = descend_mut(document, parents)?;
-    if last >= parent.children.len() {
-        return None;
-    }
-    match parent.children.remove(last) {
-        Node::Element(removed) => Some(removed),
-        Node::Text(_) => None,
-    }
-}
-
-/// A random (version 4) UUID, as KeePassXC's `QUuid::createUuid` makes them.
-pub(super) fn new_uuid() -> Result<[u8; UUID_LENGTH]> {
-    let mut uuid = random::array::<UUID_LENGTH>()?;
-    uuid[6] = (uuid[6] & 0x0f) | 0x40;
-    uuid[8] = (uuid[8] & 0x3f) | 0x80;
-    Ok(uuid)
-}
-
-/// Seconds since the Unix epoch of a KDBX 4 time, or `None` if it is not
-/// one.
-pub(crate) fn parse_kdbx_time(text: &str) -> Option<i64> {
-    let bytes: [u8; 8] = STANDARD.decode(text.trim()).ok()?.try_into().ok()?;
-    i64::from_le_bytes(bytes).checked_sub(UNIX_EPOCH_SECONDS)
-}
-
-pub(crate) fn kdbx_time(unix_seconds: i64) -> String {
-    STANDARD.encode(
-        unix_seconds
-            .saturating_add(UNIX_EPOCH_SECONDS)
-            .to_le_bytes(),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::kdbx::inner_header::ProtectedStream;
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
 
     const NOW: i64 = 1_767_261_600;
     const ENTRY: [u8; 16] = [0x10; 16];
@@ -1497,13 +661,6 @@ mod tests {
 
     fn group_names(group: &super::super::Group<'_>) -> Vec<String> {
         group.groups().map(|g| g.name().to_string()).collect()
-    }
-
-    #[test]
-    fn kdbx_time_counts_from_year_one() {
-        assert_eq!(kdbx_time(-UNIX_EPOCH_SECONDS), "AAAAAAAAAAA=");
-        // 2026-01-01T10:00:00Z; checked against Python's datetime arithmetic.
-        assert_eq!(kdbx_time(1_767_261_600), "oDzo4A4AAAA=");
     }
 
     #[test]

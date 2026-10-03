@@ -314,7 +314,7 @@ impl<'a> Entry<'a> {
     /// `LastModificationTime` in seconds since the Unix epoch.
     pub fn modification_time(&self) -> Option<i64> {
         let time = self.0.child("Times")?.child("LastModificationTime")?;
-        super::edit::parse_kdbx_time(&time.text())
+        super::time::parse_kdbx_time(&time.text())
     }
 
     pub fn tags(&self) -> Zeroizing<String> {

@@ -3,15 +3,16 @@
 //! `KdbxXmlWriter::writeMetadata`).
 
 use super::database::{encode_uuid, Database};
-use super::edit::{
-    build_group, element, kdbx_time, new_uuid, text, DEFAULT_HISTORY_MAX_ITEMS,
-    DEFAULT_HISTORY_MAX_SIZE, GROUP_ICON, NO_UUID,
-};
 use super::error::{KdbxError, Result};
 use super::header::{Cipher, Compression, OuterHeader};
 use super::inner_header::InnerHeader;
 use super::kdf::{Argon2Variant, KdfParameters, ARGON2_VERSION_13};
 use super::key::CompositeKey;
+use super::layout::{
+    build_group, element, new_uuid, text, DEFAULT_HISTORY_MAX_ITEMS, DEFAULT_HISTORY_MAX_SIZE,
+    GROUP_ICON, NO_UUID,
+};
+use super::time::kdbx_time;
 use super::xml::Element;
 
 // Four lanes let KeePassXC use four threads; the core runs them in turn.
