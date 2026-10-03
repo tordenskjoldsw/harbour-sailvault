@@ -273,7 +273,7 @@ unsafe fn field_pairs<'a>(
         .collect()
 }
 
-/// Releases a file from `sv_database_save`.
+/// Releases a file from `sv_database_save` or `sv_database_create`.
 ///
 /// # Safety
 ///

@@ -50,15 +50,15 @@ pub unsafe extern "C" fn sv_database_open(
 
 /// Creates a new, empty database named `name`, protected by `password` with
 /// the key derivation `SV_KDF_*` `kdf_level` (see `Database::create`), and
-/// serializes it as the file to write. Runs the
-/// KDF: call it off the UI thread. On success `*out` receives the unlocked
-/// handle and `*file_out` the file; release them with `sv_database_free` and
-/// `sv_bytes_free`.
+/// serializes it as the file to write. Runs the KDF: call it off the UI
+/// thread. On success `*out` receives the unlocked handle and `*file_out`
+/// the file; release them with `sv_database_free` and `sv_bytes_free`.
 ///
 /// # Safety
 ///
-/// `password` and `name` must be valid UTF-8 of their lengths; `out` and
-/// `file_out` valid for one write each.
+/// `password` must be valid for reads of `password_length` bytes and `name`
+/// be UTF-8 of `name_length` bytes; `out` and `file_out` valid for one write
+/// each.
 #[no_mangle]
 pub unsafe extern "C" fn sv_database_create(
     password: *const u8,
