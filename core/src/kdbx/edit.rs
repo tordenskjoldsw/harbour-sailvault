@@ -937,12 +937,13 @@ fn times(modified: &str, created: &str, now: &str) -> Element {
 }
 
 fn string_field(key: &str, value: &str, protected: bool) -> Element {
-    let mut value_element = text("Value", value);
+    let mut value_element = element("Value", Vec::new());
     if protected {
         value_element
             .attributes
             .push(("Protected".to_owned(), "True".to_owned()));
     }
+    replace_text(&mut value_element, value);
     element("String", vec![text("Key", key), value_element])
 }
 
@@ -1148,11 +1149,19 @@ pub(super) fn text(name: &str, value: &str) -> Element {
     leaf
 }
 
+/// Unprotected text is stored as the writer represents it, so a save reads
+/// back as the same document; protected values are encrypted and kept as
+/// they are.
 fn replace_text(leaf: &mut Element, value: &str) {
     leaf.children.clear();
-    if !value.is_empty() {
-        leaf.children
-            .push(Node::Text(Zeroizing::new(value.to_owned())));
+    let mut text = Zeroizing::new(String::with_capacity(value.len()));
+    if leaf.is_protected() {
+        text.push_str(value);
+    } else {
+        text.extend(value.chars().filter(|&c| xml::is_xml10_char(c)));
+    }
+    if !text.is_empty() {
+        leaf.children.push(Node::Text(text));
     }
 }
 

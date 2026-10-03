@@ -1093,6 +1093,58 @@ fn sailvault_core_kdbx_time(unix_seconds: i64) -> String {
 }
 
 #[test]
+fn line_breaks_and_control_characters_survive_a_save() {
+    let mut database = open(AES_AESKDF, false);
+    let root = database.root_group().unwrap().uuid().unwrap();
+    database
+        .add_entry(
+            &root,
+            &[
+                ("Title", "Bell\u{7} entry"),
+                ("Password", "pass\u{1}word\r\n"),
+                ("Notes", "first\r\nsecond\rthird\u{1}\u{7f}"),
+            ],
+            NOW,
+        )
+        .unwrap();
+    let login = entry(&database.root_group().unwrap(), "Example login")
+        .uuid()
+        .unwrap();
+    database
+        .update_entry(&login, &[("Notes", "windows\r\nline")], NOW)
+        .unwrap();
+    database
+        .add_group(&root, "Tab\tand\u{1b}escape", NOW)
+        .unwrap();
+    let mut export: serde_json::Value =
+        serde_json::from_str(include_str!("vectors/bitwarden_unencrypted.json")).unwrap();
+    export["items"][0]["notes"] = "Example notes\r\nsecond line\u{1}".into();
+    import_export(&mut database, &export);
+
+    let saved = database.save().unwrap();
+    let reopened = Database::open(&saved, key(false)).unwrap();
+    let root = reopened.root_group().unwrap();
+    let added = entry(&root, "Bell entry");
+    assert_eq!(value(&added, "Password"), "pass\u{1}word\r\n");
+    assert_eq!(value(&added, "Notes"), "first\r\nsecond\rthird");
+    assert_eq!(
+        value(&entry(&root, "Example login"), "Notes"),
+        "windows\r\nline"
+    );
+    subgroup(&root, "Tab\tandescape");
+    let import = subgroup(&root, "Bitwarden import");
+    let mail = entry(
+        &subgroup(&subgroup(&import, "Work"), "Mail"),
+        "Example mail",
+    );
+    assert_eq!(value(&mail, "Notes"), "Example notes\r\nsecond line");
+
+    let file = TempFile::write("control-characters", &saved);
+    let notes = keepassxc_cli(&["show", "-a", "Notes"], &file, false, &["Bell entry"]);
+    assert_eq!(notes, "first\r\nsecond\rthird\n");
+}
+
+#[test]
 fn a_new_database_opens_in_keepassxc_with_its_settings() {
     let mut database = Database::create(key(false), "Passwords", KdfLevel::Standard, NOW).unwrap();
     let root = database.root_group().unwrap();

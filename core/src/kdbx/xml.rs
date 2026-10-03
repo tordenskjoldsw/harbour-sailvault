@@ -229,7 +229,21 @@ fn element(start: &BytesStart<'_>) -> Result<Element> {
     })
 }
 
+/// Drops characters the writer cannot represent, so a saved file reads back
+/// as the same document. Protected values arrive here as base64 and are
+/// decrypted later, so their plaintext is kept exactly.
 fn push_text(stack: &mut [Element], text: &str) -> Result<()> {
+    let filtered;
+    let text = if text.chars().all(is_xml10_char) {
+        text
+    } else {
+        filtered = Zeroizing::new(
+            text.chars()
+                .filter(|&c| is_xml10_char(c))
+                .collect::<String>(),
+        );
+        filtered.as_str()
+    };
     let Some(parent) = stack.last_mut() else {
         return if text.trim().is_empty() {
             Ok(())
@@ -345,8 +359,25 @@ fn indent(depth: usize, out: &mut SecretBuffer) {
     }
 }
 
-/// Escapes markup and drops the characters XML 1.0 forbids, the same set
+/// False for the characters XML 1.0 forbids or discourages, the set
 /// KeePassXC strips (`KdbxXmlWriter::stripInvalidXml10Chars`).
+pub(crate) fn is_xml10_char(character: char) -> bool {
+    !matches!(
+        character,
+        '\0'..='\x08'
+            | '\x0B'
+            | '\x0C'
+            | '\x0E'..='\x1F'
+            | '\x7F'..='\u{84}'
+            | '\u{86}'..='\u{9F}'
+            | '\u{FFFE}'
+            | '\u{FFFF}'
+    )
+}
+
+/// Escapes markup and drops the characters XML 1.0 forbids. A carriage
+/// return becomes a character reference, because a parser turns a literal
+/// one into a line feed.
 fn escape(text: &str, attribute: bool, out: &mut SecretBuffer) {
     for character in text.chars() {
         match character {
@@ -354,14 +385,8 @@ fn escape(text: &str, attribute: bool, out: &mut SecretBuffer) {
             '>' => out.extend_from_slice(b"&gt;"),
             '&' => out.extend_from_slice(b"&amp;"),
             '"' if attribute => out.extend_from_slice(b"&quot;"),
-            '\0'..='\x08'
-            | '\x0B'
-            | '\x0C'
-            | '\x0E'..='\x1F'
-            | '\x7F'..='\u{84}'
-            | '\u{86}'..='\u{9F}'
-            | '\u{FFFE}'
-            | '\u{FFFF}' => {}
+            '\r' => out.extend_from_slice(b"&#13;"),
+            character if !is_xml10_char(character) => {}
             character => out.extend_from_slice(character.encode_utf8(&mut [0u8; 4]).as_bytes()),
         }
     }
@@ -527,6 +552,21 @@ mod tests {
             "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n\
              <KeePassFile a=\"xy&quot;\">tab\tnl\nbelldelok</KeePassFile>\n"
         );
+    }
+
+    #[test]
+    fn carriage_returns_survive_and_forbidden_references_are_dropped() {
+        let root = Element {
+            name: "KeePassFile".into(),
+            attributes: vec![("a".into(), "x\ry".into())],
+            children: vec![Node::Text(Zeroizing::new("one\r\ntwo\rthree".into()))],
+        };
+        let written = written(&root);
+        assert!(!written.contains(&b'\r'));
+        assert!(parse(&written, &mut stream()).unwrap() == root);
+
+        let parsed = parse(b"<KeePassFile>a&#1;b&#13;c</KeePassFile>", &mut stream()).unwrap();
+        assert_eq!(*parsed.text(), "ab\rc");
     }
 
     #[test]
