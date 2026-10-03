@@ -352,8 +352,7 @@ Part A - create entries:
    password, URL, notes) and a password generator
 7. Device test: create entries on the phone, open the file in KeePassXC
 
-Status (2026-10-03): steps 1 to 6 are done, step 7 is pending.
-`Kdbx4Writer.cpp` confirmed that KeePassXC draws a new master seed,
+Status (2026-10-03): all steps are done. `Kdbx4Writer.cpp` confirmed that KeePassXC draws a new master seed,
 encryption IV, inner stream key and KDF seed on every save
 (`Database::setKey` with `updateTransformSalt`); SailVault does the same, so
 the KDF runs once per save and the core keeps the composite key while
@@ -365,6 +364,14 @@ that SailVault added to a subgroup. The core verifies each save by
 decrypting the serialized file before handing it out. Saving in C++ follows
 section 7; the backups live in `~/.local/share/de.tordenskjold/sailvault/
 backups/`. The RPM builds without warnings and passes the validator.
+
+Device test on the Jolla Phone (Sailfish OS 5.2.0.18), 2026-10-03: an entry
+with a generated password was created in the fixture `kdbx4-aes-argon2d.kdbx`
+on the phone. The saved file and the backup were fetched from the phone and
+checked on the host: the backup is byte-identical to the previous file,
+`keepassxc-cli` 2.7.12 opens the saved file and lists the new entry, and the
+exports of backup and saved file differ only by that entry, whose timestamps
+match the save time. Criterion 3 holds for a file changed on the phone.
 
 Part B - edit and delete: history, recycle bin with remorse, hard delete
 writes `DeletedObjects`.
