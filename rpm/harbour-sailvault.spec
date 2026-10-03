@@ -4,7 +4,7 @@ Summary:    Unofficial Bitwarden-compatible password manager
 Version:    0.1.0
 Release:    1
 License:    TBD
-URL:        https://example.org/sailvault
+URL:        https://github.com/tordenskjoldsw/harbour-sailvault
 Source0:    %{name}-%{version}.tar.bz2
 Requires:   sailfishsilica-qt5 >= 0.10.9
 BuildRequires:  pkgconfig(sailfishapp) >= 1.0.2
