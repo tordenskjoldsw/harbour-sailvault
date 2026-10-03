@@ -112,19 +112,47 @@ impl Database {
         }
 
         let bin = self.recycle_bin_or_create(now)?;
-        let previous_group = groups_on_path(self.document(), &path)
-            .last()
-            .and_then(|group| group.child("UUID"))
-            .and_then(decode_uuid);
+        self.move_entry_at(&path, &bin, now)?;
+        Ok(false)
+    }
+
+    /// Moves the entry with `uuid` to the end of the group with
+    /// `group_uuid`, as KeePassXC's `Entry::setGroup` does: only the
+    /// location time and, in KDBX 4.1, the previous parent change. Returns
+    /// whether the entry moved; it stays put when it is already there.
+    pub fn move_entry(
+        &mut self,
+        uuid: &[u8; UUID_LENGTH],
+        group_uuid: &[u8; UUID_LENGTH],
+        now: i64,
+    ) -> Result<bool> {
+        let path = entry_path(self.document(), uuid).ok_or(KdbxError::UnknownEntry)?;
+        if group_path(self.document(), group_uuid).is_none() {
+            return Err(KdbxError::UnknownGroup);
+        }
+        if parent_uuid(self.document(), &path) == Some(*group_uuid) {
+            return Ok(false);
+        }
+        self.move_entry_at(&path, group_uuid, now)?;
+        Ok(true)
+    }
+
+    fn move_entry_at(
+        &mut self,
+        path: &[usize],
+        group_uuid: &[u8; UUID_LENGTH],
+        now: i64,
+    ) -> Result<()> {
+        let previous_group = parent_uuid(self.document(), path);
         let minor_version = self.header().minor_version;
-        let mut entry = remove_at(self.document_mut(), &path).ok_or(KdbxError::UnknownEntry)?;
+        let mut entry = remove_at(self.document_mut(), path).ok_or(KdbxError::UnknownEntry)?;
         set_time(&mut entry, "LocationChanged", &kdbx_time(now));
         if let (true, Some(previous_group)) = (minor_version >= 1, previous_group) {
             set_entry_previous_parent(&mut entry, &previous_group);
         }
-        let bin_group = group_mut(self.document_mut(), &bin).ok_or(KdbxError::UnknownGroup)?;
-        insert_entry(bin_group, entry);
-        Ok(false)
+        let group = group_mut(self.document_mut(), group_uuid).ok_or(KdbxError::UnknownGroup)?;
+        insert_entry(group, entry);
+        Ok(())
     }
 
     /// Moves the group with `uuid` and everything in it to the recycle bin.
@@ -719,6 +747,14 @@ fn groups_on_path<'a>(document: &'a Element, path: &[usize]) -> Vec<&'a Element>
     groups
 }
 
+/// The UUID of the group holding the entry at `path`.
+fn parent_uuid(document: &Element, path: &[usize]) -> Option<[u8; UUID_LENGTH]> {
+    groups_on_path(document, path)
+        .last()
+        .and_then(|group| group.child("UUID"))
+        .and_then(decode_uuid)
+}
+
 fn remove_at(document: &mut Element, path: &[usize]) -> Option<Element> {
     let (&last, parents) = path.split_last()?;
     let parent = descend_mut(document, parents)?;
@@ -1106,6 +1142,46 @@ mod tests {
         assert_eq!(
             database.deletes_permanently(&ROOT),
             Err(KdbxError::RootGroupProtected)
+        );
+    }
+
+    #[test]
+    fn moving_an_entry_changes_only_its_location() {
+        let mut database = build("", &format!("{}{}", entry_xml("secret", ""), banking_xml()));
+        assert_eq!(database.move_entry(&ENTRY, &CARDS, NOW), Ok(true));
+
+        let root = database.root_group().unwrap();
+        assert_eq!(root.entries().count(), 0);
+        let cards = root.groups().next().unwrap().groups().next().unwrap();
+        let titles: Vec<String> = cards
+            .entries()
+            .map(|entry| entry.field("Title").unwrap().value().to_string())
+            .collect();
+        assert_eq!(titles, ["Card", "Login"]);
+
+        let moved = entry(&database);
+        let times = moved.element().child("Times").unwrap();
+        assert_eq!(
+            *times.child("LocationChanged").unwrap().text(),
+            kdbx_time(NOW)
+        );
+        assert_eq!(*times.child("LastModificationTime").unwrap().text(), "old");
+        assert_eq!(moved.history().count(), 0);
+        assert_eq!(
+            *moved.element().child("PreviousParentGroup").unwrap().text(),
+            encode_uuid(&ROOT)
+        );
+        assert_eq!(*moved.field("Password").unwrap().value(), "secret");
+        assert!(database.deleted_objects().is_empty());
+
+        assert_eq!(database.move_entry(&ENTRY, &CARDS, NOW), Ok(false));
+        assert_eq!(
+            database.move_entry(&ENTRY, &[0x99; 16], NOW),
+            Err(KdbxError::UnknownGroup)
+        );
+        assert_eq!(
+            database.move_entry(&[0x99; 16], &ROOT, NOW),
+            Err(KdbxError::UnknownEntry)
         );
     }
 }

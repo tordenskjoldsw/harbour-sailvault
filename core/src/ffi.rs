@@ -340,6 +340,63 @@ pub unsafe extern "C" fn sv_database_group(
     SV_OK
 }
 
+/// Every group outside the recycle bin, parents before children, for picking
+/// a target group. The group column holds the path of the parent groups.
+///
+/// # Safety
+///
+/// `database` must be a live handle and `out` valid for one write. Release
+/// the list with `sv_list_free`.
+#[no_mangle]
+pub unsafe extern "C" fn sv_database_groups(
+    database: *const SvDatabase,
+    out: *mut *mut SvList,
+) -> i32 {
+    fn collect(
+        group: Group<'_>,
+        path: &str,
+        recycle_bin: Option<[u8; UUID_LENGTH]>,
+        items: &mut Vec<ListItem>,
+    ) {
+        let Some(uuid) = group.uuid() else {
+            return;
+        };
+        if Some(uuid) == recycle_bin {
+            return;
+        }
+        let name = group.name();
+        let child_path = Zeroizing::new(if path.is_empty() {
+            name.to_string()
+        } else {
+            format!("{path} / {}", name.as_str())
+        });
+        items.push(ListItem {
+            uuid,
+            is_group: true,
+            title: name,
+            user_name: Zeroizing::new(String::new()),
+            group: Zeroizing::new(path.to_owned()),
+        });
+        for child in group.groups() {
+            collect(child, &child_path, recycle_bin, items);
+        }
+    }
+
+    let (Some(database), Some(out)) = (database.as_ref(), out.as_mut()) else {
+        return SV_INVALID_ARGUMENT;
+    };
+    *out = std::ptr::null_mut();
+    let database = &database.database;
+    let root = match database.root_group() {
+        Ok(root) => root,
+        Err(error) => return status(error),
+    };
+    let mut items = Vec::new();
+    collect(root, "", database.recycle_bin(), &mut items);
+    *out = Box::into_raw(Box::new(SvList { items }));
+    SV_OK
+}
+
 /// # Safety
 ///
 /// `list` must be null or a list that has not been freed.
@@ -620,6 +677,40 @@ pub unsafe extern "C" fn sv_database_update_entry(
     match database.database.update_entry(&uuid, &pairs, now) {
         Ok(changed) => {
             *changed_out = changed;
+            SV_OK
+        }
+        Err(error) => status(error),
+    }
+}
+
+/// Moves the entry with `entry_uuid` into the group with `group_uuid` (see
+/// `Database::move_entry`). `moved_out` receives whether it moved.
+///
+/// # Safety
+///
+/// `database` must be a live handle not in use by another thread;
+/// `entry_uuid` and `group_uuid` valid for 16 bytes; `moved_out` valid for
+/// one write.
+#[no_mangle]
+pub unsafe extern "C" fn sv_database_move_entry(
+    database: *mut SvDatabase,
+    entry_uuid: *const u8,
+    group_uuid: *const u8,
+    now: i64,
+    moved_out: *mut bool,
+) -> i32 {
+    let (Some(database), Some(entry_uuid), Some(group_uuid), Some(moved_out)) = (
+        database.as_mut(),
+        read_uuid(entry_uuid),
+        read_uuid(group_uuid),
+        moved_out.as_mut(),
+    ) else {
+        return SV_INVALID_ARGUMENT;
+    };
+    *moved_out = false;
+    match database.database.move_entry(&entry_uuid, &group_uuid, now) {
+        Ok(moved) => {
+            *moved_out = moved;
             SV_OK
         }
         Err(error) => status(error),
@@ -1057,6 +1148,68 @@ mod tests {
                 SV_OK
             );
             assert!(permanent);
+            sv_database_free(database);
+        }
+    }
+
+    #[test]
+    fn lists_move_targets_and_moves_an_entry() {
+        unsafe {
+            let (status, database) = open(PASSWORD);
+            assert_eq!(status, SV_OK);
+            let mut groups = std::ptr::null_mut();
+            assert_eq!(sv_database_groups(database, &mut groups), SV_OK);
+            let rows: Vec<(String, String)> = (0..sv_list_length(groups))
+                .map(|index| (list_text(groups, index, 0), list_text(groups, index, 2)))
+                .collect();
+            assert_eq!(
+                rows,
+                [
+                    ("Root".to_owned(), String::new()),
+                    ("Banking".to_owned(), "Root".to_owned()),
+                    ("Cards".to_owned(), "Root / Banking".to_owned()),
+                ]
+            );
+            let mut cards = [0u8; UUID_LENGTH];
+            assert_eq!(sv_list_uuid(groups, 2, cards.as_mut_ptr()), SV_OK);
+            sv_list_free(groups);
+
+            let mut list = std::ptr::null_mut();
+            let query = "alice";
+            assert_eq!(
+                sv_database_search(database, query.as_ptr(), query.len(), &mut list),
+                SV_OK
+            );
+            let mut entry = [0u8; UUID_LENGTH];
+            assert_eq!(sv_list_uuid(list, 0, entry.as_mut_ptr()), SV_OK);
+            sv_list_free(list);
+
+            let mut moved = false;
+            assert_eq!(
+                sv_database_move_entry(database, entry.as_ptr(), cards.as_ptr(), 0, &mut moved),
+                SV_OK
+            );
+            assert!(moved);
+            assert_eq!(
+                sv_database_move_entry(database, entry.as_ptr(), cards.as_ptr(), 0, &mut moved),
+                SV_OK
+            );
+            assert!(!moved);
+            assert_eq!(
+                sv_database_move_entry(database, cards.as_ptr(), cards.as_ptr(), 0, &mut moved),
+                SV_NOT_FOUND
+            );
+
+            let mut content = std::ptr::null_mut();
+            assert_eq!(
+                sv_database_group(database, cards.as_ptr(), &mut content),
+                SV_OK
+            );
+            let last = sv_list_length(content) - 1;
+            let mut listed = [0u8; UUID_LENGTH];
+            assert_eq!(sv_list_uuid(content, last, listed.as_mut_ptr()), SV_OK);
+            assert_eq!(listed, entry);
+            sv_list_free(content);
             sv_database_free(database);
         }
     }

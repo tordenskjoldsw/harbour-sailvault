@@ -731,3 +731,49 @@ fn a_deleted_group_lands_in_the_recycle_bin_with_its_content() {
     );
     assert!(!listing.contains("\nBanking/"), "{listing}");
 }
+
+#[test]
+fn moved_entries_keep_their_history_and_keepassxc_finds_them() {
+    let mut database = open(AES_AESKDF, false);
+    let (root_uuid, cards, login, recycled) = {
+        let root = database.root_group().unwrap();
+        (
+            root.uuid().unwrap(),
+            subgroup(&subgroup(&root, "Banking"), "Cards")
+                .uuid()
+                .unwrap(),
+            entry(&root, "Example login").uuid().unwrap(),
+            entry(&subgroup(&root, "Recycle Bin"), "Recycled entry")
+                .uuid()
+                .unwrap(),
+        )
+    };
+    assert_eq!(database.move_entry(&login, &cards, NOW), Ok(true));
+    assert_eq!(database.move_entry(&recycled, &root_uuid, NOW), Ok(true));
+
+    let saved = database.save().unwrap();
+    let reopened = Database::open(&saved, key(false)).unwrap();
+    let root = reopened.root_group().unwrap();
+    let login = entry(
+        &subgroup(&subgroup(&root, "Banking"), "Cards"),
+        "Example login",
+    );
+    assert_eq!(login.history().count(), 2);
+    assert_eq!(subgroup(&root, "Recycle Bin").entries().count(), 0);
+    assert_eq!(reopened.deleted_objects().len(), 1);
+
+    let file = TempFile::write("moved", &saved);
+    let listing = keepassxc_cli(&["ls", "-R", "-f"], &file, false, &[]);
+    assert!(
+        listing.contains("Banking/Cards/Example login\n"),
+        "{listing}"
+    );
+    assert!(listing.contains("\nRecycled entry\n"), "{listing}");
+    let shown = keepassxc_cli(
+        &["show", "-a", "Password"],
+        &file,
+        false,
+        &["Banking/Cards/Example login"],
+    );
+    assert_eq!(shown, "current-password-3\n");
+}

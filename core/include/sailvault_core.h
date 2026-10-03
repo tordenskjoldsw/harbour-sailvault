@@ -80,6 +80,9 @@ int32_t sv_database_search(const SvDatabase *database, const uint8_t *query, siz
                            SvList **out);
 /* group_uuid NULL means the root group. Subgroups come before entries. */
 int32_t sv_database_group(const SvDatabase *database, const uint8_t *group_uuid, SvList **out);
+/* Every group outside the recycle bin, parents first, as move targets. The
+ * group column holds the path of the parent groups. */
+int32_t sv_database_groups(const SvDatabase *database, SvList **out);
 
 size_t sv_list_length(const SvList *list);
 int32_t sv_list_uuid(const SvList *list, size_t index, uint8_t *uuid_out);
@@ -113,6 +116,10 @@ int32_t sv_database_add_entry(SvDatabase *database, const uint8_t *group_uuid,
 int32_t sv_database_update_entry(SvDatabase *database, const uint8_t *entry_uuid,
                                  const SvField *fields, size_t field_count, int64_t now,
                                  bool *changed_out);
+/* Moves an entry to the end of another group; moved_out is false when it is
+ * already there. */
+int32_t sv_database_move_entry(SvDatabase *database, const uint8_t *entry_uuid,
+                               const uint8_t *group_uuid, int64_t now, bool *moved_out);
 /* Moves an entry or a group (with everything in it) to the recycle bin, or
  * removes it for good when it is already there, is or holds the bin, or the
  * bin is disabled (permanent_out says which). The root group is refused. */
