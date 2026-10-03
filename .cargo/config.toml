@@ -6,3 +6,9 @@ replace-with = "vendored-sources"
 
 [source.vendored-sources]
 directory = "core/vendor"
+
+# The aes crate only uses the ARMv8 AES instructions with this flag; it
+# detects them at runtime and falls back to software otherwise. Without it,
+# AES-KDF runs about 70 times slower on the Jolla Phone.
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["--cfg", "aes_armv8"]
