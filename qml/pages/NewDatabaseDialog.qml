@@ -15,7 +15,7 @@ Dialog {
     readonly property int location: locationBox.currentIndex === 1 ? Vault.Downloads
                                                                     : Vault.Documents
     readonly property string path: vault.newDatabasePath(location, fileName)
-    readonly property bool exists: path.length > 0 && vault.fileExists(path)
+    readonly property bool exists: vault.databaseExists(location, fileName)
     property alias password: passwordField.text
     readonly property int kdfLevel: [Vault.KdfStandard, Vault.KdfHigh,
                                      Vault.KdfMaximum][kdfBox.currentIndex]

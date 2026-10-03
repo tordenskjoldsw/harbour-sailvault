@@ -190,7 +190,7 @@ const SvDatabase *Vault::database()
 {
     enforceDeadlines();
     // A requested lock waits for the running save; nothing is read meanwhile.
-    return m_lockAfterSave || m_autoLockAfterSave ? nullptr : m_database.get();
+    return m_pendingLock != PendingLock::None ? nullptr : m_database.get();
 }
 
 void Vault::unlock(const QString &password)
@@ -245,9 +245,10 @@ QString Vault::newDatabasePath(int location, const QString &name) const
     return folder + QLatin1Char('/') + fileName + QStringLiteral(".kdbx");
 }
 
-bool Vault::fileExists(const QString &path) const
+bool Vault::databaseExists(int location, const QString &name) const
 {
-    return QFileInfo::exists(path);
+    const QString path = newDatabasePath(location, name);
+    return !path.isEmpty() && QFileInfo::exists(path);
 }
 
 void Vault::createDatabase(int location, const QString &name, const QString &password,
@@ -283,7 +284,8 @@ void Vault::lock()
     m_clipboard.clear();
     if (m_saving) {
         // The save task still reads the handle; onSaveFinished locks.
-        m_lockAfterSave = true;
+        if (m_pendingLock == PendingLock::None)
+            m_pendingLock = PendingLock::Manual;
         return;
     }
     ++m_attempt;
@@ -319,7 +321,7 @@ void Vault::lockAutomatically()
     if (m_state != Unlocked)
         return;
     if (m_saving) {
-        m_autoLockAfterSave = true;
+        m_pendingLock = PendingLock::Automatic;
         return;
     }
     lock();
@@ -619,16 +621,19 @@ void Vault::onSaveFinished(int attempt, int status, const QByteArray &digest,
     // After the result is applied: the end of a save lets a pending import
     // merge, which starts the next save against the new digest.
     setSaving(false);
-    if (m_autoLockAfterSave) {
-        m_autoLockAfterSave = false;
-        m_lockAfterSave = false;
+    const PendingLock pending = m_pendingLock;
+    m_pendingLock = PendingLock::None;
+    switch (pending) {
+    case PendingLock::Automatic:
         lockAutomatically();
-    } else if (m_lockAfterSave) {
-        m_lockAfterSave = false;
+        break;
+    case PendingLock::Manual:
         lock();
-    } else {
+        break;
+    case PendingLock::None:
         // A deadline that passed during the save has no timer left.
         enforceDeadlines();
+        break;
     }
 }
 

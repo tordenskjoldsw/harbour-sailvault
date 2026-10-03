@@ -69,6 +69,14 @@ public:
     };
     Q_ENUM(Error)
 
+    // Key derivation levels of a new database, as SV_KDF_* in the core.
+    enum KdfLevel {
+        KdfStandard = SV_KDF_STANDARD,
+        KdfHigh = SV_KDF_HIGH,
+        KdfMaximum = SV_KDF_MAXIMUM
+    };
+    Q_ENUM(KdfLevel)
+
     // Results of moveEntry and moveGroup.
     enum MoveResult {
         MoveRefused,
@@ -99,14 +107,6 @@ public:
     bool addImport(const SvImport *import, int &added, int &updated);
 
     Q_INVOKABLE void unlock(const QString &password);
-    // Key derivation levels of a new database, as SV_KDF_* in the core.
-    enum KdfLevel {
-        KdfStandard = SV_KDF_STANDARD,
-        KdfHigh = SV_KDF_HIGH,
-        KdfMaximum = SV_KDF_MAXIMUM
-    };
-    Q_ENUM(KdfLevel)
-
     // Creates an empty database file name.kdbx in location, protected by
     // password with the key derivation kdfLevel, and unlocks it; an existing
     // file is never replaced.
@@ -114,7 +114,7 @@ public:
                                     int kdfLevel);
     // The path createDatabase would write, or empty for an invalid name.
     Q_INVOKABLE QString newDatabasePath(int location, const QString &name) const;
-    Q_INVOKABLE bool fileExists(const QString &path) const;
+    Q_INVOKABLE bool databaseExists(int location, const QString &name) const;
     Q_INVOKABLE void lock();
     Q_INVOKABLE void clearError();
     // version -1 is the current state of an entry, 0 and up its history
@@ -210,8 +210,9 @@ private:
     Error m_error = NoError;
     bool m_saving = false;
     bool m_dirty = false;
-    bool m_lockAfterSave = false;
-    bool m_autoLockAfterSave = false;
+    // A lock requested during a save waits for it.
+    enum class PendingLock { None, Manual, Automatic };
+    PendingLock m_pendingLock = PendingLock::None;
     // SHA-256 of the file as it was unlocked or last saved.
     QByteArray m_fileDigest;
     QString m_databasePath;
