@@ -425,6 +425,19 @@ fn keepassxc_cli(arguments: &[&str], file: &TempFile, key_file: bool, trailing: 
     String::from_utf8(output.stdout).unwrap()
 }
 
+/// KeePassXC stamps every CustomData `_LAST_MODIFIED` item with the export
+/// time, so those items cannot be compared between two exports.
+fn without_export_time(xml: &str) -> String {
+    let mut lines: Vec<&str> = xml.lines().collect();
+    while let Some(key) = lines
+        .iter()
+        .position(|line| line.trim() == "<Key>_LAST_MODIFIED</Key>")
+    {
+        lines.drain(key - 1..key + 3);
+    }
+    lines.join("\n")
+}
+
 fn fixture_path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures")
@@ -480,8 +493,18 @@ fn keepassxc_reads_saved_fixtures_as_the_originals() {
         let saved = open(data, key_file).save().unwrap();
         let original_file = TempFile::write(&format!("{name}-original"), data);
         let saved_file = TempFile::write(&format!("{name}-saved"), &saved);
-        let original = keepassxc_cli(&["export", "-f", "xml"], &original_file, key_file, &[]);
-        let exported = keepassxc_cli(&["export", "-f", "xml"], &saved_file, key_file, &[]);
+        let original = without_export_time(&keepassxc_cli(
+            &["export", "-f", "xml"],
+            &original_file,
+            key_file,
+            &[],
+        ));
+        let exported = without_export_time(&keepassxc_cli(
+            &["export", "-f", "xml"],
+            &saved_file,
+            key_file,
+            &[],
+        ));
         assert!(exported.contains("<KeePassFile>"), "{name}");
         let difference = original
             .lines()
