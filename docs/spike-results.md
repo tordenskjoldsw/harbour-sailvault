@@ -213,3 +213,34 @@ median of 3):
 Target: list < 0.5 s after key derivation. The core needs 33 ms; QML
 creates only the visible delegates, which is not part of this measurement.
 
+
+## Measurements before Harbour submission
+
+Jolla Phone (Sailfish OS 5.2.0.18), 2026-10-03, after the pre-Harbour
+review (`319f4d3`); same tools and method as above.
+
+Cold start to the unlock page: first run 531 ms, runs 2-11 median 558 ms
+(535-573 ms), unchanged from Phase 3 although the About page, the import
+and the new-database dialog were added since.
+
+| Step | Phone | Phase 3 |
+|------|-------|---------|
+| Open 1000 entries without the KDF | 41 ms | 33 ms |
+| Open 1000 entries including AES-KDF | 143 ms | 136 ms |
+| List the root group | < 0.01 ms | < 0.01 ms |
+| Search all 1000 entries | 2.6-2.9 ms | about 2 ms |
+| Import 1000 items into the 1000-entry database | 21 ms | - |
+| The same import again (merge) | 18 ms | - |
+| Import 2000 items, first and again | 25 ms, 27 ms | - |
+
+Key derivation of the levels offered for new databases (Argon2id, 4
+lanes): Standard (256 MiB, 3 iterations) 939 ms, High (512 MiB, 4) 2409
+ms, Maximum (1 GiB, 4) 4888 ms, within 3 % of the values the levels were
+chosen with. The other Argon2 rows ran 10-20 % slower than in Phase 2,
+in line with the load variation seen there.
+
+Opening without the KDF is about 8 ms slower than in Phase 3. The
+decompression now reads in 64 KiB chunks into a buffer that wipes itself
+when it grows; the difference stays far below the 0.5 s target. The
+import merge runs on the UI thread and takes about 20 ms, a frame or two,
+for 1000 items.
