@@ -19,7 +19,6 @@ BuildRequires:  cargo
 SailVault is an independent, open-source password manager for KeePass
 (KDBX4) databases, with import from Bitwarden and Vaultwarden exports.
 
-
 %prep
 %setup -q -n %{name}-%{version}
 
@@ -29,17 +28,14 @@ SailVault is an independent, open-source password manager for KeePass
 
 %make_build
 
-
 %install
 %qmake5_install
-
 
 desktop-file-install --delete-original       \
   --dir %{buildroot}%{_datadir}/applications             \
    %{buildroot}%{_datadir}/applications/*.desktop
 
 %files
-%defattr(-,root,root,-)
 %{_bindir}/%{name}
 %{_datadir}/%{name}
 %{_datadir}/applications/%{name}.desktop

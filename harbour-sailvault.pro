@@ -25,8 +25,11 @@ SOURCES += \
 
 INCLUDEPATH += core/include
 
-# The spec passes the package version; the About page shows it.
-DEFINES += APP_VERSION=\\\"$$VERSION\\\"
+# The spec passes the package version; the About page shows it. Builds
+# without one, such as from Qt Creator, show a development version.
+APP_VERSION = $$VERSION
+isEmpty(APP_VERSION): APP_VERSION = 0.0.0+dev
+DEFINES += APP_VERSION=\\\"$$APP_VERSION\\\"
 
 # Build the Rust core with cargo before linking. CARGO_HOME is isolated so the
 # build engine, which shares the host home directory, never reads the host's
