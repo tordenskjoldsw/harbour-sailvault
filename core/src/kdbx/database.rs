@@ -31,15 +31,7 @@ impl Database {
         payload::verify_header_hash(data, &header, header_length)?;
         let transformed = header.kdf.transform(&key)?;
         let (inner, document) = decrypt(data, &header, header_length, &transformed)?;
-        let database = Self {
-            header,
-            inner,
-            document,
-            key,
-        };
-        database.root_group()?;
-        validate_fields(&database.document)?;
-        Ok(database)
+        Self::from_parts(header, inner, document, key)
     }
 
     /// A database from its parts, checked like an opened one.

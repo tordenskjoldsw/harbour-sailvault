@@ -21,8 +21,8 @@ enum {
     SV_CORRUPTED = 7,
     SV_LIMIT_EXCEEDED = 8,
     SV_NOT_FOUND = 9,
-    /* The serialized file did not decrypt back to the same content; nothing
-     * was handed out. */
+    /* Serializing the database failed, or the result did not decrypt back to
+     * the same content; nothing was handed out. */
     SV_WRITE_FAILED = 10,
     SV_RANDOM_UNAVAILABLE = 11,
     /* The file is not a Bitwarden/Vaultwarden JSON export. */

@@ -168,7 +168,9 @@ fn status(error: KdbxError) -> i32 {
         | KdbxError::DecompressionFailed
         | KdbxError::InvalidInnerHeader(_)
         | KdbxError::InvalidXml(_) => SV_CORRUPTED,
-        KdbxError::CompressionFailed | KdbxError::WriteVerificationFailed => SV_WRITE_FAILED,
+        KdbxError::CompressionFailed
+        | KdbxError::EncryptionFailed
+        | KdbxError::WriteVerificationFailed => SV_WRITE_FAILED,
         KdbxError::RandomUnavailable => SV_RANDOM_UNAVAILABLE,
         KdbxError::InvalidEntry(_)
         | KdbxError::InvalidGroup(_)

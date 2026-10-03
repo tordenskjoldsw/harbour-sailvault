@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 
 use aes::cipher::block_padding::Pkcs7;
-use aes::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit, StreamCipher};
+use aes::cipher::{BlockCipher, BlockDecryptMut, BlockEncryptMut, KeyIvInit, StreamCipher};
 use chacha20::ChaCha20;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
@@ -61,6 +61,15 @@ impl PayloadKeys {
         HmacSha256::new_from_slice(block_key.as_ref()).expect("HMAC accepts keys of any length")
     }
 
+    /// The HMAC of a payload block over its index, length and data.
+    fn block_mac(&self, index: u64, length: [u8; 4], block: &[u8]) -> HmacSha256 {
+        let mut hmac = self.block_hmac(index);
+        hmac.update(&index.to_le_bytes());
+        hmac.update(&length);
+        hmac.update(block);
+        hmac
+    }
+
     fn header_hmac(&self, header: &OuterHeader) -> HmacSha256 {
         let mut hmac = self.block_hmac(HEADER_HMAC_BLOCK_INDEX);
         hmac.update(&header.bytes);
@@ -91,8 +100,10 @@ pub(crate) fn verify_header_hmac(
     header_length: usize,
     keys: &PayloadKeys,
 ) -> Result<usize> {
-    let mut reader = ByteReader::new(&data[header_length + HASH_LENGTH..]);
-    let stored_hmac = reader.take(HASH_LENGTH, KdbxError::HeaderCorrupted)?;
+    let after_hash = data
+        .get(header_length + HASH_LENGTH..)
+        .ok_or(KdbxError::HeaderCorrupted)?;
+    let stored_hmac = ByteReader::new(after_hash).take(HASH_LENGTH, KdbxError::HeaderCorrupted)?;
     keys.header_hmac(header)
         .verify_slice(stored_hmac)
         .map_err(|_| KdbxError::InvalidCredentials)?;
@@ -115,11 +126,8 @@ pub(crate) fn decrypt(
             .map_err(|_| KdbxError::PayloadCorrupted)?;
         let block = reader.take(length, KdbxError::PayloadCorrupted)?;
 
-        let mut hmac = keys.block_hmac(index);
-        hmac.update(&index.to_le_bytes());
-        hmac.update(&length_bytes);
-        hmac.update(block);
-        hmac.verify_slice(stored_hmac)
+        keys.block_mac(index, length_bytes, block)
+            .verify_slice(stored_hmac)
             .map_err(|_| KdbxError::PayloadCorrupted)?;
 
         if block.is_empty() {
@@ -147,16 +155,8 @@ fn decrypt_payload(
     let key = keys.cipher_key.as_ref();
     let iv = header.encryption_iv.as_slice();
     let plaintext_length = match header.cipher {
-        Cipher::Aes256 => cbc::Decryptor::<aes::Aes256>::new_from_slices(key, iv)
-            .map_err(|_| KdbxError::DecryptionFailed)?
-            .decrypt_padded_mut::<Pkcs7>(&mut buffer)
-            .map_err(|_| KdbxError::DecryptionFailed)?
-            .len(),
-        Cipher::Twofish => cbc::Decryptor::<twofish::Twofish>::new_from_slices(key, iv)
-            .map_err(|_| KdbxError::DecryptionFailed)?
-            .decrypt_padded_mut::<Pkcs7>(&mut buffer)
-            .map_err(|_| KdbxError::DecryptionFailed)?
-            .len(),
+        Cipher::Aes256 => cbc_decrypt::<aes::Aes256>(key, iv, &mut buffer)?,
+        Cipher::Twofish => cbc_decrypt::<twofish::Twofish>(key, iv, &mut buffer)?,
         Cipher::ChaCha20 => {
             ChaCha20::new_from_slices(key, iv)
                 .map_err(|_| KdbxError::DecryptionFailed)?
@@ -166,6 +166,39 @@ fn decrypt_payload(
     };
     buffer.truncate(plaintext_length);
     Ok(buffer)
+}
+
+/// Decrypts in place and returns the length without the padding.
+fn cbc_decrypt<C: BlockCipher + BlockDecryptMut>(
+    key: &[u8],
+    iv: &[u8],
+    buffer: &mut [u8],
+) -> Result<usize>
+where
+    cbc::Decryptor<C>: KeyIvInit,
+{
+    Ok(cbc::Decryptor::<C>::new_from_slices(key, iv)
+        .map_err(|_| KdbxError::DecryptionFailed)?
+        .decrypt_padded_mut::<Pkcs7>(buffer)
+        .map_err(|_| KdbxError::DecryptionFailed)?
+        .len())
+}
+
+/// Encrypts the first `length` bytes in place, padding into the rest.
+fn cbc_encrypt<C: BlockCipher + BlockEncryptMut>(
+    key: &[u8],
+    iv: &[u8],
+    buffer: &mut [u8],
+    length: usize,
+) -> Result<()>
+where
+    cbc::Encryptor<C>: KeyIvInit,
+{
+    cbc::Encryptor::<C>::new_from_slices(key, iv)
+        .map_err(|_| KdbxError::EncryptionFailed)?
+        .encrypt_padded_mut::<Pkcs7>(buffer, length)
+        .map_err(|_| KdbxError::EncryptionFailed)?;
+    Ok(())
 }
 
 /// The gzip trailer's size field sizes the output, so it rarely has to grow.
@@ -225,13 +258,11 @@ pub(crate) fn encrypt(
         .chunks(BLOCK_LENGTH)
         .chain(std::iter::once(&[][..]));
     for (index, block) in (0u64..).zip(blocks) {
-        let length = u32::try_from(block.len()).expect("blocks are at most BLOCK_LENGTH");
-        let mut hmac = keys.block_hmac(index);
-        hmac.update(&index.to_le_bytes());
-        hmac.update(&length.to_le_bytes());
-        hmac.update(block);
-        out.extend_from_slice(&hmac.finalize().into_bytes());
-        out.extend_from_slice(&length.to_le_bytes());
+        let length = u32::try_from(block.len())
+            .expect("blocks are at most BLOCK_LENGTH")
+            .to_le_bytes();
+        out.extend_from_slice(&keys.block_mac(index, length, block).finalize().into_bytes());
+        out.extend_from_slice(&length);
         out.extend_from_slice(block);
     }
     Ok(())
@@ -250,20 +281,10 @@ fn encrypt_payload(
     }
     let mut buffer = plaintext.into_inner();
     match header.cipher {
-        Cipher::Aes256 => {
-            cbc::Encryptor::<aes::Aes256>::new_from_slices(key, iv)
-                .map_err(|_| KdbxError::DecryptionFailed)?
-                .encrypt_padded_mut::<Pkcs7>(&mut buffer, plaintext_length)
-                .map_err(|_| KdbxError::DecryptionFailed)?;
-        }
-        Cipher::Twofish => {
-            cbc::Encryptor::<twofish::Twofish>::new_from_slices(key, iv)
-                .map_err(|_| KdbxError::DecryptionFailed)?
-                .encrypt_padded_mut::<Pkcs7>(&mut buffer, plaintext_length)
-                .map_err(|_| KdbxError::DecryptionFailed)?;
-        }
+        Cipher::Aes256 => cbc_encrypt::<aes::Aes256>(key, iv, &mut buffer, plaintext_length)?,
+        Cipher::Twofish => cbc_encrypt::<twofish::Twofish>(key, iv, &mut buffer, plaintext_length)?,
         Cipher::ChaCha20 => ChaCha20::new_from_slices(key, iv)
-            .map_err(|_| KdbxError::DecryptionFailed)?
+            .map_err(|_| KdbxError::EncryptionFailed)?
             .apply_keystream(&mut buffer),
     }
     Ok(std::mem::take(&mut *buffer))
