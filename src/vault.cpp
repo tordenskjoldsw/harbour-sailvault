@@ -174,13 +174,15 @@ class CreateTask : public QRunnable
 {
 public:
     CreateTask(Vault *vault, std::shared_ptr<std::atomic_bool> cancelled, int attempt,
-               const QString &path, const QString &name, const QByteArray &password)
+               const QString &path, const QString &name, const QByteArray &password,
+               uint32_t kdfLevel)
         : m_vault(vault)
         , m_cancelled(std::move(cancelled))
         , m_attempt(attempt)
         , m_path(path)
         , m_name(name.toUtf8())
         , m_password(password)
+        , m_kdfLevel(kdfLevel)
     {
     }
 
@@ -199,8 +201,8 @@ public:
             reinterpret_cast<const uint8_t *>(m_password.constData()),
             static_cast<size_t>(m_password.size()),
             reinterpret_cast<const uint8_t *>(m_name.constData()),
-            static_cast<size_t>(m_name.size()), QDateTime::currentMSecsSinceEpoch() / 1000,
-            &database, &file);
+            static_cast<size_t>(m_name.size()), m_kdfLevel,
+            QDateTime::currentMSecsSinceEpoch() / 1000, &database, &file);
         secureWipe(m_password);
         QByteArray digest;
         if (status == SV_OK) {
@@ -231,6 +233,7 @@ private:
     QString m_path;
     QByteArray m_name;
     QByteArray m_password;
+    uint32_t m_kdfLevel;
 };
 
 Vault::Error errorFor(int status)
@@ -468,16 +471,19 @@ bool Vault::fileExists(const QString &path) const
     return QFileInfo::exists(path);
 }
 
-void Vault::createDatabase(int location, const QString &name, const QString &password)
+void Vault::createDatabase(int location, const QString &name, const QString &password,
+                           int kdfLevel)
 {
     const QString path = newDatabasePath(location, name);
-    if (m_state != Locked || path.isEmpty() || password.isEmpty())
+    if (m_state != Locked || path.isEmpty() || password.isEmpty()
+        || (kdfLevel != KdfStandard && kdfLevel != KdfHigh && kdfLevel != KdfMaximum))
         return;
     QByteArray passwordBytes = password.toUtf8();
     setError(NoError);
     setState(Unlocking);
     QThreadPool::globalInstance()->start(new CreateTask(this, m_unlockCancelled, ++m_attempt, path,
-                                                        name.trimmed(), passwordBytes));
+                                                        name.trimmed(), passwordBytes,
+                                                        static_cast<uint32_t>(kdfLevel)));
     secureWipe(passwordBytes);
 }
 

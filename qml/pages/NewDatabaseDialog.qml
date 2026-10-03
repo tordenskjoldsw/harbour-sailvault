@@ -8,14 +8,17 @@ import "../components"
 Dialog {
     id: dialog
 
-    // Long enough to rule out the weakest choices; the hint asks for more.
-    readonly property int minimumPasswordLength: 8
+    // NIST SP 800-63B rev. 4 asks for 15 characters when a password is the
+    // only factor, as the master password is here.
+    readonly property int minimumPasswordLength: 15
     readonly property string fileName: nameField.text.trim()
     readonly property int location: locationBox.currentIndex === 1 ? Vault.Downloads
                                                                     : Vault.Documents
     readonly property string path: vault.newDatabasePath(location, fileName)
     readonly property bool exists: path.length > 0 && vault.fileExists(path)
     property alias password: passwordField.text
+    readonly property int kdfLevel: [Vault.KdfStandard, Vault.KdfHigh,
+                                     Vault.KdfMaximum][kdfBox.currentIndex]
 
     canAccept: path.length > 0 && !exists
                && passwordField.text.length >= minimumPasswordLength
@@ -58,6 +61,18 @@ Dialog {
                 menu: ContextMenu {
                     MenuItem { text: qsTr("Documents") }
                     MenuItem { text: qsTr("Downloads") }
+                }
+            }
+
+            ComboBox {
+                id: kdfBox
+
+                label: qsTr("Protection")
+                description: qsTr("Higher levels make each guess of the master password cost an attacker more. The time applies to every unlock and save on this phone.")
+                menu: ContextMenu {
+                    MenuItem { text: qsTr("Standard (about 1 s)") }
+                    MenuItem { text: qsTr("High (about 2.5 s)") }
+                    MenuItem { text: qsTr("Maximum (about 5 s)") }
                 }
             }
 

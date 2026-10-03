@@ -39,7 +39,8 @@ Page {
         var dialog = pageStack.push(Qt.resolvedUrl("NewDatabaseDialog.qml"))
         dialog.accepted.connect(function() {
             page.creating = true
-            vault.createDatabase(dialog.location, dialog.fileName, dialog.password)
+            vault.createDatabase(dialog.location, dialog.fileName, dialog.password,
+                                 dialog.kdfLevel)
         })
     }
 

@@ -86,9 +86,19 @@ public:
     bool addImport(const SvImport *import, int &added, int &updated);
 
     Q_INVOKABLE void unlock(const QString &password);
+    // Key derivation levels of a new database, as SV_KDF_* in the core.
+    enum KdfLevel {
+        KdfStandard = SV_KDF_STANDARD,
+        KdfHigh = SV_KDF_HIGH,
+        KdfMaximum = SV_KDF_MAXIMUM
+    };
+    Q_ENUM(KdfLevel)
+
     // Creates an empty database file name.kdbx in location, protected by
-    // password, and unlocks it; an existing file is never replaced.
-    Q_INVOKABLE void createDatabase(int location, const QString &name, const QString &password);
+    // password with the key derivation kdfLevel, and unlocks it; an existing
+    // file is never replaced.
+    Q_INVOKABLE void createDatabase(int location, const QString &name, const QString &password,
+                                    int kdfLevel);
     // The path createDatabase would write, or empty for an invalid name.
     Q_INVOKABLE QString newDatabasePath(int location, const QString &name) const;
     Q_INVOKABLE bool fileExists(const QString &path) const;
