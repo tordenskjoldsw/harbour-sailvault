@@ -3,7 +3,7 @@ Name:       harbour-sailvault
 Summary:    Password manager for KeePass databases
 Version:    0.1.0
 Release:    1
-License:    TBD
+License:    MIT
 URL:        https://github.com/tordenskjoldsw/harbour-sailvault
 Source0:    %{name}-%{version}.tar.bz2
 Requires:   sailfishsilica-qt5 >= 0.10.9

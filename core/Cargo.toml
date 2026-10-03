@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 # The Rust toolchain in the SailfishOS-5.1.0.11 target is 1.75.
 rust-version = "1.75"
+license = "MIT"
 publish = false
 
 [lib]

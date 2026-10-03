@@ -490,7 +490,6 @@ for files changed on the phone.
     protected fields, attachment storage). Extra work, easier switch.
   - Recommendation: (a) now, (b) later as its own step. The 3.1 fixtures
     already exist for that.
-- License (must be compatible with any reference code that gets reused)
 - Convenience unlock after the MVP: none, PIN, or the Secrets Confirm dialog
 
 Proposed in review (2026-10-03), not decided:
@@ -509,6 +508,9 @@ Proposed in review (2026-10-03), not decided:
 
 Decided:
 
+- License (2026-10-03): MIT. No code from GPL projects such as KeePassXC is
+  reused, only documented behavior; every vendored crate has a permissive
+  license (MIT, Apache-2.0, BSD-3-Clause, Zlib, Unicode-3.0, Unlicense).
 - Harbour submission (2026-10-03): not right after Phase 3; the maintainer
   submits later.
 - Phase 4 order (2026-10-03): create entries, then edit and delete, then
