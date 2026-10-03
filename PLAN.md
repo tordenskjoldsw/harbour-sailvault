@@ -526,6 +526,12 @@ Proposed in review (2026-10-03), not decided:
 
 Decided:
 
+- New databases (2026-10-03): created in the app before the first Harbour
+  submission, like KeePassXC's wizard (KDBX 4.0, AES-256, its metadata and
+  root group) but with Argon2id, 256 MiB, 3 iterations and 4 lanes instead
+  of a benchmarked Argon2d: RFC 9106 recommends Argon2id, and the fixed
+  parameters take about 0.9 s on the Jolla Phone. Password only, at least
+  8 characters; key files stay in Phase 7.
 - License (2026-10-03): MIT. No code from GPL projects such as KeePassXC is
   reused, only documented behavior; every vendored crate has a permissive
   license (MIT, Apache-2.0, BSD-3-Clause, Zlib, Unicode-3.0, Unlicense).
