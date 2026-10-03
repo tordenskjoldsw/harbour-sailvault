@@ -10,7 +10,8 @@ enum DatabaseFileStatus {
     StatusFileUnreadable = -1,
     StatusTooLarge = -2,
     StatusFileUnwritable = -3,
-    StatusFileExists = -4
+    StatusFileExists = -4,
+    StatusFileChanged = -5
 };
 
 const qint64 MaxDatabaseBytes = 256 * 1024 * 1024;

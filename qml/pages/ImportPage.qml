@@ -27,6 +27,7 @@ Page {
         case Importer.WrongPassword: return qsTr("Wrong export password")
         case Importer.Corrupted: return qsTr("The export is damaged")
         case Importer.NotAdded: return qsTr("The entries could not be added to the database")
+        case Importer.FileChanged: return qsTr("The file changed while it was read. Select it again.")
         default: return ""
         }
     }

@@ -34,7 +34,9 @@ public:
         Corrupted,
         Unsupported,
         Locked,
-        NotAdded
+        NotAdded,
+        // The file is no longer the one that was inspected.
+        FileChanged
     };
     Q_ENUM(Status)
 

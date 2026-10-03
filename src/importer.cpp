@@ -30,6 +30,8 @@ Importer::Status statusFor(int status)
         return Importer::WrongPassword;
     case SV_UNSUPPORTED_FORMAT:
         return Importer::Unsupported;
+    case StatusFileChanged:
+        return Importer::FileChanged;
     default:
         return Importer::Corrupted;
     }
@@ -46,13 +48,13 @@ class ReadTask : public QRunnable
 {
 public:
     ReadTask(Importer *importer, std::shared_ptr<std::atomic_bool> cancelled, int attempt,
-             const QString &path, const QByteArray &password, bool hasPassword)
+             const QString &path, QByteArray password, int32_t kind)
         : m_importer(importer)
         , m_cancelled(std::move(cancelled))
         , m_attempt(attempt)
         , m_path(path)
-        , m_password(password)
-        , m_hasPassword(hasPassword)
+        , m_password(std::move(password))
+        , m_kind(kind)
         , m_groupName(GroupName)
     {
     }
@@ -67,10 +69,20 @@ public:
         SvImport *import = nullptr;
         QByteArray data;
         int status = readDatabaseFile(m_path, MaxExportBytes, data);
+        // The user decided on the kind shown from an earlier read. A file
+        // swapped since, such as a plain export instead of a protected one,
+        // is refused instead of imported without its warning.
+        int32_t kind = -1;
+        if (status == SV_OK)
+            status = sv_bitwarden_export_kind(bytePointer(data), static_cast<size_t>(data.size()),
+                                              &kind);
+        if (status == SV_OK && kind != m_kind)
+            status = StatusFileChanged;
         if (status == SV_OK) {
             status = sv_bitwarden_read(bytePointer(data), static_cast<size_t>(data.size()),
                                        bytePointer(m_password),
-                                       static_cast<size_t>(m_password.size()), m_hasPassword,
+                                       static_cast<size_t>(m_password.size()),
+                                       m_kind == SV_EXPORT_PASSWORD_PROTECTED,
                                        bytePointer(m_groupName),
                                        static_cast<size_t>(m_groupName.size()), &import);
         }
@@ -93,7 +105,7 @@ private:
     int m_attempt;
     QString m_path;
     QByteArray m_password;
-    bool m_hasPassword;
+    int32_t m_kind;
     QByteArray m_groupName;
 };
 
@@ -158,11 +170,11 @@ void Importer::start(const QString &path, const QString &password)
     m_path = path;
     m_unencrypted = kind == Unencrypted;
     m_removablePath.clear();
-    QByteArray passwordBytes = password.toUtf8();
     setBusy(true);
-    QThreadPool::globalInstance()->start(new ReadTask(this, m_cancelled, ++m_attempt, path,
-                                                      passwordBytes, !m_unencrypted));
-    secureWipe(passwordBytes);
+    // The task owns the only copy of the password bytes and wipes it.
+    QThreadPool::globalInstance()->start(new ReadTask(
+        this, m_cancelled, ++m_attempt, path, m_unencrypted ? QByteArray() : password.toUtf8(),
+        m_unencrypted ? SV_EXPORT_UNENCRYPTED : SV_EXPORT_PASSWORD_PROTECTED));
 }
 
 void Importer::onReadFinished(int attempt, int status, qulonglong handle)
