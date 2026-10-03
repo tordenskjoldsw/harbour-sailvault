@@ -99,7 +99,7 @@ bool backUp(const QString &databasePath, const QByteArray &current, const QStrin
 // small files such as key files. Only regular files are read: a FIFO
 // planted under a picked name would block, and O_NONBLOCK keeps the open
 // itself from blocking on one.
-int readDatabaseFile(const QString &path, qint64 maxBytes, QByteArray &out)
+int readBoundedFile(const QString &path, qint64 maxBytes, QByteArray &out)
 {
     const int fd = ::open(QFile::encodeName(path).constData(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
     if (fd < 0)
@@ -139,7 +139,7 @@ int writeDatabaseFile(const QString &path, const QByteArray &data, const QString
                       const QByteArray &expectedDigest, bool &replacedChangedFile)
 {
     QByteArray current;
-    const int status = readDatabaseFile(path, MaxDatabaseBytes, current);
+    const int status = readBoundedFile(path, MaxDatabaseBytes, current);
     if (status != SV_OK)
         return status;
     replacedChangedFile = fileDigest(current) != expectedDigest;

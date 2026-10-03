@@ -63,7 +63,7 @@ public:
     {
         SvImport *read = nullptr;
         QByteArray data;
-        int status = readDatabaseFile(m_path, MaxExportBytes, data);
+        int status = readBoundedFile(m_path, MaxExportBytes, data);
         // The user decided on the kind shown from an earlier read. A file
         // swapped since, such as a plain export instead of a protected one,
         // is refused instead of imported without its warning.
@@ -137,7 +137,7 @@ QString Importer::groupName() const
 int Importer::inspect(const QString &path) const
 {
     QByteArray data;
-    int status = readDatabaseFile(path, MaxExportBytes, data);
+    int status = readBoundedFile(path, MaxExportBytes, data);
     int32_t kind = SV_EXPORT_UNENCRYPTED;
     if (status == SV_OK)
         status = sv_bitwarden_export_kind(bytePointer(data), static_cast<size_t>(data.size()), &kind);

@@ -4,8 +4,8 @@
 #include <QByteArray>
 #include <QString>
 
-// File I/O for the database, used by the unlock and save tasks on pool
-// threads. Negative statuses complement the core's SV_* codes.
+// File I/O for databases, key files and exports, mostly on pool threads.
+// Negative statuses complement the core's SV_* codes.
 enum DatabaseFileStatus {
     StatusFileUnreadable = -1,
     StatusTooLarge = -2,
@@ -17,10 +17,10 @@ enum DatabaseFileStatus {
 const qint64 MaxDatabaseBytes = 256 * 1024 * 1024;
 const qint64 MaxKeyFileBytes = 1024 * 1024;
 
-// Reads at most the size seen at open time into one exact allocation, so a
-// file swapped while reading cannot grow the buffer and no partial copies
-// are left behind by reallocation.
-int readDatabaseFile(const QString &path, qint64 maxBytes, QByteArray &out);
+// Reads a regular file of at most maxBytes into one exact allocation of the
+// size seen at open time, so a file swapped while reading cannot grow the
+// buffer and no partial copies are left behind by reallocation.
+int readBoundedFile(const QString &path, qint64 maxBytes, QByteArray &out);
 
 QByteArray fileDigest(const QByteArray &data);
 

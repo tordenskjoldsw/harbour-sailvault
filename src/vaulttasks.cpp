@@ -56,12 +56,12 @@ void UnlockTask::run()
 int UnlockTask::open(SvDatabase **database, QByteArray &digest)
 {
     QByteArray data;
-    int status = readDatabaseFile(m_databasePath, MaxDatabaseBytes, data);
+    int status = readBoundedFile(m_databasePath, MaxDatabaseBytes, data);
     if (status != SV_OK)
         return status;
     QByteArray keyFile;
     if (!m_keyFilePath.isEmpty()) {
-        status = readDatabaseFile(m_keyFilePath, MaxKeyFileBytes, keyFile);
+        status = readBoundedFile(m_keyFilePath, MaxKeyFileBytes, keyFile);
         if (status != SV_OK)
             return status;
     }
