@@ -533,22 +533,22 @@ bool Vault::updateEntry(const QString &entryId, const QVariantMap &fields)
     return true;
 }
 
-bool Vault::deletesPermanently(const QString &entryId)
+bool Vault::deletesPermanently(const QString &itemId)
 {
-    const QByteArray uuid = entryUuid(entryId);
+    const QByteArray uuid = entryUuid(itemId);
     bool permanent = false;
     return !uuid.isEmpty() && database()
         && sv_database_delete_is_permanent(m_database, bytePointer(uuid), &permanent) == SV_OK
         && permanent;
 }
 
-bool Vault::deleteEntry(const QString &entryId)
+bool Vault::deleteItem(const QString &itemId)
 {
-    const QByteArray uuid = entryUuid(entryId);
+    const QByteArray uuid = entryUuid(itemId);
     if (m_saving || uuid.isEmpty() || !database())
         return false;
     bool permanent = false;
-    if (sv_database_delete_entry(m_database, bytePointer(uuid), unixSeconds(), &permanent) != SV_OK)
+    if (sv_database_delete_item(m_database, bytePointer(uuid), unixSeconds(), &permanent) != SV_OK)
         return false;
     commitChange();
     return true;

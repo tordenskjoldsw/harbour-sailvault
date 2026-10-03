@@ -73,7 +73,7 @@ Page {
                                     ? qsTr("Deleting permanently")
                                     : qsTr("Moving to the recycle bin"),
                                     function() {
-                                        if (vault.deleteEntry(page.entryId))
+                                        if (vault.deleteItem(page.entryId))
                                             pageStack.pop()
                                     })
                 }

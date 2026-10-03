@@ -67,7 +67,7 @@ Page {
             id: item
 
             contentHeight: Theme.itemSizeMedium
-            menu: model.isGroup ? null : entryMenu
+            menu: model.isGroup ? groupMenu : entryMenu
 
             onClicked: {
                 if (model.isGroup) {
@@ -117,6 +117,24 @@ Page {
             }
 
             Component {
+                id: groupMenu
+
+                ContextMenu {
+                    MenuItem {
+                        text: qsTr("Delete")
+                        enabled: !vault.saving
+                        onClicked: {
+                            var groupId = model.id
+                            item.remorseAction(vault.deletesPermanently(groupId)
+                                               ? qsTr("Deleting group permanently")
+                                               : qsTr("Moving group to the recycle bin"),
+                                               function() { vault.deleteItem(groupId) })
+                        }
+                    }
+                }
+            }
+
+            Component {
                 id: entryMenu
 
                 ContextMenu {
@@ -134,7 +152,7 @@ Page {
                             item.remorseAction(vault.deletesPermanently(entryId)
                                                ? qsTr("Deleting permanently")
                                                : qsTr("Moving to the recycle bin"),
-                                               function() { vault.deleteEntry(entryId) })
+                                               function() { vault.deleteItem(entryId) })
                         }
                     }
                     MenuItem {

@@ -84,10 +84,11 @@ public:
     // group. Each change starts a save.
     Q_INVOKABLE bool addEntry(const QString &groupId, const QVariantMap &fields);
     Q_INVOKABLE bool updateEntry(const QString &entryId, const QVariantMap &fields);
-    // True when deleteEntry would remove the entry for good instead of
-    // moving it to the recycle bin.
-    Q_INVOKABLE bool deletesPermanently(const QString &entryId);
-    Q_INVOKABLE bool deleteEntry(const QString &entryId);
+    // True when deleteItem would remove the entry or group for good instead
+    // of moving it to the recycle bin.
+    Q_INVOKABLE bool deletesPermanently(const QString &itemId);
+    // Deletes an entry, or a group with everything in it.
+    Q_INVOKABLE bool deleteItem(const QString &itemId);
     Q_INVOKABLE void save();
     Q_INVOKABLE QString generatePassword(int length, bool lower, bool upper, bool digits,
                                          bool symbols) const;
