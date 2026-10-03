@@ -157,8 +157,10 @@ int writeDatabaseFile(const QString &path, const QByteArray &data, const QString
         QFile::remove(tempPath);
         return StatusFileUnwritable;
     }
-    if (!syncDirectory(QFileInfo(path).absolutePath()))
-        return StatusFileUnwritable;
+    // The file holds the new content once renamed. A failed directory sync
+    // only leaves the rename less durable; reporting a failure would keep
+    // the old digest and flag the next save as a change by another program.
+    syncDirectory(QFileInfo(path).absolutePath());
     return SV_OK;
 }
 
@@ -169,14 +171,16 @@ int createDatabaseFile(const QString &path, const QByteArray &data)
         return StatusFileExists;
     const QString tempPath = path + QStringLiteral(".sailvault-tmp");
     const QByteArray tempName = QFile::encodeName(tempPath);
-    if (!writeTemporary(tempPath, S_IRUSR | S_IWUSR, data))
+    if (!writeTemporary(tempPath, S_IRUSR | S_IWUSR, data)) {
+        ::unlink(tempName.constData());
         return StatusFileUnwritable;
+    }
     const int linked = ::link(tempName.constData(), name.constData());
     const int linkError = errno;
     ::unlink(tempName.constData());
     if (linked != 0)
         return linkError == EEXIST ? StatusFileExists : StatusFileUnwritable;
-    if (!syncDirectory(QFileInfo(path).absolutePath()))
-        return StatusFileUnwritable;
+    // As after a rename: the file exists now, and a retry would only find it.
+    syncDirectory(QFileInfo(path).absolutePath());
     return SV_OK;
 }
