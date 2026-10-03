@@ -1,6 +1,8 @@
 # SailVault - Project Plan
 
-Status: 2026-10-03 - direction changed from a Bitwarden client to a KeePass
+Status: 2026-10-03 - Phase 3 (read-only MVP) complete; next: Harbour
+submission or Phase 4, see "Proposed in review" in section 14.
+Earlier on 2026-10-03: direction changed from a Bitwarden client to a KeePass
 (KDBX4) password manager with Bitwarden import. Phase 1 (device spike) is
 complete and carries over. The cleanup of the Bitwarden server client is
 done and Phase 2 (KDBX4 read core) has started.
@@ -271,7 +273,7 @@ Result (2026-10-03, host only):
   million without; opening without the KDF takes 2 ms. Details in
   `docs/spike-results.md`
 
-### Phase 3 - Read-only MVP
+### Phase 3 - Read-only MVP (complete)
 
 - Open a local KDBX file (picked from Documents or Downloads), unlock,
   auto-lock
@@ -304,8 +306,12 @@ Measured: cold start to the unlock page 557 ms (median, target < 1 s); with
 1000 entries the core opens the database in 33 ms after the KDF and searches
 in about 2 ms (target: list < 0.5 s after key derivation). Details in
 `docs/spike-results.md`. Threat model written (`docs/threat-model.md`).
-Not yet verified on the device: auto-lock after 1 minute in the background
-and 5 minutes idle, cover action, landscape.
+Also verified on the device: auto-lock after 1 minute in the background with
+"Locked automatically" on the unlock page, lock from the pulley menu and
+the cover action, landscape. The 5-minute idle lock in the foreground uses
+the same mechanism and was not tested separately.
+
+Phase 3 is complete (2026-10-03).
 
 Auto-lock defaults: 5 minutes idle in the foreground, 1 minute in the
 background (another app or display off), manual lock from the pulley menu
