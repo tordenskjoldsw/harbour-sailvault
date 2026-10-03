@@ -14,6 +14,7 @@ namespace {
 
 // The core refuses larger exports; reading stops here already.
 const qint64 MaxExportBytes = 32 * 1024 * 1024;
+const char GroupName[] = "Bitwarden import";
 
 Importer::Status statusFor(int status)
 {
@@ -45,15 +46,14 @@ class ReadTask : public QRunnable
 {
 public:
     ReadTask(Importer *importer, std::shared_ptr<std::atomic_bool> cancelled, int attempt,
-             const QString &path, const QByteArray &password, bool hasPassword,
-             const QString &groupName)
+             const QString &path, const QByteArray &password, bool hasPassword)
         : m_importer(importer)
         , m_cancelled(std::move(cancelled))
         , m_attempt(attempt)
         , m_path(path)
         , m_password(password)
         , m_hasPassword(hasPassword)
-        , m_groupName(groupName.toUtf8())
+        , m_groupName(GroupName)
     {
     }
 
@@ -121,6 +121,11 @@ bool Importer::busy() const
     return m_busy;
 }
 
+QString Importer::groupName() const
+{
+    return QString::fromUtf8(GroupName);
+}
+
 int Importer::inspect(const QString &path) const
 {
     QByteArray data;
@@ -141,7 +146,7 @@ int Importer::inspect(const QString &path) const
     }
 }
 
-void Importer::start(const QString &path, const QString &password, const QString &groupName)
+void Importer::start(const QString &path, const QString &password)
 {
     if (m_busy || m_vault->state() != Vault::Unlocked)
         return;
@@ -156,7 +161,7 @@ void Importer::start(const QString &path, const QString &password, const QString
     QByteArray passwordBytes = password.toUtf8();
     setBusy(true);
     QThreadPool::globalInstance()->start(new ReadTask(this, m_cancelled, ++m_attempt, path,
-                                                      passwordBytes, !m_unencrypted, groupName));
+                                                      passwordBytes, !m_unencrypted));
     secureWipe(passwordBytes);
 }
 

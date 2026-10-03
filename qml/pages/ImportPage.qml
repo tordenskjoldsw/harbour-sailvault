@@ -3,9 +3,9 @@ import Sailfish.Silica 1.0
 import harbour.sailvault 1.0
 import "../components"
 
-// Imports the Bitwarden/Vaultwarden export at path into the group "Bitwarden
-// import", merging with an earlier import, and offers to delete an
-// unencrypted export afterwards.
+// Imports the Bitwarden/Vaultwarden export at path into the import group,
+// merging with an earlier import, and offers to delete an unencrypted export
+// afterwards.
 Page {
     id: page
 
@@ -43,7 +43,7 @@ Page {
     function startImport() {
         if (!importer.busy && (kind === Importer.Unencrypted || passwordField.text.length > 0)) {
             error = -1
-            importer.start(path, passwordField.text, qsTr("Bitwarden import"))
+            importer.start(path, passwordField.text)
             passwordField.text = ""
         }
     }
@@ -91,9 +91,9 @@ Page {
                         return page.resultText + ". "
                                 + qsTr("The export file is not encrypted: anyone who can read it can read every password in it.")
                     if (page.kind === Importer.Unencrypted)
-                        return qsTr("This export is not encrypted. The entries go into the group \"Bitwarden import\"; an earlier import there is updated. You can delete the file afterwards.")
+                        return qsTr("This export is not encrypted. The entries go into the group \"%1\"; an earlier import there is updated. You can delete the file afterwards.").arg(importer.groupName)
                     if (page.kind === Importer.PasswordProtected)
-                        return qsTr("Enter the password chosen for this export. The entries go into the group \"Bitwarden import\"; an earlier import there is updated.")
+                        return qsTr("Enter the password chosen for this export. The entries go into the group \"%1\"; an earlier import there is updated.").arg(importer.groupName)
                     return page.statusText(page.kind)
                 }
             }

@@ -19,6 +19,7 @@ class Importer : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    Q_PROPERTY(QString groupName READ groupName CONSTANT)
 
 public:
     // The first three are export kinds from inspect(); the rest are errors.
@@ -41,11 +42,14 @@ public:
     ~Importer() override;
 
     bool busy() const;
+    // The group in the root group that imports go into. Not translated: a
+    // later import finds it by this name.
+    QString groupName() const;
 
     // Reads only the top level, so the UI can ask for a password or warn
     // about a plain file first.
     Q_INVOKABLE int inspect(const QString &path) const;
-    Q_INVOKABLE void start(const QString &path, const QString &password, const QString &groupName);
+    Q_INVOKABLE void start(const QString &path, const QString &password);
     // Deletes the last unencrypted export that was imported successfully;
     // no other file can be deleted this way.
     Q_INVOKABLE bool removeImportedFile();
