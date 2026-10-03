@@ -402,9 +402,11 @@ remorse popup.
 
 Part C - Bitwarden/Vaultwarden import:
 
-1. Moving entries between groups (KeePassXC's `Entry::setGroup`), so
-   imported entries can be sorted on the phone; moving out of the recycle
-   bin restores an entry
+1. Creating groups and moving entries between them (KeePassXC's
+   `KdbxXmlWriter::writeGroup` layout and `Entry::setGroup`), so imported
+   entries can be sorted on the phone; moving out of the recycle bin
+   restores an entry. As in KeePassXC, nothing new is added inside the
+   recycle bin
 2. JSON parsing in the core with bounds on size, item count and depth
 3. Mapping to KDBX as in KeePassXC's `BitwardenReader.cpp` (section 9);
    item types KeePassXC does not map (SSH key, bank account, driver's
@@ -498,7 +500,8 @@ Decided:
   the Bitwarden import.
 - Import target (2026-10-03): the open database, under a new group.
   Creating a database is a separate feature (KDF settings, credentials,
-  file location). Entries can be moved between groups to sort the import.
+  file location). Groups can be created and entries moved between them to
+  sort the import.
 - Import scope (2026-10-03): JSON exports, unencrypted and
   password-protected; the zip export with attachments comes later. Item
   types without a KeePassXC mapping keep all fields as custom attributes.
