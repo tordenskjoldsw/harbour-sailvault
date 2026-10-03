@@ -242,5 +242,5 @@ network requests.
 
 ## Reporting
 
-Security issues: open a private report on the repository host. A dedicated
-contact is added before the repository goes public.
+See [SECURITY.md](../SECURITY.md): a private report on GitHub, or email
+to sailvault-security@mailbox.org.
