@@ -68,6 +68,13 @@ pub struct SvString {
     pub length: usize,
 }
 
+impl SvString {
+    const EMPTY: Self = Self {
+        data: std::ptr::null_mut(),
+        length: 0,
+    };
+}
+
 /// A serialized database file.
 #[repr(C)]
 pub struct SvBytes {
@@ -585,6 +592,7 @@ pub unsafe extern "C" fn sv_list_text(
     let (Some(list), Some(out)) = (list.as_ref(), out.as_mut()) else {
         return SV_INVALID_ARGUMENT;
     };
+    *out = SvString::EMPTY;
     let Some(item) = list.items.get(index) else {
         return SV_NOT_FOUND;
     };
@@ -664,6 +672,7 @@ pub unsafe extern "C" fn sv_field_list_key(
     let (Some(fields), Some(out)) = (fields.as_ref(), out.as_mut()) else {
         return SV_INVALID_ARGUMENT;
     };
+    *out = SvString::EMPTY;
     match fields.fields.get(index) {
         Some(field) => {
             *out = into_sv_string(&field.key);
@@ -718,6 +727,7 @@ pub unsafe extern "C" fn sv_database_field_value(
     let (Some(database), Some(out)) = (database.as_ref(), out.as_mut()) else {
         return SV_INVALID_ARGUMENT;
     };
+    *out = SvString::EMPTY;
     let (Some(uuid), Some(key)) = (
         read_uuid(entry_uuid),
         bytes(key, key_length).and_then(|k| std::str::from_utf8(k).ok()),
@@ -1236,10 +1246,7 @@ pub unsafe extern "C" fn sv_generate_password(
     let Some(out) = out.as_mut() else {
         return SV_INVALID_ARGUMENT;
     };
-    *out = SvString {
-        data: std::ptr::null_mut(),
-        length: 0,
-    };
+    *out = SvString::EMPTY;
     let classes = CharacterClasses {
         lower: classes & SV_CLASS_LOWER != 0,
         upper: classes & SV_CLASS_UPPER != 0,
