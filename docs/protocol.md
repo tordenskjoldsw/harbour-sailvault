@@ -1,5 +1,10 @@
 # Bitwarden protocol notes
 
+Status: the Bitwarden client direction was shelved on 2026-10-03 (`PLAN.md`
+section 14). The key derivation and EncString sections remain relevant for
+importing password-protected Bitwarden exports; the server protocol sections
+are kept for reference only.
+
 Verified on 2026-10-03 against source code, not against documentation:
 
 - Vaultwarden tag `1.37.3` (`vw/`), the server version of the test instance

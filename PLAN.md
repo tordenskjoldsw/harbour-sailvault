@@ -1,13 +1,16 @@
 # SailVault - Project Plan
 
-Status: 2026-10-03 - Phase 1 (device spike) complete. Fingerprint unlock
-dropped (see section 6); the vault unlocks with the master password.
-Next step: Phase 2 (core).
+Status: 2026-10-03 - direction changed from a Bitwarden client to a KeePass
+(KDBX4) password manager with Bitwarden import. Phase 1 (device spike) is
+complete and carries over.
+Next step: Phase 2 (KDBX4 read core).
 
 ## 1. Goal
 
-A native, open-source Bitwarden/Vaultwarden client for Sailfish OS that is
-published in the Jolla Harbour store.
+A native, open-source password manager for Sailfish OS, published in the
+Jolla Harbour store. The phone holds the primary database as a standard
+KeePass KDBX4 file, which KeePassXC on a PC opens through Nextcloud sync.
+Users of Bitwarden or Vaultwarden switch by importing an export.
 
 - Package name: `harbour-sailvault`
 - Primary target: Jolla Phone (2026), aarch64, Sailfish OS 5.2
@@ -18,63 +21,63 @@ published in the Jolla Harbour store.
 | # | Criterion | Measured by |
 |---|-----------|-------------|
 | 1 | In Harbour | RPM passes the Harbour validator in CI and Jolla QA accepts it |
-| 2 | Secure master password unlock | Vault unlocks with the master password; the KDF runs in the Rust core off the UI thread; key material only in RAM and zeroized on lock; auto-lock on timeout and device lock |
-| 3 | Fast cold start | Unlock page visible < 1 s after tap; item list visible < 0.5 s after the master key is derived; KDF duration measured and reported separately; measured with 1000 items, offline |
-| 4 | Native UI | Silica components only; passes the Sailfish UI "Definition of Done" checklist |
+| 2 | Secure unlock | Database unlocks with master password and optional key file; KDF runs in the Rust core off the UI thread; key material only in RAM and zeroized on lock; auto-lock on timeout and device lock |
+| 3 | Lossless KeePassXC round trip | A file written by KeePassXC, opened, edited and saved by SailVault, and reopened by KeePassXC loses nothing: entries, history, attachments, custom data, unknown XML, KDBX minor version |
+| 4 | No data loss on sync | Concurrent edits on phone and PC merge like KeePassXC; the phone never overwrites a changed remote file without merging |
+| 5 | Fast cold start | Unlock page visible < 1 s after tap; entry list visible < 0.5 s after key derivation with 1000 entries; KDF time measured separately |
+| 6 | Native UI | Silica components only; passes the Sailfish UI "Definition of Done" checklist |
 
 Baseline (Phase 1): the empty app reaches its first frame about 400 ms after
 a direct launch on the Jolla Phone, leaving about 600 ms for the unlock page.
-The list target is first checked against real data in Phase 2. Measure with
-`tools/measure-startup.sh`.
+Measure with `tools/measure-startup.sh`.
 
 ## 3. Positioning (as of 2026-10)
-
-| Client | State | Weak spot |
-|--------|-------|-----------|
-| BitSailor | Open source, rewritten on a native Go core (v1.0.0, July 2026), listed in Harbour news (Sept 2026), fingerprint via polkit, only in the OpenRepos build (not allowed in Harbour), very frequent releases | Unknown from first-hand testing - to be found by daily use |
-| SailWarden | Broad feature set (organizations, Send, SSO, device login, biometrics) | Closed source, OpenRepos only, Android-like UI, low community trust |
 
 Guiding principle: security is never traded for features. A convenience
 feature that weakens the security model is not built, or only as an explicit,
 documented opt-in.
 
-SailVault does not compete on feature breadth in the first year. It competes on:
+KeePass on Sailfish (research 2026-10-03, not tested first-hand):
 
-- **Trust**: open source from day one, documented threat model, reproducible CI builds
-- **Security architecture**: Rust core, keys only in RAM and zeroized, no key material at rest outside the server's encrypted data
-- **Offline and speed**: vault fully readable without network, fast cold start with large vaults
-- **Sailfish-native UX**: built to Silica conventions, not ported from another platform
+| App | State | Gap |
+|-----|-------|-----|
+| ownKeepass 1.2.6 (Harbour) | Released 2019, upstream archived, armv7hl/i486 only | No aarch64 build, unmaintained |
+| ownKeepass 2.x (Chum) | Active fork, KDBX4, TOTP since 2026-09 | `Sandboxing=Disabled`, shared libsodium/libargon2: not Harbour-compliant; no built-in sync |
+| KeePassRX (OpenRepos) | First release 2026-08, KDBX 1-4, key files, TOTP | Read-only; AGPL; Harbour status unknown |
 
-Action item: use BitSailor and SailWarden daily for one week and log every
-annoyance. That list extends the differentiation backlog below.
+No sandboxed app in Harbour can write KDBX4 today. Bitwarden clients
+(BitSailor, SailWarden) need a server and, in their Harbour builds, have no
+fingerprint unlock either.
 
-### Differentiation backlog (desk research, 2026-10-03)
+SailVault competes on:
 
-Sources: BitSailor source (v1.9.3, commit eb3d91a), its GitHub issues and
-forum thread; SailWarden forum thread and OpenRepos page. Not tested
-first-hand. Neither competitor has fingerprint unlock in its Harbour build.
+- **Harbour-native KeePass**: sandboxed, aarch64, writes KDBX4 losslessly
+- **Easy switch**: import from Bitwarden/Vaultwarden exports
+- **Sync without a server product**: KDBX file on the user's Nextcloud, merged like KeePassXC
+- **Trust**: open source, documented threat model, no network except the user's own Nextcloud
+- **Sailfish-native UX**: Silica conventions, not ported from another platform
 
-| # | Gap | Competitor evidence | SailVault answer | Phase |
-|---|-----|---------------------|------------------|-------|
-| 1 | Decrypted data in the UI layer | BitSailor passes the whole decrypted vault, passwords included, to QML/JS as JSON | Plaintext stays in the Rust core; QML gets list names and only the field being shown | 3 |
-| 2 | Weak lock model | BitSailor: key in a DeviceLockKeepUnlocked collection, PIN is only a UI check, no idle lock | Master password KDF on every unlock; idle and device-lock auto-lock; key zeroized | 3 |
-| 3 | Clipboard leaks | BitSailor clears only some fields, via a QML timer that dies with the app | Every copied field clears; timer in C++, clipboard cleared on lock and exit | 3 |
-| 4 | Login failures | BitSailor: HTTP 400 on login is the top complaint, no email 2FA | Clear error messages, API key login, email 2FA early | 2-3 |
-| 5 | Slow large vaults | SailWarden: 1500 items sat on "Please Wait", search froze per keystroke | Search index in Rust, C++ list model, lazy decryption, measured with 1000+ items | 2-3 |
-| 6 | Non-native navigation | Both use Android-style tab bars and custom toasts | Pulley menus and page stack only, search always visible, system notices | 3 |
-| 7 | Missing organization | BitSailor has no folders, favorites, collections or attachments in the UI | Read-only folders, favorites and collections as list filters | 3 |
-| 8 | Missing item types | BitSailor: no SSH key view, identities cannot be created | All item types readable from the first release | 3 |
-| 9 | Secrets daemon fragility | Both suffer from Secrets prompt loops and daemon failures | No Secrets dependency at all | done |
-| 10 | Logs and trust | BitSailor writes a warnings log to disk; SailWarden is closed source, machine-translated, reports itself as "Android" | No log files; open source, threat model, human translations, honest client identity | 3-6 |
+Lessons from the Bitwarden clients (desk research 2026-10-03), still valid:
+
+| Gap seen elsewhere | SailVault answer |
+|--------------------|------------------|
+| Whole decrypted vault passed to QML/JS (BitSailor) | Plaintext stays in the Rust core; QML gets list titles and only the field being shown |
+| PIN as UI check only, no idle lock (BitSailor) | Real KDF on every unlock; idle and device-lock auto-lock; keys zeroized |
+| Clipboard cleared for some fields, timer dies with the app (BitSailor) | Every copied field clears; timer in C++; cleared on lock and exit |
+| Slow with large vaults (SailWarden) | Search in Rust, C++ list model, measured with 1000+ entries |
+| Android-style tab bars, custom toasts (both) | Pulley menus, page stack, system notices |
+| Log files on disk (BitSailor) | No log files |
 
 ## 4. Non-goals
 
 - Autofill into other apps or the browser (no Sailfish API, no daemons allowed in Harbour)
-- Passkey provider
-- Android AppSupport integration
-- Chasing feature parity before the MVP is in Harbour
+- Background or scheduled sync (Harbour allows no background services)
+- Bitwarden/Vaultwarden server sync (import only)
+- KDBX 3.x writing; KeePass 1.x (KDB) files
+- YubiKey challenge-response unlock (no practical path on the phone)
+- Passkey provider; Android AppSupport integration
 
-## 5. Architecture (proposed, to be validated in Phase 1)
+## 5. Architecture
 
 ```
 +--------------------------------------------------+
@@ -82,189 +85,186 @@ first-hand. Neither competitor has fingerprint unlock in its Harbour build.
 +--------------------------------------------------+
 | C++ bridge (Qt 5.6)                              |
 |  - QObject models exposed to QML                 |
-|  - HTTP via QNetworkAccessManager                |
-|  - live sync via QtWebSockets                    |
+|  - file I/O: atomic save, backups                |
+|  - WebDAV to Nextcloud via QNetworkAccessManager |
+|  - Nextcloud app password via Sailfish Secrets   |
 +--------------------------------------------------+
 | Rust core (static lib, C FFI, no I/O)            |
-|  - KDF, EncString, RSA, data model, search       |
+|  - KDBX4 codec: KDFs, ciphers, HMAC blocks, XML  |
+|  - lossless entry model, history, merge          |
+|  - Bitwarden export import, TOTP, search         |
 +--------------------------------------------------+
 ```
 
 | Decision | Rationale |
 |----------|-----------|
-| Rust core as static library | Memory safety for crypto code, `zeroize` for key material, links into the binary so the validator only sees allowed system libs |
-| Core does no I/O | No TLS stack to bundle, core is unit-testable on the host, all network goes through Qt |
-| No Python / PyOtherSide | Allowed in Harbour, but native crypto modules (for example Argon2) would have to be bundled; slower start |
-| Offline cache = raw encrypted sync response | Server data is already encrypted with the user key, so no own at-rest crypto is needed |
-| Own protocol implementation, RustCrypto crates | No dependency on Bitwarden's internal SDK; no hand-rolled primitives |
+| Rust core as static library | Memory safety for parsing and crypto, `zeroize`, links into the binary so the validator only sees allowed system libs |
+| Core does no I/O | Unit-testable on the host; the C++ layer owns files and network |
+| Own KDBX4 codec on audited primitives | `keepass` crate: only 0.7.17 builds with Rust 1.75 and it drops attachments on save; newer releases need Rust 1.85+ and still drop unknown XML, force KDBX 4.1 and have an unstable merge |
+| Lossless XML model | Unknown elements and attributes are kept and written back; required for criterion 3 |
+| KDBX file as the only storage | Standard format, readable by KeePassXC, the file is the backup |
 
 ## 6. Unlock design
 
-Decision (2026-10-03): the vault unlocks with the master password only.
+1. The master password (and optional key file) form the KDBX composite key.
+2. The KDF from the file header (AES-KDF, Argon2d, Argon2id) runs in the Rust
+   core on a worker thread, with progress in the UI.
+3. On lock, all key material and decrypted data are zeroized.
 
-1. The master password and the account's KDF settings (PBKDF2-SHA256 or
-   Argon2id) derive the master key in the Rust core, off the UI thread.
-2. The master key decrypts the user key, which decrypts the local cache.
-3. On lock, all key material is zeroized. Nothing is stored that would
-   allow unlocking without the master password.
-4. Session tokens: the access token lives only in RAM. The refresh token is
-   stored in the app data directory, encrypted by the Rust core with the
-   user key (the same EncString scheme the server uses). Without the master
-   password it is unusable, so syncing and refreshing require an unlocked
-   vault. No Sailfish Secrets dependency.
+Fingerprint: not reachable from a Harbour app. The Phase 1 spike showed that
+Sailfish Secrets only offers a Confirm dialog for DeviceLock collections on
+the Jolla Phone; direct access to the fingerprint daemon or polkit is not
+allowed in Harbour. Details: `docs/spike-results.md`. A convenience unlock
+may be reconsidered after the MVP (section 12).
 
-Why no fingerprint: the Phase 1 spike showed that Sailfish Secrets, the only
-Harbour-allowed route, shows a plain Confirm dialog for DeviceLock
-collections on the Jolla Phone, without fingerprint or security code. Direct
-access to the fingerprint daemon or polkit is not allowed in Harbour.
-Details: `docs/spike-results.md`.
+## 7. Data safety design
 
-A convenience unlock (PIN or the Secrets Confirm dialog) may be reconsidered
-after the MVP; see section 12.
+The phone holds the primary copy, so a writer bug can destroy real data.
 
-## 7. Cold start design
+- Save atomically: write a temporary file, verify it, then rename
+- Verify every save by decrypting the written file and comparing the model
+- Keep rotating backups of previous versions in the app data directory
+- Every edit pushes the previous state into entry history and updates
+  `LastModificationTime`; deletes go to the recycle bin by default
+- Hard deletes write `DeletedObjects`; moves set `LocationChanged`
+- Write back the KDBX minor version that was read (4.0 or 4.1)
 
-- UI first, network later: always start from the local encrypted cache, sync in the background
-- First screen is the unlock page only; every other page loads lazily (Qt 5.6 has no QML disk cache)
-- Use the Silica booster (allowed in Harbour)
-- Decrypt lazily: names for the list first, full item on open; parallel in the Rust core
-- KDF runs in the Rust core on a worker thread; the UI shows progress
-- Measure on every release: tap to unlock page, authentication to list
+## 8. Sync design
 
-## 8. Harbour constraints
+- The app syncs the KDBX file with Nextcloud over WebDAV itself, only while
+  it runs: on open, after save, and on pull-down
+- Conditional requests: download with ETag, upload with `If-Match`
+- If the remote file changed, download it, merge (UUID, then
+  `LastModificationTime`, history union, `LocationChanged`, apply
+  `DeletedObjects`), save locally, then upload
+- The Nextcloud app password (scoped, revocable) is stored in Sailfish Secrets
+- Known limit: KeePassXC's default merge ignores deletions, so a phone-side
+  hard delete can return if the PC merges an older in-memory copy; the
+  recycle bin default avoids this
+
+## 9. Import design
+
+- Bitwarden/Vaultwarden JSON, unencrypted and password-protected (PBKDF2 or
+  Argon2id, HKDF, EncString type 2; reuses the existing crypto core)
+- Account-restricted encrypted exports cannot be decrypted offline and are
+  rejected with a clear message
+- Field mapping follows KeePassXC's Bitwarden importer, so imported files
+  look the same as files imported in KeePassXC
+- Unencrypted import files: warn, and offer to delete the file after import
+
+## 10. Harbour constraints
 
 - Name prefix `harbour-`, everything except binary, desktop file and icons under `/usr/share/harbour-sailvault`
-- Only libraries and QML imports from the Harbour allowlist; anything else is statically linked or bundled privately
-- Sailjail profile with minimal permissions (expected: Internet only)
+- Only libraries and QML imports from the Harbour allowlist; anything else is statically linked
+- Sailjail permissions, minimal, each added with a reason: expected Internet
+  (Nextcloud), Secrets (Nextcloud app password), Downloads or Documents
+  (import and export files)
 - No daemons, no systemd units, no D-Bus services outside the app's own namespace
-- Validator runs in CI on every build
-- No "Bitwarden" in app name or icon; clearly marked as unofficial
+- Validator runs on every build
+- No "KeePass" or "Bitwarden" in the app name or icon; marked as an independent app
 
-## 9. Phases
+## 11. Phases
 
-### Phase 1 - Device spike (hard gate)
+### Phase 1 - Device spike (complete)
 
-- Minimal Silica app that stores a random 32-byte secret in Sailfish Secrets and reads it back behind system authentication (done: works, but only a Confirm dialog)
-- Confirm on the Jolla Phone that the dialog accepts fingerprint; document the exact API configuration (done: no fingerprint; gate failed, fingerprint dropped)
-- Rust static library ("hello") linked into the app via sfdk for aarch64
-- Record the Rust toolchain version of the build target; check it against the minimum versions of the planned crates
-- Run the Harbour validator on the RPM
-- Measure cold start of the empty app as baseline
+Results in `docs/spike-results.md`: SDK and target set up, Rust 1.75 static
+library linked and running on the Jolla Phone (5.2.0.18), Harbour validator
+passes, fingerprint not available to Harbour apps, cold start baseline about
+400 ms.
 
-Exit: all of the above works on the device; results written to `docs/spike-results.md`.
+### Phase 2 - KDBX4 read core
 
-### Phase 2 - Core
+- Outer header, VariantDictionary, KDFs (AES-KDF, Argon2d, Argon2id),
+  ciphers (AES-256-CBC, ChaCha20, Twofish), HMAC block stream, gzip
+- Composite key: password and key files (XML v1/v2, 32-byte, hex, hashed)
+- Inner header, protected values, attachments
+- Lossless XML model; entries, groups, history, meta, deleted objects
+- Tests against databases generated with `keepassxc-cli` and with
+  independently generated vectors
 
-- Prelogin, KDF (PBKDF2-SHA256 and Argon2id), key stretching, EncString decryption, RSA for organization keys
-- Login with master password, API key, and TOTP or email as second factor; token refresh
-- Sync and data model
-- Test vectors against Vaultwarden and the official Bitwarden cloud
-
-Work order (verified protocol details: `docs/protocol.md`):
-
-1. Crypto: KDF (PBKDF2, Argon2id), stretching, EncString types 0 and 2, RSA
-   types 3 and 4; independently generated test vectors
-2. Data model and sync parsing: all cipher types, folders, favorites,
-   collections, organization and cipher keys; lazy field decryption
-3. Login logic as pure functions (request building, response parsing):
-   password, API key, TOTP 2FA, refresh; the C++ layer does the HTTP
-4. `tools/` script records an encrypted sync response of the test account
-   (emails and tokens removed); offline tests decrypt it
-5. Search index, tested with 1000+ items
-
-Out of scope for Phase 2: V2 accounts (COSE, EncString type 7) get a clear
-"not supported" error; email 2FA waits for a test mail server.
-
-Exit: host-side test suite decrypts a real synced test vault. Verify every
-protocol detail against the Bitwarden Security Whitepaper and the Vaultwarden
-source, not against this summary.
+Exit: the core opens every test database created with KeePassXC and exposes
+all entries; nothing unknown is dropped from the model.
 
 ### Phase 3 - Read-only MVP
 
-- Login, unlock with master password, auto-lock
-- List, search, item detail, copy with clipboard timeout, TOTP codes
-- All item types readable; folders, favorites and collections as read-only list filters
-- Offline cache, background sync
+- Open a local KDBX file, unlock, auto-lock
+- List, search, entry detail, copy with clipboard timeout, TOTP
+- Groups and tags as navigation and filters
 - Cover with lock state
 
-Exit: usable as the daily read-only client on the Jolla Phone; criteria 2, 3 and 4 measured and met.
+Exit: usable as a daily read-only KeePass app on the Jolla Phone; criteria 2,
+5 and 6 measured and met.
 
-### Phase 4 - Early Harbour submission
+### Phase 4 - Write and import
 
-- Submit the MVP; fix QA findings before growing the feature set
+- KDBX4 writer, round trip against KeePassXC (criterion 3)
+- Create, edit, delete (recycle bin, remorse), history, password generator
+- Data safety design (section 7)
+- Bitwarden/Vaultwarden import into a new or existing database
 
-Exit: criterion 1 met.
+### Phase 5 - Nextcloud sync
 
-### Phase 5 - Write support and parity
+- WebDAV client, ETag handling, KeePassXC-equivalent merge (criterion 4)
 
-- Create, edit, delete (with remorse), editing folders and favorites, trash
-- Organization and collection management, attachments, Send, generator
-- Further second factors (Duo, YubiKey OTP, FIDO2)
+### Phase 6 - Harbour submission
 
-### Phase 6 - Differentiation
+- Submit; fix QA findings before growing the feature set (criterion 1)
 
-- Multiple accounts, live sync via WebSocket
-- Performance work for large vaults
+### Phase 7 - Differentiation
+
+- Attachments UI, key file management, multiple databases
 - Published threat model, reproducible CI builds, signed releases
 - Translations
-- Items from the differentiation backlog (section 3)
 
-## 10. Security principles
+## 12. Security principles
 
-- Key material lives only in RAM, in the Rust core, and is zeroized on lock
+- Key material and decrypted data live only in RAM, in the Rust core, and are zeroized on lock
 - No plaintext secret is ever written to disk or to logs
 - Crypto only through audited crates, never hand-rolled primitives
+- Untrusted input (KDBX files, imports, server responses) has strict bounds:
+  KDF parameters, sizes, nesting depth
 - Auto-lock on timeout and on device lock; clipboard is cleared after a timeout
 - Threat model is written down (`docs/threat-model.md`) before Phase 3 ships
 
-## 11. Risks
+## 13. Risks
 
 | Risk | Mitigation |
 |------|------------|
-| Argon2id with high memory settings too slow or too memory-hungry on the device | Measure on the Jolla Phone in Phase 2; run off the UI thread with progress |
-| Rust toolchain in the SDK target too old for planned crates | Check in Phase 1; pin crate versions |
-| Bitwarden API and encryption formats change continuously | Treat maintenance as permanent work; test against new Vaultwarden releases |
-| Official Bitwarden cloud may treat unknown clients differently | Test early in Phase 2; API-key login as fallback |
-| BitSailor moves faster than a one-person side project | Compete on the four fields in section 3, not on feature count |
+| Writer bug destroys the user's database | Data safety design (section 7); round-trip tests against KeePassXC before write ships |
+| Merge loses edits | Mirror KeePassXC's Merger; tests with conflicting edits; recycle bin default |
+| KDBX format details misread | Verify against KeePassXC source; test files generated with `keepassxc-cli` |
+| Argon2 with high memory too slow on the device | Measure on the Jolla Phone in Phase 2; worker thread with progress |
+| Rust 1.75 in the target too old for a needed crate | Pin compatible versions; fallback: build the static library on the host with a current Rust |
 | Project goes stale after release | Keep scope small enough to maintain alone |
 
-## 12. Open decisions
+## 14. Open decisions
 
 - License (must be compatible with any reference code that gets reused)
 - Convenience unlock after the MVP: none, PIN, or the Secrets Confirm dialog
+- Exact import and export file location (Downloads, Documents, or file picker)
 
 Decided:
 
-- Client identity (2026-10-03): `deviceType` 8 (LinuxDesktop), `client_id`
-  `desktop`, `Bitwarden-Client-Name: sailvault`. No claim to be Android, even
-  though Vaultwarden gives Android 90-day instead of 30-day refresh tokens.
-- Client version (2026-10-03): `Bitwarden-Client-Version` equals the newest
-  server API version the protocol was verified against (now 2026.6.0), kept
-  as one constant in the core. Every new Vaultwarden or Bitwarden release
-  triggers a re-check of `docs/protocol.md` and a version bump; SailVault
-  always targets the latest server version.
-- RSA (2026-10-03): `rsa` 0.9 is used despite RUSTSEC-2023-0071 (Marvin
-  timing attack, no fixed release). Decryption happens locally without an
-  attacker-controlled timing oracle. Documented in the threat model; checked
-  on every release.
+- Direction (2026-10-03): KDBX4 password manager with Bitwarden import
+  instead of a Bitwarden client. Reasons: no sandboxed KDBX4 writer exists in
+  Harbour, no server product needed, standard format with KeePassXC on the
+  PC. The Bitwarden server protocol work is shelved (`docs/protocol.md`
+  keeps the notes).
+- KDBX codec (2026-10-03): own implementation in the core on audited
+  primitives instead of the `keepass` crate; see section 5.
 - FFI (2026-10-03): hand-written C API with opaque handles; key material
   never crosses the boundary.
 - Cold start targets (2026-10-03): unlock page < 1 s, list < 0.5 s after key
-  derivation with 1000 items offline, KDF time measured separately. Based on
-  the 400 ms Phase 1 baseline.
-- Session tokens (2026-10-03): refresh token stored encrypted with the user
-  key, access token in RAM only; see section 6.
-- Build system: qmake (2026-10-02). Sailfish default, matches the SDK
-  templates; the Rust core is built by cargo from a qmake extra target and
-  linked statically.
-- Unlock: master password only, no fingerprint (2026-10-03). Fingerprint
-  is not reachable from a Harbour app; see section 6.
+  derivation with 1000 entries, KDF time measured separately.
+- Build system: qmake (2026-10-02); the Rust core is built by cargo from a
+  qmake extra target and linked statically.
+- Unlock (2026-10-03): no fingerprint; not reachable from a Harbour app.
 
-## 13. References
+## 15. References
 
 - Harbour allowed APIs: https://docs.sailfishos.org/Develop/Apps/Harbour/Allowed_APIs/
 - UI Definition of Done: https://docs.sailfishos.org/Develop/Apps/UI/Definition_of_Done/
-- Fingerprint in apps (forum): https://forum.sailfishos.org/t/fingerprint-for-auth-in-apps/31428
-- Fingerprint framework discussion (forum): https://forum.sailfishos.org/t/fingerprint-framework-for-developers/31678
-- BitSailor support thread: https://forum.sailfishos.org/t/bitsailor-support-thread/15074
-- SailWarden thread: https://forum.sailfishos.org/t/sailwarden-bitwarden-client-for-sailfish-os/30466
+- KDBX 4: https://keepass.info/help/kb/kdbx_4.html, https://keepass.info/help/kb/kdbx_4.1.html
+- KeePassXC source (format, merge, Bitwarden import): https://github.com/keepassxreboot/keepassxc
+- Bitwarden export formats: https://github.com/bitwarden/clients (`libs/tools/export`)
+- ownKeepass (Chum): https://github.com/sailfishos-chum/ownkeepass
