@@ -2,8 +2,11 @@
 
 Status: 2026-10-03 - direction changed from a Bitwarden client to a KeePass
 (KDBX4) password manager with Bitwarden import. Phase 1 (device spike) is
-complete and carries over.
-Next step: Phase 2 (KDBX4 read core).
+complete and carries over. The cleanup of the Bitwarden server client is
+done and Phase 2 (KDBX4 read core) has started.
+Next step: write the KDBX4 reader. Two items are needed first: the four
+KDBX4 test fixtures (manual step, section 11) and the KDBX 3.1 decision
+(section 14).
 
 ## 1. Goal
 
@@ -77,6 +80,8 @@ Lessons from the Bitwarden clients (desk research 2026-10-03), still valid:
 - YubiKey challenge-response unlock (no practical path on the phone)
 - Passkey provider; Android AppSupport integration
 
+Reading KDBX 3.1 is an open decision, see section 14.
+
 ## 5. Architecture
 
 ```
@@ -101,8 +106,14 @@ Lessons from the Bitwarden clients (desk research 2026-10-03), still valid:
 | Rust core as static library | Memory safety for parsing and crypto, `zeroize`, links into the binary so the validator only sees allowed system libs |
 | Core does no I/O | Unit-testable on the host; the C++ layer owns files and network |
 | Own KDBX4 codec on audited primitives | `keepass` crate: only 0.7.17 builds with Rust 1.75 and it drops attachments on save; newer releases need Rust 1.85+ and still drop unknown XML, force KDBX 4.1 and have an unstable merge |
+| Building blocks for the codec | `chacha20`, `twofish`, `flate2` (pure Rust) and `quick-xml` build with Rust 1.75 and have permissive licenses (checked 2026-10-03) |
 | Lossless XML model | Unknown elements and attributes are kept and written back; required for criterion 3 |
 | KDBX file as the only storage | Standard format, readable by KeePassXC, the file is the backup |
+
+State of the core after the cleanup (2026-10-03): 39 crates (was 41). The
+only Bitwarden code left decrypts password-protected exports. The
+random-number interface and the `getrandom` crate are removed; they only
+served the Bitwarden device ID.
 
 ## 6. Unlock design
 
@@ -115,7 +126,7 @@ Fingerprint: not reachable from a Harbour app. The Phase 1 spike showed that
 Sailfish Secrets only offers a Confirm dialog for DeviceLock collections on
 the Jolla Phone; direct access to the fingerprint daemon or polkit is not
 allowed in Harbour. Details: `docs/spike-results.md`. A convenience unlock
-may be reconsidered after the MVP (section 12).
+may be reconsidered after the MVP (section 14).
 
 ## 7. Data safety design
 
@@ -145,12 +156,17 @@ The phone holds the primary copy, so a writer bug can destroy real data.
 ## 9. Import design
 
 - Bitwarden/Vaultwarden JSON, unencrypted and password-protected (PBKDF2 or
-  Argon2id, HKDF, EncString type 2; reuses the existing crypto core)
+  Argon2id, HKDF, EncString type 2)
+- The key of a password-protected export is derived from the export password
+  and the salt stored in the export, not from the account email
 - Account-restricted encrypted exports cannot be decrypted offline and are
   rejected with a clear message
 - Field mapping follows KeePassXC's Bitwarden importer, so imported files
   look the same as files imported in KeePassXC
 - Unencrypted import files: warn, and offer to delete the file after import
+- Export format and field mapping are documented in `docs/bitwarden-export.md`
+- Test vectors are real password-protected exports (PBKDF2 and Argon2id),
+  generated independently of the core with OpenSSL
 
 ## 10. Harbour constraints
 
@@ -172,15 +188,63 @@ library linked and running on the Jolla Phone (5.2.0.18), Harbour validator
 passes, fingerprint not available to Harbour apps, cold start baseline about
 400 ms.
 
-### Phase 2 - KDBX4 read core
+### Cleanup after the direction change (complete, 2026-10-03)
+
+- Removed everything that only existed for the Bitwarden server client
+- Bitwarden code in the core reduced to the decryption of password-protected
+  exports, now with the export's salt instead of the email
+- Random-number interface and `getrandom` crate removed
+- Server protocol notes turned into `docs/bitwarden-export.md`
+- Test vectors replaced by real password-protected exports
+- Verified after the cleanup: all tests pass, the target build with Rust 1.75
+  works, the Harbour validator passes
+
+### Phase 2 - KDBX4 read core (started)
+
+Scope:
 
 - Outer header, VariantDictionary, KDFs (AES-KDF, Argon2d, Argon2id),
   ciphers (AES-256-CBC, ChaCha20, Twofish), HMAC block stream, gzip
 - Composite key: password and key files (XML v1/v2, 32-byte, hex, hashed)
 - Inner header, protected values, attachments
 - Lossless XML model; entries, groups, history, meta, deleted objects
-- Tests against databases generated with `keepassxc-cli` and with
-  independently generated vectors
+- Tests against the fixtures below and against independently generated vectors
+
+Preparation (done):
+
+- Crates checked, see section 5
+- `tools/kdbx-fixtures/content.xml`: fake data with history, attachment,
+  TOTP, custom fields, tags, nested groups, recycle bin and deleted objects;
+  KeePassXC imports all of it
+- `tools/gen-kdbx-fixtures.sh`: creates two test databases with
+  `keepassxc-cli`, one with and one without a key file
+  (`kdbx31-aeskdf.kdbx`, `kdbx31-aeskdf-keyfile.kdbx`)
+
+Finding: `keepassxc-cli` only writes KDBX 3.1 with AES-KDF. It cannot
+produce KDBX4, so the KDBX4 fixtures have to be saved from the KeePassXC GUI.
+
+Pending manual step (owner: Tobias) - four KDBX4 fixtures. Exact steps are in
+`core/tests/fixtures/README.md`:
+
+1. Open `core/tests/fixtures/kdbx31-aeskdf.kdbx` in KeePassXC, password
+   `sailvault-fixture`.
+2. Database > Database Settings > Security > Encryption Settings > Advanced
+   Settings.
+3. Set the values from the table, confirm, then "Save Database As". Once per
+   file.
+
+| Save as | Format | KDF | Cipher |
+|---------|--------|-----|--------|
+| `kdbx4-aes-argon2d.kdbx` | KDBX 4.0 | Argon2d | AES 256-bit |
+| `kdbx4-chacha20-argon2id.kdbx` | KDBX 4.0 | Argon2id | ChaCha20 256-bit |
+| `kdbx4-twofish-aeskdf.kdbx` | KDBX 4.0 | AES-KDF | Twofish 256-bit |
+| `kdbx4-aes-argon2d-keyfile.kdbx` | KDBX 4.0 | Argon2d | AES 256-bit |
+
+- Argon2 settings: 2 iterations, 8 MiB, 2 threads
+- AES-KDF: 10000 rounds
+- Key-file variant: start from `kdbx31-aeskdf-keyfile.kdbx`, opened with the
+  key file `fixture.keyx`
+- Save all four files into `core/tests/fixtures/`
 
 Exit: the core opens every test database created with KeePassXC and exposes
 all entries; nothing unknown is dropped from the model.
@@ -198,6 +262,9 @@ Exit: usable as a daily read-only KeePass app on the Jolla Phone; criteria 2,
 ### Phase 4 - Write and import
 
 - KDBX4 writer, round trip against KeePassXC (criterion 3)
+- Random source for the writer (seeds, IVs, salts, new UUIDs); the previous
+  random-number interface was removed in the cleanup and has to come back in
+  a form that fits the no-I/O core
 - Create, edit, delete (recycle bin, remorse), history, password generator
 - Data safety design (section 7)
 - Bitwarden/Vaultwarden import into a new or existing database
@@ -232,16 +299,47 @@ Exit: usable as a daily read-only KeePass app on the Jolla Phone; criteria 2,
 |------|------------|
 | Writer bug destroys the user's database | Data safety design (section 7); round-trip tests against KeePassXC before write ships |
 | Merge loses edits | Mirror KeePassXC's Merger; tests with conflicting edits; recycle bin default |
-| KDBX format details misread | Verify against KeePassXC source; test files generated with `keepassxc-cli` |
+| KDBX format details misread | Verify against KeePassXC source; fixtures created with KeePassXC (KDBX 3.1 by `keepassxc-cli`, KDBX4 from the GUI) |
+| KDBX4 fixtures are made by hand and can drift from the documented settings | Steps and parameters fixed in `core/tests/fixtures/README.md`; tests assert format, KDF and cipher of each fixture |
 | Argon2 with high memory too slow on the device | Measure on the Jolla Phone in Phase 2; worker thread with progress |
 | Rust 1.75 in the target too old for a needed crate | Pin compatible versions; fallback: build the static library on the host with a current Rust |
 | Project goes stale after release | Keep scope small enough to maintain alone |
 
 ## 14. Open decisions
 
+- **KDBX 3.1 support** (needed before the reader is written):
+  - (a) KDBX4 only. 3.1 files get a clear message: "Please convert to KDBX 4
+    in KeePassXC".
+  - (b) Read 3.1 too and save as KDBX 4.0, which KeePassXC opens without
+    trouble.
+  - Who has 3.1 files: anyone who created the database with `keepassxc-cli`
+    or an older KeePass version, or who uses AES-KDF; KeePassXC deliberately
+    keeps the old format in those cases. The KeePassXC GUI defaults to
+    KDBX4, so most KeePassXC users have KDBX4 files.
+  - Cost of (b): 3.1 differs internally (block format, stream encryption of
+    protected fields, attachment storage). Extra work, easier switch.
+  - Recommendation: (a) now, (b) later as its own step. The 3.1 fixtures
+    already exist for that.
 - License (must be compatible with any reference code that gets reused)
 - Convenience unlock after the MVP: none, PIN, or the Secrets Confirm dialog
 - Exact import and export file location (Downloads, Documents, or file picker)
+
+Proposed in review (2026-10-03), not decided:
+
+- Move the Harbour submission to right after Phase 3. A read-only KDBX4 app
+  for aarch64 is already useful, and QA feedback on permissions and file
+  access arrives before the risky write phase.
+- Decide the convenience unlock before Phase 3 instead of after the MVP. It
+  affects how key material is held in RAM, and typing the full master
+  password on every unlock pushes users toward weaker passwords.
+- KDF parameter bounds: warn with a time estimate instead of rejecting, so
+  that high memory settings chosen in KeePassXC do not lock users out of
+  their own database.
+- Replace "audited" in sections 5 and 12 with a per-crate check or with
+  "established, widely used". Not every crate in use has a formal audit.
+- Add a known limit to section 8: if KeePassXC saves on the PC while the
+  Nextcloud client holds a newer version, Nextcloud creates conflict files
+  outside the app's control.
 
 Decided:
 
@@ -250,6 +348,9 @@ Decided:
   Harbour, no server product needed, standard format with KeePassXC on the
   PC. The Bitwarden server protocol work is shelved (notes in git history;
   import details in `docs/bitwarden-export.md`).
+- Cleanup (2026-10-03): code and notes that only served the Bitwarden server
+  client are removed; the core keeps only the decryption of
+  password-protected exports.
 - KDBX codec (2026-10-03): own implementation in the core on audited
   primitives instead of the `keepass` crate; see section 5.
 - FFI (2026-10-03): hand-written C API with opaque handles; key material
