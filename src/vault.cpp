@@ -664,66 +664,52 @@ QVariantList Vault::history(const QString &entryId)
 
 bool Vault::addEntry(const QString &groupId, const QVariantMap &fields)
 {
-    if (m_saving || !database())
-        return false;
-    const QByteArray group = QByteArray::fromHex(groupId.toLatin1());
+    const QByteArray group = itemUuid(groupId);
     const CoreFields coreFields(fields);
-    QByteArray uuid(SV_UUID_LENGTH, Qt::Uninitialized);
-    const int status = sv_database_add_entry(
-        m_database, group.size() == SV_UUID_LENGTH ? bytePointer(group) : nullptr,
-        coreFields.data(), coreFields.count(), unixSeconds(),
-        reinterpret_cast<uint8_t *>(uuid.data()));
-    if (status != SV_OK)
-        return false;
-    commitChange();
-    return true;
+    return change([&](SvDatabase *database, int64_t now, bool &changed) {
+        changed = true;
+        QByteArray uuid(SV_UUID_LENGTH, Qt::Uninitialized);
+        return sv_database_add_entry(database, group.isEmpty() ? nullptr : bytePointer(group),
+                                     coreFields.data(), coreFields.count(), now,
+                                     reinterpret_cast<uint8_t *>(uuid.data()));
+    });
 }
 
 bool Vault::updateEntry(const QString &entryId, const QVariantMap &fields)
 {
     const QByteArray uuid = itemUuid(entryId);
-    if (m_saving || uuid.isEmpty() || !database())
-        return false;
     const CoreFields coreFields(fields);
-    bool changed = false;
-    if (sv_database_update_entry(m_database, bytePointer(uuid), coreFields.data(),
-                                 coreFields.count(), unixSeconds(), &changed) != SV_OK)
-        return false;
-    if (changed)
-        commitChange();
-    return true;
+    return !uuid.isEmpty() && change([&](SvDatabase *database, int64_t now, bool &changed) {
+        return sv_database_update_entry(database, bytePointer(uuid), coreFields.data(),
+                                        coreFields.count(), now, &changed);
+    });
 }
 
 bool Vault::addImport(const SvImport *import, int &added, int &updated)
 {
-    if (m_saving || !database())
-        return false;
-    size_t addedEntries = 0;
-    size_t updatedEntries = 0;
-    if (sv_database_import(m_database, import, unixSeconds(), &addedEntries, &updatedEntries)
-        != SV_OK)
-        return false;
-    added = static_cast<int>(addedEntries);
-    updated = static_cast<int>(updatedEntries);
-    if (added > 0 || updated > 0)
-        commitChange();
-    return true;
+    return change([&](SvDatabase *database, int64_t now, bool &changed) {
+        size_t addedEntries = 0;
+        size_t updatedEntries = 0;
+        const int status = sv_database_import(database, import, now, &addedEntries,
+                                              &updatedEntries);
+        added = static_cast<int>(addedEntries);
+        updated = static_cast<int>(updatedEntries);
+        changed = added > 0 || updated > 0;
+        return status;
+    });
 }
 
 bool Vault::addGroup(const QString &parentId, const QString &name)
 {
-    if (m_saving || !database())
-        return false;
     const QByteArray parent = itemUuid(parentId);
     const QByteArray nameBytes = name.toUtf8();
-    QByteArray uuid(SV_UUID_LENGTH, Qt::Uninitialized);
-    if (sv_database_add_group(m_database, parent.isEmpty() ? nullptr : bytePointer(parent),
-                              bytePointer(nameBytes), static_cast<size_t>(nameBytes.size()),
-                              unixSeconds(), reinterpret_cast<uint8_t *>(uuid.data()))
-        != SV_OK)
-        return false;
-    commitChange();
-    return true;
+    return change([&](SvDatabase *database, int64_t now, bool &changed) {
+        changed = true;
+        QByteArray uuid(SV_UUID_LENGTH, Qt::Uninitialized);
+        return sv_database_add_group(database, parent.isEmpty() ? nullptr : bytePointer(parent),
+                                     bytePointer(nameBytes), static_cast<size_t>(nameBytes.size()),
+                                     now, reinterpret_cast<uint8_t *>(uuid.data()));
+    });
 }
 
 bool Vault::inRecycleBin(const QString &itemId)
@@ -738,69 +724,48 @@ bool Vault::moveEntry(const QString &entryId, const QString &groupId)
 {
     const QByteArray uuid = itemUuid(entryId);
     const QByteArray group = itemUuid(groupId);
-    if (m_saving || uuid.isEmpty() || group.isEmpty() || !database())
-        return false;
-    bool moved = false;
-    if (sv_database_move_entry(m_database, bytePointer(uuid), bytePointer(group), unixSeconds(),
-                               &moved) != SV_OK)
-        return false;
-    if (moved)
-        commitChange();
-    return true;
+    return !uuid.isEmpty() && !group.isEmpty()
+        && change([&](SvDatabase *database, int64_t now, bool &changed) {
+               return sv_database_move_entry(database, bytePointer(uuid), bytePointer(group), now,
+                                             &changed);
+           });
 }
 
 bool Vault::renameGroup(const QString &groupId, const QString &name)
 {
     const QByteArray uuid = itemUuid(groupId);
-    if (m_saving || uuid.isEmpty() || !database())
-        return false;
     const QByteArray nameBytes = name.toUtf8();
-    bool changed = false;
-    if (sv_database_rename_group(m_database, bytePointer(uuid), bytePointer(nameBytes),
-                                 static_cast<size_t>(nameBytes.size()), unixSeconds(), &changed)
-        != SV_OK)
-        return false;
-    if (changed)
-        commitChange();
-    return true;
+    return !uuid.isEmpty() && change([&](SvDatabase *database, int64_t now, bool &changed) {
+        return sv_database_rename_group(database, bytePointer(uuid), bytePointer(nameBytes),
+                                        static_cast<size_t>(nameBytes.size()), now, &changed);
+    });
 }
 
 bool Vault::moveGroup(const QString &groupId, const QString &parentId)
 {
     const QByteArray uuid = itemUuid(groupId);
     const QByteArray parent = itemUuid(parentId);
-    if (m_saving || uuid.isEmpty() || parent.isEmpty() || !database())
-        return false;
-    bool moved = false;
-    if (sv_database_move_group(m_database, bytePointer(uuid), bytePointer(parent), unixSeconds(),
-                               &moved)
-        != SV_OK)
-        return false;
-    if (moved)
-        commitChange();
-    return true;
+    return !uuid.isEmpty() && !parent.isEmpty()
+        && change([&](SvDatabase *database, int64_t now, bool &changed) {
+               return sv_database_move_group(database, bytePointer(uuid), bytePointer(parent), now,
+                                             &changed);
+           });
 }
 
 bool Vault::restore(const QString &itemId)
 {
     const QByteArray uuid = itemUuid(itemId);
-    if (m_saving || uuid.isEmpty() || !database()
-        || sv_database_restore(m_database, bytePointer(uuid), unixSeconds()) != SV_OK)
-        return false;
-    commitChange();
-    return true;
+    return !uuid.isEmpty() && change([&](SvDatabase *database, int64_t now, bool &changed) {
+        changed = true;
+        return sv_database_restore(database, bytePointer(uuid), now);
+    });
 }
 
 bool Vault::emptyRecycleBin()
 {
-    if (m_saving || !database())
-        return false;
-    bool changed = false;
-    if (sv_database_empty_recycle_bin(m_database, unixSeconds(), &changed) != SV_OK)
-        return false;
-    if (changed)
-        commitChange();
-    return true;
+    return change([](SvDatabase *database, int64_t now, bool &changed) {
+        return sv_database_empty_recycle_bin(database, now, &changed);
+    });
 }
 
 QString Vault::recycleBinId()
@@ -824,12 +789,22 @@ bool Vault::deletesPermanently(const QString &itemId)
 bool Vault::deleteItem(const QString &itemId)
 {
     const QByteArray uuid = itemUuid(itemId);
-    if (m_saving || uuid.isEmpty() || !database())
+    return !uuid.isEmpty() && change([&](SvDatabase *database, int64_t now, bool &changed) {
+        changed = true;
+        bool permanent = false;
+        return sv_database_delete_item(database, bytePointer(uuid), now, &permanent);
+    });
+}
+
+bool Vault::change(const Edit &edit)
+{
+    if (m_saving || !database())
         return false;
-    bool permanent = false;
-    if (sv_database_delete_item(m_database, bytePointer(uuid), unixSeconds(), &permanent) != SV_OK)
+    bool changed = false;
+    if (edit(m_database, unixSeconds(), changed) != SV_OK)
         return false;
-    commitChange();
+    if (changed)
+        commitChange();
     return true;
 }
 

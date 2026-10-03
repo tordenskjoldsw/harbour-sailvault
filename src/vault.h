@@ -9,6 +9,7 @@
 #include <QVariantMap>
 
 #include <atomic>
+#include <functional>
 #include <memory>
 
 #include "clipboardguard.h"
@@ -169,6 +170,12 @@ private slots:
     void enforceDeadlines();
 
 private:
+    // One edit of the database; sets changed when it changed anything.
+    using Edit = std::function<int(SvDatabase *database, int64_t now, bool &changed)>;
+
+    // Runs an edit and saves when it changed anything; refused while a save
+    // runs or when locked.
+    bool change(const Edit &edit);
     QString readField(const QString &entryId, const QString &key, int version) const;
     void finishUnlock(SvDatabase *database, const QByteArray &digest);
     // Marks the in-memory change and starts the save.
