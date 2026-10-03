@@ -376,6 +376,22 @@ match the save time. Criterion 3 holds for a file changed on the phone.
 Part B - edit and delete: history, recycle bin with remorse, hard delete
 writes `DeletedObjects`.
 
+Status (2026-10-03): implemented, device test pending. Editing follows
+KeePassXC's `Entry::endUpdate`: the previous state becomes a history item,
+modification and access times are set, and the history is trimmed to
+`Meta/HistoryMaxItems` and `HistoryMaxSize` (KeePassXC sizes an item by its
+attributes, auto-type, attachments, custom data and tags; SailVault counts
+every text node and the attachments, about a hundred bytes more). Deleting
+moves an entry to the recycle bin, which is created like KeePassXC's
+`Database::createRecycleBin` when missing; an entry already in the bin, or
+any entry while the bin is disabled, is removed and recorded under
+`DeletedObjects`. The entry dialog edits existing entries; the entry page
+and the list offer "Edit" and "Delete" with a remorse timer whose text says
+whether the entry is recycled or removed for good. `keepassxc-cli` reads a
+saved file with all three edits. Not in Part B: editing groups, restoring
+from or emptying the recycle bin, a history viewer, and deleting backups on
+a credential change (there is no credential change yet).
+
 Part C - Bitwarden/Vaultwarden import into a new or existing database.
 
 Exit: criterion 3 (lossless KeePassXC round trip) met for every fixture and

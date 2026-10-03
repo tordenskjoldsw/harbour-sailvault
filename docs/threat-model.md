@@ -1,10 +1,10 @@
 # SailVault threat model
 
-Status: 2026-10-03, Phase 4 Part A (the app creates entries and writes the
-database), after the security review fixes
+Status: 2026-10-03, Phase 4 Parts A and B (the app creates, edits and
+deletes entries and writes the database), after the security review fixes
 (`docs/security-review-2026-10.md`). Covers the code in this repository at
-that state. Phase 4 Parts B and C (edit, delete, Bitwarden import) and
-Phase 5 (Nextcloud sync) change the model; see "Changes in later phases".
+that state. Phase 4 Part C (Bitwarden import) and Phase 5 (Nextcloud sync)
+change the model; see "Changes in later phases".
 Points marked **unverified** have not been checked on Sailfish OS or the
 device yet.
 
@@ -185,6 +185,11 @@ network requests.
 - **No TOTP codes.** By design: generating codes from the same database
   would turn two factors into one. `otp` attributes are kept and shown as
   hidden fields.
+- **Old values stay in the file.** As in KeePassXC, an edit keeps the
+  previous state as a history item (up to `Meta/HistoryMaxItems`, default
+  10), and a deleted entry sits in the recycle bin until it is deleted
+  there. A changed password therefore remains in the database, encrypted,
+  until the history is trimmed or the entry is removed for good.
 
 ## Out of scope
 
@@ -196,11 +201,8 @@ network requests.
 
 ## Changes in later phases
 
-- **Phase 4 Parts B and C (edit, delete, import):** edits add history
-  entries and the recycle bin keeps deleted entries until emptied, so a
-  changed or removed password stays in the file until then, as in
-  KeePassXC. Unencrypted Bitwarden exports are plaintext files on the
-  device until the user deletes them.
+- **Phase 4 Part C (import):** unencrypted Bitwarden exports are plaintext
+  files on the device until the user deletes them.
 - **Phase 5 (Nextcloud sync):** adds the `Internet` permission, a network
   attacker (TLS through Qt and the system CA store) and the Nextcloud app
   password, stored in Sailfish Secrets with device-lock protection only
