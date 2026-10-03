@@ -7,9 +7,14 @@ set -euo pipefail
 
 runs=${1:-11}
 sfdk=${SFDK:-"$HOME/SailfishOS/bin/sfdk"}
+if ! [[ $runs =~ ^[1-9][0-9]*$ ]]; then
+    echo "usage: $0 [runs]" >&2
+    exit 2
+fi
 
 # The device shell is BusyBox without millisecond date, so both timestamps use
 # CLOCK_BOOTTIME: /proc/uptime before the launch, the app's trace line after it.
+# pkill matches the process name, which the kernel cuts to 15 characters.
 "$sfdk" device exec -- sh -c "
     pkill -x harbour-sailvau
     sleep 2

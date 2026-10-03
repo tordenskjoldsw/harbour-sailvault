@@ -16,7 +16,7 @@ cd "$root"
 log="$target_dir/kdf-benchmark-build.log"
 # build-shell hangs when stdin is open or when cargo writes through it, so
 # stdin is closed and the cargo output goes to a log file.
-if ! "$sfdk" build-shell sh -c "CARGO_HOME='$root/cargo-home' cargo build --release --offline \
+if ! "$sfdk" build-shell sh -c "CARGO_HOME='$root/cargo-home' cargo build --release --offline --locked \
     --manifest-path core/Cargo.toml --target $triple --target-dir '$target_dir' \
     --example kdf_benchmark > '$log' 2>&1" < /dev/null > /dev/null 2>&1; then
     tail -20 "$log" >&2
