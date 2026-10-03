@@ -6,8 +6,8 @@
 #include <QRunnable>
 #include <QThreadPool>
 
-#include "databasefile.h"
 #include "corebridge.h"
+#include "databasefile.h"
 #include "vault.h"
 
 namespace {
@@ -29,13 +29,48 @@ Importer::Status statusFor(int status)
     case SV_INVALID_CREDENTIALS:
         return Importer::WrongPassword;
     case SV_UNSUPPORTED_FORMAT:
-        return Importer::Unsupported;
+        return Importer::UnsupportedFormat;
     case StatusFileChanged:
         return Importer::FileChanged;
     default:
         return Importer::Corrupted;
     }
 }
+
+// Reads the export's top level on a pool thread.
+class InspectTask : public QRunnable
+{
+public:
+    InspectTask(Importer *importer, std::shared_ptr<std::atomic_bool> cancelled, int inspection,
+                const QString &path)
+        : m_importer(importer)
+        , m_cancelled(std::move(cancelled))
+        , m_inspection(inspection)
+        , m_path(path)
+    {
+    }
+
+    void run() override
+    {
+        QByteArray data;
+        int status = readBoundedFile(m_path, MaxExportBytes, data);
+        int32_t kind = -1;
+        if (status == SV_OK)
+            status = sv_bitwarden_export_kind(bytePointer(data), static_cast<size_t>(data.size()),
+                                              &kind);
+        secureWipe(data);
+        if (!*m_cancelled)
+            QMetaObject::invokeMethod(m_importer, "onInspected", Qt::QueuedConnection,
+                                      Q_ARG(int, m_inspection), Q_ARG(int, status),
+                                      Q_ARG(int, kind));
+    }
+
+private:
+    Importer *m_importer;
+    std::shared_ptr<std::atomic_bool> m_cancelled;
+    int m_inspection;
+    QString m_path;
+};
 
 // Reads, decrypts and maps the export on a pool thread. A cancelled task
 // frees its result itself.
@@ -129,48 +164,57 @@ bool Importer::busy() const
     return m_busy;
 }
 
+Importer::Kind Importer::kind() const
+{
+    return m_kind;
+}
+
 QString Importer::groupName() const
 {
     return QString::fromUtf8(GroupName);
 }
 
-int Importer::inspect(const QString &path) const
+void Importer::inspect(const QString &path)
 {
-    QByteArray data;
-    int status = readBoundedFile(path, MaxExportBytes, data);
-    int32_t kind = SV_EXPORT_UNENCRYPTED;
-    if (status == SV_OK)
-        status = sv_bitwarden_export_kind(bytePointer(data), static_cast<size_t>(data.size()), &kind);
-    secureWipe(data);
-    if (status != SV_OK)
-        return statusFor(status);
+    m_path = path;
+    setKind(Unknown);
+    QThreadPool::globalInstance()->start(
+        new InspectTask(this, m_cancelled, ++m_inspection, path));
+}
+
+void Importer::onInspected(int inspection, int status, int kind)
+{
+    if (inspection != m_inspection)
+        return;
+    if (status != SV_OK) {
+        emit failed(statusFor(status));
+        return;
+    }
     switch (kind) {
     case SV_EXPORT_UNENCRYPTED:
-        return Unencrypted;
+        setKind(Unencrypted);
+        break;
     case SV_EXPORT_PASSWORD_PROTECTED:
-        return PasswordProtected;
+        setKind(PasswordProtected);
+        break;
     default:
-        return AccountRestricted;
+        setKind(AccountRestricted);
+        break;
     }
 }
 
-void Importer::start(const QString &path, const QString &password)
+void Importer::start(const QString &password)
 {
-    if (m_busy || m_vault->state() != Vault::Unlocked)
+    if (m_busy || m_vault->state() != Vault::Unlocked
+        || (m_kind != Unencrypted && m_kind != PasswordProtected))
         return;
-    const int kind = inspect(path);
-    if (kind != Unencrypted && kind != PasswordProtected) {
-        fail(kind == AccountRestricted ? Unsupported : static_cast<Status>(kind));
-        return;
-    }
-    m_path = path;
-    m_unencrypted = kind == Unencrypted;
+    const bool unencrypted = m_kind == Unencrypted;
     m_removablePath.clear();
     setBusy(true);
     // The task owns the only copy of the password bytes and wipes it.
     QThreadPool::globalInstance()->start(new ReadTask(
-        this, m_cancelled, ++m_attempt, path, m_unencrypted ? QByteArray() : password.toUtf8(),
-        m_unencrypted ? SV_EXPORT_UNENCRYPTED : SV_EXPORT_PASSWORD_PROTECTED));
+        this, m_cancelled, ++m_attempt, m_path, unencrypted ? QByteArray() : password.toUtf8(),
+        unencrypted ? SV_EXPORT_UNENCRYPTED : SV_EXPORT_PASSWORD_PROTECTED));
 }
 
 void Importer::onReadFinished(int attempt, int status, qulonglong handle)
@@ -236,7 +280,7 @@ void Importer::onVaultStateChanged()
 
 void Importer::finish()
 {
-    if (m_unencrypted && !m_vault->dirty())
+    if (m_kind == Unencrypted && !m_vault->dirty())
         m_removablePath = m_path;
     setBusy(false);
     emit finished(m_added, m_updated, !m_removablePath.isEmpty());
@@ -263,4 +307,12 @@ void Importer::setBusy(bool busy)
         return;
     m_busy = busy;
     emit busyChanged();
+}
+
+void Importer::setKind(Kind kind)
+{
+    if (m_kind == kind)
+        return;
+    m_kind = kind;
+    emit kindChanged();
 }

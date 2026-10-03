@@ -19,20 +19,28 @@ class Importer : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
+    Q_PROPERTY(Kind kind READ kind NOTIFY kindChanged)
     Q_PROPERTY(QString groupName READ groupName CONSTANT)
 
 public:
-    // The first three are export kinds from inspect(); the rest are errors.
-    enum Status {
+    // What inspect found; Unknown until it is done or when it failed.
+    enum Kind {
+        Unknown,
         Unencrypted,
         PasswordProtected,
-        AccountRestricted,
+        // Encrypted with the account key, which only Bitwarden has.
+        AccountRestricted
+    };
+    Q_ENUM(Kind)
+
+    enum Status {
         NotAnExport,
         FileUnreadable,
         FileTooLarge,
         WrongPassword,
         Corrupted,
-        Unsupported,
+        // Encrypted in a way the core does not read.
+        UnsupportedFormat,
         Locked,
         NotAdded,
         // Merged, but the save failed; the entries are unsaved changes.
@@ -46,26 +54,32 @@ public:
     ~Importer() override;
 
     bool busy() const;
+    Kind kind() const;
     // The group in the root group that imports go into. Not translated: a
     // later import finds it by this name.
     QString groupName() const;
 
-    // Reads only the top level, so the UI can ask for a password or warn
-    // about a plain file first.
-    Q_INVOKABLE int inspect(const QString &path) const;
-    Q_INVOKABLE void start(const QString &path, const QString &password);
+    // Reads the top level of the export at path on a pool thread, so the UI
+    // can ask for a password or warn about a plain file first; sets kind or
+    // reports failed.
+    Q_INVOKABLE void inspect(const QString &path);
+    // Imports the inspected export; the password is ignored for an
+    // unencrypted one.
+    Q_INVOKABLE void start(const QString &password);
     // Deletes the last unencrypted export whose import was merged and
     // saved; no other file can be deleted this way.
     Q_INVOKABLE bool removeImportedFile();
 
 signals:
     void busyChanged();
+    void kindChanged();
     // fileRemovable: the export is unencrypted and everything in it is
     // saved, so removeImportedFile may delete it.
     void finished(int added, int updated, bool fileRemovable);
     void failed(int status);
 
 private slots:
+    void onInspected(int inspection, int status, int kind);
     void onReadFinished(int attempt, int status, qulonglong handle);
     void onSavingChanged();
     void onVaultStateChanged();
@@ -75,12 +89,14 @@ private:
     void finish();
     void fail(Status status);
     void setBusy(bool busy);
+    void setKind(Kind kind);
 
     Vault *m_vault;
     std::shared_ptr<std::atomic_bool> m_cancelled;
     int m_attempt = 0;
+    int m_inspection = 0;
     bool m_busy = false;
-    bool m_unencrypted = false;
+    Kind m_kind = Unknown;
     // Merged; finished once the vault's save succeeds.
     bool m_awaitingSave = false;
     int m_added = 0;

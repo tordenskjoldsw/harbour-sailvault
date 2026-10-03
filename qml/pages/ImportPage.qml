@@ -10,17 +10,14 @@ Page {
     id: page
 
     property string path
-    readonly property int kind: importer.inspect(path)
-    readonly property bool importable: kind === Importer.Unencrypted
-                                       || kind === Importer.PasswordProtected
+    readonly property bool importable: importer.kind === Importer.Unencrypted
+                                       || importer.kind === Importer.PasswordProtected
     property int error: -1
     property string resultText
 
     function statusText(status) {
         switch (status) {
-        case Importer.AccountRestricted:
-        case Importer.Unsupported:
-            return qsTr("This export is encrypted with your account key and cannot be read outside Bitwarden. Export again with the file type \"JSON (Password protected)\".")
+        case Importer.UnsupportedFormat: return qsTr("This export is encrypted in a way SailVault cannot read")
         case Importer.NotAnExport: return qsTr("This file is not a Bitwarden JSON export")
         case Importer.FileUnreadable: return qsTr("The file cannot be read")
         case Importer.FileTooLarge: return qsTr("The export exceeds the supported limits")
@@ -43,15 +40,17 @@ Page {
     }
 
     function startImport() {
-        if (!importer.busy && (kind === Importer.Unencrypted || passwordField.text.length > 0)) {
+        if (!importer.busy && (importer.kind === Importer.Unencrypted || passwordField.text.length > 0)) {
             error = -1
-            importer.start(path, passwordField.text)
+            importer.start(passwordField.text)
             passwordField.text = ""
         }
     }
 
     allowedOrientations: Orientation.All
     backNavigation: !importer.busy
+
+    Component.onCompleted: importer.inspect(path)
 
     RemorsePopup {
         id: remorse
@@ -91,23 +90,29 @@ Page {
                 x: Theme.horizontalPageMargin
                 width: parent.width - 2 * Theme.horizontalPageMargin
                 wrapMode: Text.Wrap
-                color: page.importable ? Theme.highlightColor : Theme.errorColor
+                color: importer.kind === Importer.AccountRestricted ? Theme.errorColor
+                                                                    : Theme.highlightColor
                 text: {
                     if (page.resultText.length > 0)
                         return page.resultText + ". "
                                 + qsTr("The export file is not encrypted: anyone who can read it can read every password in it.")
-                    if (page.kind === Importer.Unencrypted)
+                    switch (importer.kind) {
+                    case Importer.Unencrypted:
                         return qsTr("This export is not encrypted. The entries go into the group \"%1\"; an earlier import there is updated. You can delete the file afterwards.").arg(importer.groupName)
-                    if (page.kind === Importer.PasswordProtected)
+                    case Importer.PasswordProtected:
                         return qsTr("Enter the password chosen for this export. The entries go into the group \"%1\"; an earlier import there is updated.").arg(importer.groupName)
-                    return page.statusText(page.kind)
+                    case Importer.AccountRestricted:
+                        return qsTr("This export is encrypted with your account key and cannot be read outside Bitwarden. Export again with the file type \"JSON (Password protected)\".")
+                    default:
+                        return ""
+                    }
                 }
             }
 
             PasswordInput {
                 id: passwordField
 
-                visible: page.kind === Importer.PasswordProtected && page.resultText.length === 0
+                visible: importer.kind === Importer.PasswordProtected && page.resultText.length === 0
                 enabled: !importer.busy
                 label: qsTr("Export password")
                 errorText: page.error === Importer.WrongPassword ? page.statusText(page.error) : ""
@@ -135,14 +140,14 @@ Page {
             BusyIndicator {
                 anchors.horizontalCenter: parent.horizontalCenter
                 size: BusyIndicatorSize.Medium
-                running: importer.busy
+                running: importer.busy || (importer.kind === Importer.Unknown && page.error < 0)
                 visible: running
             }
 
             Button {
                 anchors.horizontalCenter: parent.horizontalCenter
                 visible: page.importable && page.resultText.length === 0 && !importer.busy
-                enabled: page.kind === Importer.Unencrypted || passwordField.text.length > 0
+                enabled: importer.kind === Importer.Unencrypted || passwordField.text.length > 0
                 text: qsTr("Import")
                 onClicked: page.startImport()
             }
