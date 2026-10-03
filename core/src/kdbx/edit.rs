@@ -280,6 +280,17 @@ impl Database {
         Ok(false)
     }
 
+    /// Deletes the entry or the group with `uuid`, as `delete_entry` or
+    /// `delete_group` does; UUIDs are unique across entries and groups.
+    /// Returns whether it was removed for good.
+    pub fn delete_item(&mut self, uuid: &[u8; UUID_LENGTH], now: i64) -> Result<bool> {
+        if entry_path(self.document(), uuid).is_some() {
+            self.delete_entry(uuid, now)
+        } else {
+            self.delete_group(uuid, now)
+        }
+    }
+
     /// Moves the entry with `uuid` to the end of the group with
     /// `group_uuid`, as KeePassXC's `Entry::setGroup` does: only the
     /// location time and, in KDBX 4.1, the previous parent change. Returns

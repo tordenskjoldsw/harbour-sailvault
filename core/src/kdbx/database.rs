@@ -126,6 +126,28 @@ impl Database {
             .ok_or(KdbxError::InvalidXml("missing root group"))
     }
 
+    /// The current entry with `uuid`, wherever it is.
+    pub fn entry(&self, uuid: &[u8; UUID_LENGTH]) -> Option<Entry<'_>> {
+        fn search<'a>(group: Group<'a>, uuid: &[u8; UUID_LENGTH]) -> Option<Entry<'a>> {
+            group
+                .entries()
+                .find(|entry| entry.uuid().as_ref() == Some(uuid))
+                .or_else(|| group.groups().find_map(|child| search(child, uuid)))
+        }
+        search(self.root_group().ok()?, uuid)
+    }
+
+    /// The group with `uuid`, wherever it is.
+    pub fn group(&self, uuid: &[u8; UUID_LENGTH]) -> Option<Group<'_>> {
+        fn search<'a>(group: Group<'a>, uuid: &[u8; UUID_LENGTH]) -> Option<Group<'a>> {
+            if group.uuid().as_ref() == Some(uuid) {
+                return Some(group);
+            }
+            group.groups().find_map(|child| search(child, uuid))
+        }
+        search(self.root_group().ok()?, uuid)
+    }
+
     /// `Meta/RecycleBinEnabled`, true when missing, as in KeePassXC.
     pub fn recycle_bin_enabled(&self) -> bool {
         self.meta()
