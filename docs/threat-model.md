@@ -1,10 +1,10 @@
 # SailVault threat model
 
-Status: 2026-10-03, Phase 4 Parts A and B (the app creates, edits and
-deletes entries and writes the database), after the security review fixes
-(`docs/security-review-2026-10.md`). Covers the code in this repository at
-that state. Phase 4 Part C (Bitwarden import) and Phase 5 (Nextcloud sync)
-change the model; see "Changes in later phases".
+Status: 2026-10-03, Phase 4 (the app creates, edits, moves and deletes
+entries, imports Bitwarden exports and writes the database), after the
+security review fixes (`docs/security-review-2026-10.md`). Covers the code
+in this repository at that state. Phase 5 (Nextcloud sync) changes the
+model; see "Changes in later phases".
 Points marked **unverified** have not been checked on Sailfish OS or the
 device yet.
 
@@ -148,9 +148,31 @@ Limits:
   Argon2 work cap). Argon2 memory is reserved fallibly, so a failed
   allocation is an error, not a crash.
 
-### 5. Network attacker
+### 5. Bitwarden exports
 
-Not applicable in Phase 3: the app has no network permission and makes no
+Protected:
+
+- A password-protected export is decrypted in the core with the KDF its
+  file names, within bounded parameters; the password is wiped after use
+  and a wrong password is reported without decrypting anything.
+- The export is read with bounds (32 MiB, nesting limited by the fixed
+  structure, at most 32 folder levels) and treated as untrusted input.
+  Values are kept in zeroized memory and the import is added in one step.
+- After importing an unencrypted export the app offers to delete it; it
+  can delete only that file.
+
+Limits:
+
+- An unencrypted export is a plaintext file with every password in it.
+  Anything that can read Documents or Downloads can read it until it is
+  deleted, and deleting it on flash storage does not erase the blocks; the
+  LUKS encryption of `/home` protects them while the phone is off.
+- Account-restricted exports cannot be imported; the app asks for a
+  password-protected export instead.
+
+### 6. Network attacker
+
+Not applicable before Phase 5: the app has no network permission and makes no
 network requests.
 
 ## Known limits of the implementation
@@ -205,8 +227,6 @@ network requests.
 
 ## Changes in later phases
 
-- **Phase 4 Part C (import):** unencrypted Bitwarden exports are plaintext
-  files on the device until the user deletes them.
 - **Phase 5 (Nextcloud sync):** adds the `Internet` permission, a network
   attacker (TLS through Qt and the system CA store) and the Nextcloud app
   password, stored in Sailfish Secrets with device-lock protection only

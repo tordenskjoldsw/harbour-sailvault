@@ -419,7 +419,14 @@ Part C - Bitwarden/Vaultwarden import:
 6. Device test
 
 Status (2026-10-03): step 1 is done. Device test on the Jolla Phone: an
-entry was moved to another group with one tap.
+entry was moved to another group with one tap. Steps 2 to 5 are
+implemented, device test pending: the core reads unencrypted and
+password-protected exports (`serde_json`, 32 MiB cap) and maps them as
+listed in `docs/bitwarden-export.md`; the import is added in one step, so
+a failure leaves the database unchanged. `keepassxc-cli` reads an imported
+and saved database, finds every entry in its folder and computes TOTP
+codes from the stored `otp` values. The KDF of a protected export runs on
+a pool thread; a lock discards the import.
 
 Not in Part C: creating a new database for the import, the zip export with
 attachments.
