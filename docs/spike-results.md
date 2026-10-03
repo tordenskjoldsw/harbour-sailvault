@@ -64,7 +64,7 @@ rpmlint findings to fix before submission:
 
 ## On the device
 
-Verified on the Jolla Phone on 2026-10-02 (exact OS build to be recorded):
+Verified on the Jolla Phone with Sailfish OS 5.2.0.18 on 2026-10-02:
 
 - `harbour-sailvault-0.1.0-1.aarch64.rpm` copied to the phone and installed
   as untrusted software.
@@ -112,7 +112,7 @@ Known limitation: the Secrets client library passes secret data in
 implicitly shared `QByteArray`s and over D-Bus, so the app cannot zeroize
 every copy. To be addressed when the real key flow is designed (Phase 3).
 
-Device test results (Jolla Phone, 2026-10-02, first run):
+Device test results (Jolla Phone, Sailfish OS 5.2.0.18, 2026-10-02):
 
 - Store, read and delete of the 32-byte test key succeed.
 - Each operation shows a system confirmation dialog.
@@ -131,7 +131,8 @@ Device test results (Jolla Phone, 2026-10-02, first run):
 - [x] Rust "hello" static library linked into a Silica app via `sfdk build`
 - [x] Harbour validator (`sfdk check`) passes
 - [x] Rust "hello" app starts on the Jolla Phone and shows the core version
-- [ ] Record the exact Sailfish OS version of the Jolla Phone
-- [ ] Secret stored in Sailfish Secrets and read back behind system authentication
-- [ ] Fingerprint accepted by the system dialog on the Jolla Phone (hard gate)
+- [x] Record the exact Sailfish OS version of the Jolla Phone (5.2.0.18)
+- [x] 5.1.0.11 build runs on the Jolla Phone with Sailfish OS 5.2.0.18
+- [x] Secret stored in Sailfish Secrets and read back behind system authentication (Confirm dialog only)
+- [x] Fingerprint accepted by the system dialog on the Jolla Phone: no, gate failed; fingerprint dropped (PLAN.md section 6)
 - [ ] Cold start baseline of the empty app
