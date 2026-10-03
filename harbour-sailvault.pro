@@ -21,6 +21,9 @@ SOURCES += \
 
 INCLUDEPATH += core/include
 
+# The spec passes the package version; the About page shows it.
+DEFINES += APP_VERSION=\\\"$$VERSION\\\"
+
 # Build the Rust core with cargo before linking. CARGO_HOME is isolated so the
 # build engine, which shares the host home directory, never reads the host's
 # cargo configuration or registry. Cargo runs from the source root so it finds
@@ -62,6 +65,9 @@ DISTFILES += \
     qml/pages/HistoryPage.qml \
     qml/pages/MovePage.qml \
     qml/pages/NewDatabaseDialog.qml \
+    qml/pages/AboutPage.qml \
+    qml/pages/ThirdPartyPage.qml \
+    qml/pages/thirdparty.js \
     qml/pages/UnlockPage.qml \
     rpm/harbour-sailvault.spec \
     harbour-sailvault.desktop

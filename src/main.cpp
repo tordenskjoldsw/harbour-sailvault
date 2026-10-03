@@ -13,7 +13,6 @@
 #include "boottime.h"
 #include "entrylistmodel.h"
 #include "importer.h"
-#include "sailvault_core.h"
 #include "vault.h"
 
 namespace {
@@ -49,9 +48,8 @@ int main(int argc, char *argv[])
     QScopedPointer<QQuickView> view(SailfishApp::createView());
     view->rootContext()->setContextProperty(QStringLiteral("vault"), &vault);
     view->rootContext()->setContextProperty(QStringLiteral("importer"), &importer);
-    view->rootContext()->setContextProperty(
-        QStringLiteral("coreVersion"),
-        QString::fromUtf8(sailvault_core_version()));
+    view->rootContext()->setContextProperty(QStringLiteral("appVersion"),
+                                            QStringLiteral(APP_VERSION));
 
     if (app->arguments().contains(QStringLiteral("--startup-trace")))
         printFirstFrameTimestamp(view.data());

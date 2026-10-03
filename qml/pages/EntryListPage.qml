@@ -100,6 +100,12 @@ Page {
             busy: vault.saving
 
             MenuItem {
+                text: qsTr("About")
+                visible: page.groupId.length === 0
+                onClicked: pageStack.push(Qt.resolvedUrl("AboutPage.qml"))
+            }
+
+            MenuItem {
                 text: qsTr("Lock")
                 onClicked: vault.lock()
             }

@@ -25,7 +25,7 @@ SailVault is an independent, open-source password manager for KeePass
 
 %build
 
-%qmake5
+%qmake5 VERSION=%{version}
 
 %make_build
 
