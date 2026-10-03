@@ -534,7 +534,9 @@ Decided:
   and 4, 2.45 s; Maximum 1 GiB and 4, 4.92 s. Standard has four times the
   memory of RFC 9106's 64 MiB option and of Bitwarden's default. Password
   only, at least 15 characters (NIST SP 800-63B rev. 4 for a single
-  factor); key files stay in Phase 7.
+  factor); key files stay in Phase 7. Device test (2026-10-03): a database
+  created at "High" unlocks in about the measured time, and a password
+  under 15 characters is refused.
   Device test on the Jolla Phone (2026-10-03): a database was created on
   the phone and a test export imported into it. The saved file was fetched;
   `keepassxc-cli` 2.7.12 opened it with its password and reported AES
