@@ -270,6 +270,13 @@ fn tampered_files_are_rejected() {
     let key = CompositeKey::new(Some(PASSWORD), None).unwrap();
     let (_, header_length) = OuterHeader::parse(AES_ARGON2D).unwrap();
 
+    let mut hash = AES_ARGON2D.to_vec();
+    hash[header_length] ^= 0x01;
+    assert_eq!(
+        Database::open(&hash, &key).map(|_| ()),
+        Err(KdbxError::HeaderCorrupted)
+    );
+
     let mut header = AES_ARGON2D.to_vec();
     header[header_length - 10] ^= 0x01;
     assert!(Database::open(&header, &key).is_err());

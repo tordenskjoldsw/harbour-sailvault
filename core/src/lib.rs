@@ -1,3 +1,4 @@
+mod argon2_memory;
 pub mod bitwarden;
 pub mod ffi;
 pub mod kdbx;

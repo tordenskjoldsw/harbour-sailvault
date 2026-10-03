@@ -28,6 +28,13 @@ pub struct SvDatabase {
     database: Database,
 }
 
+// The C++ bridge opens the database on a pool thread and uses it on the main
+// thread, so the handle must stay Send.
+const _: fn() = || {
+    fn assert_send<T: Send>() {}
+    assert_send::<SvDatabase>();
+};
+
 #[repr(C)]
 pub struct SvString {
     pub data: *mut u8,

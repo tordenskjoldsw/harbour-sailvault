@@ -11,6 +11,8 @@ use super::inner_header::ProtectedStream;
 
 const MAX_DEPTH: usize = 128;
 const MAX_ELEMENTS: usize = 5_000_000;
+// KeePass XML uses at most a few attributes per element.
+const MAX_ATTRIBUTES: usize = 64;
 
 /// Lossless XML element. Every element, attribute and text node of the
 /// database is kept, including ones SailVault does not interpret, so a
@@ -64,7 +66,20 @@ impl Element {
     }
 
     pub fn is_protected(&self) -> bool {
-        self.attribute("Protected") == Some("True")
+        self.attribute("Protected").and_then(parse_bool) == Some(true)
+    }
+}
+
+/// Boolean as KeePassXC reads it: `True`/`False` in any case, or `1`/`0`.
+/// Anything else, such as `null`, is `None`.
+pub fn parse_bool(text: &str) -> Option<bool> {
+    let text = text.trim();
+    if text.eq_ignore_ascii_case("true") || text == "1" {
+        Some(true)
+    } else if text.eq_ignore_ascii_case("false") || text == "0" {
+        Some(false)
+    } else {
+        None
     }
 }
 
@@ -171,7 +186,15 @@ fn element(start: &BytesStart<'_>) -> Result<Element> {
         .map_err(|_| KdbxError::InvalidXml("element name"))?
         .to_owned();
     let mut attributes = Vec::new();
-    for attribute in start.attributes() {
+    // The duplicate-name check is quadratic in the attribute count
+    // (RUSTSEC-2026-0194); the fixed quick-xml needs a newer Rust than the
+    // SDK target has, so the check is off and the count is capped instead.
+    let mut parsed = start.attributes();
+    parsed.with_checks(false);
+    for attribute in parsed {
+        if attributes.len() == MAX_ATTRIBUTES {
+            return Err(KdbxError::LimitExceeded("XML attributes"));
+        }
         let attribute = attribute.map_err(|_| KdbxError::InvalidXml("attribute"))?;
         let key = std::str::from_utf8(attribute.key.as_ref())
             .map_err(|_| KdbxError::InvalidXml("attribute name"))?
@@ -290,6 +313,34 @@ mod tests {
         let values: Vec<String> = root.elements().map(|e| e.text().to_string()).collect();
         assert_eq!(values, ["first secret", "plain", "", "second secret"]);
         assert!(root.elements().next().unwrap().is_protected());
+    }
+
+    #[test]
+    fn reads_booleans_like_keepassxc() {
+        for (text, expected) in [
+            ("True", Some(true)),
+            ("true", Some(true)),
+            ("1", Some(true)),
+            ("False", Some(false)),
+            ("FALSE", Some(false)),
+            ("0", Some(false)),
+            ("null", None),
+            ("yes", None),
+        ] {
+            assert_eq!(parse_bool(text), expected, "{text}");
+        }
+    }
+
+    #[test]
+    fn caps_attributes_per_element() {
+        let attributes: String = (0..=MAX_ATTRIBUTES)
+            .map(|i| format!(" a{i}=\"x\""))
+            .collect();
+        let xml = format!("<KeePassFile{attributes}/>");
+        assert_eq!(
+            parse(xml.as_bytes(), &mut stream()).map(|_| ()),
+            Err(KdbxError::LimitExceeded("XML attributes"))
+        );
     }
 
     #[test]

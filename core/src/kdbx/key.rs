@@ -57,7 +57,7 @@ fn key_file_key(content: &[u8]) -> Result<Zeroizing<[u8; KEY_LENGTH]>> {
     if content.len() == KEY_LENGTH {
         key.copy_from_slice(content);
     } else if content.len() == 2 * KEY_LENGTH && content.iter().all(u8::is_ascii_hexdigit) {
-        let decoded = decode_hex(content).ok_or(KdbxError::InvalidKeyFile)?;
+        let decoded = Zeroizing::new(decode_hex(content).ok_or(KdbxError::InvalidKeyFile)?);
         key.copy_from_slice(&decoded);
     } else {
         key.copy_from_slice(&Sha256::digest(content));

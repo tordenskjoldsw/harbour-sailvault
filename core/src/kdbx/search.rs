@@ -2,6 +2,7 @@ use zeroize::Zeroizing;
 
 use super::database::{Database, Entry, Group};
 use super::error::Result;
+use super::xml::parse_bool;
 
 const SEARCHED_FIELDS: [&str; 4] = ["Title", "UserName", "URL", "Notes"];
 
@@ -45,9 +46,8 @@ fn collect<'a>(group: Group<'a>, parent_searchable: bool, entries: &mut Vec<List
         .child("EnableSearching")
         .map(|setting| setting.text())
     {
-        Some(setting) if setting.eq_ignore_ascii_case("false") => false,
-        Some(setting) if setting.eq_ignore_ascii_case("true") => true,
-        _ => parent_searchable,
+        Some(setting) => parse_bool(&setting).unwrap_or(parent_searchable),
+        None => parent_searchable,
     };
     entries.extend(group.entries().map(|entry| ListedEntry {
         entry,
@@ -66,10 +66,10 @@ fn matches(entry: &Entry<'_>, terms: &[Zeroizing<String>]) -> bool {
     let mut haystack = Zeroizing::new(String::new());
     for field in entry.fields() {
         if !field.is_protected() && SEARCHED_FIELDS.contains(&field.key().as_str()) {
-            haystack.push_str(&field.value().to_lowercase());
+            haystack.push_str(&Zeroizing::new(field.value().to_lowercase()));
             haystack.push('\n');
         }
     }
-    haystack.push_str(&entry.tags().to_lowercase());
+    haystack.push_str(&Zeroizing::new(entry.tags().to_lowercase()));
     terms.iter().all(|term| haystack.contains(term.as_str()))
 }

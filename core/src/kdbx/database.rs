@@ -24,13 +24,15 @@ impl Database {
     /// thread.
     pub fn open(data: &[u8], key: &CompositeKey) -> Result<Self> {
         let (header, header_length) = OuterHeader::parse(data)?;
+        payload::verify_header_hash(data, &header, header_length)?;
         let transformed = header.kdf.transform(key)?;
         let keys = PayloadKeys::derive(&header, &transformed);
-        let payload_start = payload::verify_header(data, &header, header_length, &keys)?;
+        let payload_start = payload::verify_header_hmac(data, &header, header_length, &keys)?;
         let plaintext = payload::decrypt(&data[payload_start..], &header, &keys)?;
 
-        let (mut inner, xml_start) = InnerHeader::parse(&plaintext)?;
-        let document = xml::parse(&plaintext[xml_start..], &mut inner.stream)?;
+        let (inner, mut stream, xml_start) = InnerHeader::parse(&plaintext)?;
+        let document = xml::parse(&plaintext[xml_start..], &mut stream)?;
+        drop(stream);
         if document.name != "KeePassFile" {
             return Err(KdbxError::InvalidXml("unexpected root element"));
         }
@@ -73,7 +75,7 @@ impl Database {
         let meta = self.meta()?;
         if meta
             .child("RecycleBinEnabled")
-            .is_some_and(|enabled| *enabled.text() == "False")
+            .is_some_and(|enabled| xml::parse_bool(&enabled.text()) == Some(false))
         {
             return None;
         }

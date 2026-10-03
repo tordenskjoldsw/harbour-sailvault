@@ -54,9 +54,7 @@ impl VariantDictionary {
             let value = read_sized(&mut reader, invalid)?;
             entries.push((name, decode_value(value_type, value).ok_or(invalid)?));
         }
-        if !reader.is_empty() {
-            return Err(invalid);
-        }
+        // Bytes after the end marker are ignored, as in KeePassXC.
         Ok(Self { entries })
     }
 
@@ -82,8 +80,7 @@ fn decode_value(value_type: u8, bytes: &[u8]) -> Option<Value> {
         TYPE_UINT32 => Value::UInt32(u32::from_le_bytes(bytes.try_into().ok()?)),
         TYPE_UINT64 => Value::UInt64(u64::from_le_bytes(bytes.try_into().ok()?)),
         TYPE_BOOL => match bytes {
-            [0] => Value::Bool(false),
-            [1] => Value::Bool(true),
+            [value] => Value::Bool(*value != 0),
             _ => return None,
         },
         TYPE_INT32 => Value::Int32(i32::from_le_bytes(bytes.try_into().ok()?)),
@@ -138,10 +135,7 @@ mod tests {
         let mut wrong_size = VERSION.to_le_bytes().to_vec();
         wrong_size.extend(entry(TYPE_UINT64, "a", &7u32.to_le_bytes()));
         wrong_size.push(TYPE_END);
-        let mut trailing = VERSION.to_le_bytes().to_vec();
-        trailing.extend([TYPE_END, 0xAA]);
-
-        for data in [newer, truncated, wrong_size, trailing] {
+        for data in [newer, truncated, wrong_size] {
             assert!(VariantDictionary::parse(&data).is_err());
         }
     }

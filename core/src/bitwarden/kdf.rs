@@ -1,6 +1,6 @@
 use std::ops::RangeInclusive;
 
-use argon2::{Algorithm, Argon2, Params, Version};
+use argon2::{Algorithm, Params, Version};
 use hkdf::Hkdf;
 use pbkdf2::pbkdf2_hmac;
 use sha2::{Digest, Sha256};
@@ -8,6 +8,7 @@ use zeroize::Zeroizing;
 
 use super::error::{ImportError, Result};
 use super::keys::{SymmetricKey, KEY_LENGTH};
+use crate::argon2_memory;
 
 // Exports use the account's KDF settings, so the lower bounds follow what
 // Bitwarden and Vaultwarden accept for accounts. The upper bounds keep a
@@ -92,13 +93,15 @@ impl Kdf {
                 let params =
                     Params::new(memory_mib * 1024, iterations, parallelism, Some(KEY_LENGTH))
                         .map_err(|_| ImportError::InvalidKdfParameters)?;
-                Argon2::new(Algorithm::Argon2id, Version::V0x13, params)
-                    .hash_password_into(
-                        password,
-                        &Sha256::digest(salt.as_bytes()),
-                        derived.as_mut(),
-                    )
-                    .map_err(|_| ImportError::InvalidKdfParameters)?;
+                argon2_memory::hash_into(
+                    Algorithm::Argon2id,
+                    Version::V0x13,
+                    params,
+                    password,
+                    &Sha256::digest(salt.as_bytes()),
+                    derived.as_mut(),
+                )
+                .map_err(|_| ImportError::InvalidKdfParameters)?;
             }
         }
         Ok(stretch(&derived))

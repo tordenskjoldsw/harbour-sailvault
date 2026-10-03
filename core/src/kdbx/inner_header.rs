@@ -33,13 +33,14 @@ impl fmt::Debug for Binary {
 }
 
 pub(crate) struct InnerHeader {
-    pub(crate) stream: ProtectedStream,
     pub(crate) binaries: Vec<Binary>,
 }
 
 impl InnerHeader {
-    /// Parses the inner header and returns it with the offset of the XML.
-    pub(crate) fn parse(data: &[u8]) -> Result<(Self, usize)> {
+    /// Parses the inner header. Returns it with the keystream for protected
+    /// values, which the caller drops after parsing the XML, and the offset
+    /// of the XML.
+    pub(crate) fn parse(data: &[u8]) -> Result<(Self, ProtectedStream, usize)> {
         let truncated = KdbxError::InvalidInnerHeader("truncated");
         let mut reader = ByteReader::new(data);
         let mut stream_id = None;
@@ -78,11 +79,11 @@ impl InnerHeader {
             return Err(KdbxError::InvalidInnerHeader("unsupported stream"));
         }
         let stream_key = stream_key.ok_or(KdbxError::InvalidInnerHeader("missing stream key"))?;
-        let header = Self {
-            stream: ProtectedStream::new(&stream_key),
-            binaries,
-        };
-        Ok((header, reader.position()))
+        Ok((
+            Self { binaries },
+            ProtectedStream::new(&stream_key),
+            reader.position(),
+        ))
     }
 }
 

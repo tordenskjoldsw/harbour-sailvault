@@ -2,7 +2,7 @@ use std::ops::RangeInclusive;
 
 use aes::cipher::{BlockEncrypt, KeyInit};
 use aes::Aes256;
-use argon2::{Algorithm, Argon2, Params, Version};
+use argon2::{Algorithm, Params, Version};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
@@ -10,17 +10,23 @@ use super::error::{KdbxError, Result};
 use super::header::uuid;
 use super::key::{CompositeKey, KEY_LENGTH};
 use super::variant_dictionary::{Value, VariantDictionary};
+use crate::argon2_memory::{self, Argon2Failure};
 
-const KDF_AES_KDBX3: [u8; 16] = uuid(0x7c02bb82_79a74ac0_927d114a_00648238);
-const KDF_AES_KDBX4: [u8; 16] = uuid(0xc9d9f39a_628a4460_bf740d08_c18a4fea);
+// Named as in KeePassXC (KeePass2.cpp): the KDBX 3 UUID marks AES-KDF in KDBX
+// 3.1 files, the KDBX 4 UUID is the one KeePass 2.x writes in KDBX 4.
+const KDF_AES_KDBX3: [u8; 16] = uuid(0xc9d9f39a_628a4460_bf740d08_c18a4fea);
+const KDF_AES_KDBX4: [u8; 16] = uuid(0x7c02bb82_79a74ac0_927d114a_00648238);
 const KDF_ARGON2D: [u8; 16] = uuid(0xef636ddf_8c29444b_91f7a9a4_03e30a0c);
 const KDF_ARGON2ID: [u8; 16] = uuid(0x9e298b19_56db4773_b23dfc3e_c6f0a1e6);
 
-// Generous bounds for reading the user's own databases; they only stop a
-// crafted file from stalling or exhausting the phone.
+// Bounds for reading the user's own databases; they stop a crafted file from
+// stalling or exhausting the phone before its HMAC can be checked. The work
+// cap allows about a minute of Argon2 on the Jolla Phone (about 60 ms per
+// iteration per 64 MiB).
 const AES_ROUNDS: RangeInclusive<u64> = 1..=1_000_000_000;
-const ARGON2_ITERATIONS: RangeInclusive<u64> = 1..=4096;
-const ARGON2_MEMORY_BYTES: RangeInclusive<u64> = (8 << 10)..=(2 << 30);
+const ARGON2_ITERATIONS: RangeInclusive<u64> = 1..=1000;
+const ARGON2_MEMORY_BYTES: RangeInclusive<u64> = (8 << 10)..=(1 << 30);
+const ARGON2_MAX_WORK_BYTES: u64 = 64 << 30;
 const ARGON2_PARALLELISM: RangeInclusive<u32> = 1..=64;
 const ARGON2_SALT_LENGTH: RangeInclusive<usize> = 8..=64;
 const ARGON2_VERSION_10: u32 = 0x10;
@@ -106,6 +112,7 @@ impl KdfParameters {
             } => {
                 ARGON2_ITERATIONS.contains(iterations)
                     && ARGON2_MEMORY_BYTES.contains(memory_bytes)
+                    && memory_bytes.saturating_mul(*iterations) <= ARGON2_MAX_WORK_BYTES
                     && ARGON2_PARALLELISM.contains(parallelism)
                     && [ARGON2_VERSION_10, ARGON2_VERSION_13].contains(version)
                     && ARGON2_SALT_LENGTH.contains(&salt.len())
@@ -159,9 +166,18 @@ impl KdfParameters {
                     Some(KEY_LENGTH),
                 )
                 .map_err(|_| KdbxError::KdfParametersOutOfRange)?;
-                Argon2::new(algorithm, version, params)
-                    .hash_password_into(key.as_bytes(), salt, transformed.as_mut())
-                    .map_err(|_| KdbxError::KdfParametersOutOfRange)?;
+                argon2_memory::hash_into(
+                    algorithm,
+                    version,
+                    params,
+                    key.as_bytes(),
+                    salt,
+                    transformed.as_mut(),
+                )
+                .map_err(|failure| match failure {
+                    Argon2Failure::OutOfMemory => KdbxError::LimitExceeded("Argon2 memory"),
+                    Argon2Failure::InvalidParameters => KdbxError::KdfParametersOutOfRange,
+                })?;
             }
         }
         Ok(transformed)
@@ -179,5 +195,55 @@ fn bytes<'a>(dictionary: &'a VariantDictionary, name: &'static str) -> Result<&'
     match dictionary.get(name) {
         Some(Value::ByteArray(value)) => Ok(value),
         _ => Err(KdbxError::InvalidHeader("KDF parameter")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn aes_kdf_uuids_match_keepassxc() {
+        assert_eq!(
+            KDF_AES_KDBX3,
+            [
+                0xc9, 0xd9, 0xf3, 0x9a, 0x62, 0x8a, 0x44, 0x60, 0xbf, 0x74, 0x0d, 0x08, 0xc1, 0x8a,
+                0x4f, 0xea
+            ]
+        );
+        assert_eq!(
+            KDF_AES_KDBX4,
+            [
+                0x7c, 0x02, 0xbb, 0x82, 0x79, 0xa7, 0x4a, 0xc0, 0x92, 0x7d, 0x11, 0x4a, 0x00, 0x64,
+                0x82, 0x38
+            ]
+        );
+    }
+
+    fn argon2(iterations: u64, memory_bytes: u64) -> KdfParameters {
+        KdfParameters::Argon2 {
+            variant: Argon2Variant::Argon2id,
+            iterations,
+            memory_bytes,
+            parallelism: 2,
+            version: ARGON2_VERSION_13,
+            salt: vec![1; 32],
+        }
+    }
+
+    #[test]
+    fn argon2_work_is_bounded_before_running() {
+        let key = CompositeKey::new(Some(b"x"), None).unwrap();
+        for parameters in [
+            argon2(2, 2 << 30),
+            argon2(1001, 8 << 20),
+            argon2(100, 1 << 30),
+        ] {
+            assert_eq!(
+                parameters.transform(&key).map(|_| ()),
+                Err(KdbxError::KdfParametersOutOfRange)
+            );
+        }
+        assert!(argon2(2, 1 << 20).transform(&key).is_ok());
     }
 }

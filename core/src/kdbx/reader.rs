@@ -15,10 +15,6 @@ impl<'a> ByteReader<'a> {
         self.position
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
-        self.position == self.data.len()
-    }
-
     pub(crate) fn take(&mut self, length: usize, error: KdbxError) -> Result<&'a [u8]> {
         let end = self
             .position

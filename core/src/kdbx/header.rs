@@ -9,6 +9,7 @@ const SUPPORTED_MINOR_VERSIONS: [u16; 2] = [0, 1];
 const MAX_HEADER_LENGTH: usize = 1 << 20;
 
 const FIELD_END: u8 = 0;
+const FIELD_COMMENT: u8 = 1;
 const FIELD_CIPHER_ID: u8 = 2;
 const FIELD_COMPRESSION: u8 = 3;
 const FIELD_MASTER_SEED: u8 = 4;
@@ -94,6 +95,8 @@ impl OuterHeader {
             }
             match field {
                 FIELD_END => break,
+                // Free text that KeePass 2.x defines and KeePassXC ignores.
+                FIELD_COMMENT => {}
                 FIELD_CIPHER_ID => cipher = Some(parse_cipher(value)?),
                 FIELD_COMPRESSION => compression = Some(parse_compression(value)?),
                 FIELD_MASTER_SEED => {

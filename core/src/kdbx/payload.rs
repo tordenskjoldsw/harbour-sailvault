@@ -60,20 +60,31 @@ impl PayloadKeys {
     }
 }
 
-/// Checks the header hash (corruption) and the header HMAC (credentials).
-/// Returns the offset where the HMAC block stream starts.
-pub(crate) fn verify_header(
+/// Checks the header hash, which detects corruption before the slow KDF
+/// runs. The hash is over public data, so a plain comparison is fine.
+pub(crate) fn verify_header_hash(
+    data: &[u8],
+    header: &OuterHeader,
+    header_length: usize,
+) -> Result<()> {
+    let mut reader = ByteReader::new(&data[header_length..]);
+    let stored_hash = reader.take(HASH_LENGTH, KdbxError::HeaderCorrupted)?;
+    if Sha256::digest(&header.bytes).as_slice() != stored_hash {
+        return Err(KdbxError::HeaderCorrupted);
+    }
+    Ok(())
+}
+
+/// Checks the header HMAC (credentials). Returns the offset where the HMAC
+/// block stream starts.
+pub(crate) fn verify_header_hmac(
     data: &[u8],
     header: &OuterHeader,
     header_length: usize,
     keys: &PayloadKeys,
 ) -> Result<usize> {
-    let mut reader = ByteReader::new(&data[header_length..]);
-    let stored_hash = reader.take(HASH_LENGTH, KdbxError::HeaderCorrupted)?;
+    let mut reader = ByteReader::new(&data[header_length + HASH_LENGTH..]);
     let stored_hmac = reader.take(HASH_LENGTH, KdbxError::HeaderCorrupted)?;
-    if Sha256::digest(&header.bytes).as_slice() != stored_hash {
-        return Err(KdbxError::HeaderCorrupted);
-    }
     let mut hmac = keys.block_hmac(HEADER_HMAC_BLOCK_INDEX);
     hmac.update(&header.bytes);
     hmac.verify_slice(stored_hmac)
