@@ -13,6 +13,7 @@ const MAX_DEPTH: usize = 128;
 const MAX_ELEMENTS: usize = 5_000_000;
 // KeePass XML uses at most a few attributes per element.
 const MAX_ATTRIBUTES: usize = 64;
+const DECLARATION: &[u8] = b"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>";
 
 /// Lossless XML element. Every element, attribute and text node of the
 /// database is kept, including ones SailVault does not interpret, so a
@@ -256,6 +257,98 @@ fn finish(element: &mut Element, stream: &mut ProtectedStream) -> Result<()> {
     Ok(())
 }
 
+/// Serializes the document as KeePassXC does: tab indentation, empty
+/// elements self-closed, protected values encrypted with the inner stream in
+/// document order and base64 encoded.
+pub(crate) fn write(root: &Element, stream: &mut ProtectedStream, out: &mut Vec<u8>) {
+    out.extend_from_slice(DECLARATION);
+    write_element(root, Some(0), stream, out);
+    out.push(b'\n');
+}
+
+/// `depth` is `None` inside mixed content, where added whitespace would
+/// change the text.
+fn write_element(
+    element: &Element,
+    depth: Option<usize>,
+    stream: &mut ProtectedStream,
+    out: &mut Vec<u8>,
+) {
+    if let Some(depth) = depth {
+        indent(depth, out);
+    }
+    out.push(b'<');
+    out.extend_from_slice(element.name.as_bytes());
+    for (key, value) in &element.attributes {
+        out.push(b' ');
+        out.extend_from_slice(key.as_bytes());
+        out.extend_from_slice(b"=\"");
+        escape(value, true, out);
+        out.push(b'"');
+    }
+
+    if element.is_protected() {
+        let plaintext = element.text();
+        if plaintext.is_empty() {
+            out.extend_from_slice(b"/>");
+            return;
+        }
+        let mut ciphertext = Zeroizing::new(plaintext.as_bytes().to_vec());
+        stream.apply(&mut ciphertext);
+        out.push(b'>');
+        out.extend_from_slice(STANDARD.encode(ciphertext.as_slice()).as_bytes());
+    } else if element.children.is_empty() {
+        out.extend_from_slice(b"/>");
+        return;
+    } else {
+        out.push(b'>');
+        let only_elements = element
+            .children
+            .iter()
+            .all(|child| matches!(child, Node::Element(_)));
+        let child_depth = depth.filter(|_| only_elements).map(|depth| depth + 1);
+        for child in &element.children {
+            match child {
+                Node::Element(child) => write_element(child, child_depth, stream, out),
+                Node::Text(text) => escape(text, false, out),
+            }
+        }
+        if let Some(depth) = child_depth {
+            indent(depth - 1, out);
+        }
+    }
+    out.extend_from_slice(b"</");
+    out.extend_from_slice(element.name.as_bytes());
+    out.push(b'>');
+}
+
+fn indent(depth: usize, out: &mut Vec<u8>) {
+    out.push(b'\n');
+    out.extend(std::iter::repeat(b'\t').take(depth));
+}
+
+/// Escapes markup and drops the characters XML 1.0 forbids, the same set
+/// KeePassXC strips (`KdbxXmlWriter::stripInvalidXml10Chars`).
+fn escape(text: &str, attribute: bool, out: &mut Vec<u8>) {
+    for character in text.chars() {
+        match character {
+            '<' => out.extend_from_slice(b"&lt;"),
+            '>' => out.extend_from_slice(b"&gt;"),
+            '&' => out.extend_from_slice(b"&amp;"),
+            '"' if attribute => out.extend_from_slice(b"&quot;"),
+            '\0'..='\x08'
+            | '\x0B'
+            | '\x0C'
+            | '\x0E'..='\x1F'
+            | '\x7F'..='\u{84}'
+            | '\u{86}'..='\u{9F}'
+            | '\u{FFFE}'
+            | '\u{FFFF}' => {}
+            character => out.extend_from_slice(character.encode_utf8(&mut [0u8; 4]).as_bytes()),
+        }
+    }
+}
+
 pub(crate) fn predefined_entity(reference: &[u8]) -> Result<char> {
     match reference {
         b"lt" => Ok('<'),
@@ -340,6 +433,81 @@ mod tests {
         assert_eq!(
             parse(xml.as_bytes(), &mut stream()).map(|_| ()),
             Err(KdbxError::LimitExceeded("XML attributes"))
+        );
+    }
+
+    fn written(root: &Element) -> Vec<u8> {
+        let mut out = Vec::new();
+        write(root, &mut stream(), &mut out);
+        out
+    }
+
+    #[test]
+    fn writes_keepassxc_formatting_and_encrypts_protected_values() {
+        let mut encrypted = b"secret".to_vec();
+        stream().apply(&mut encrypted);
+        let encrypted = STANDARD.encode(encrypted);
+        let xml = format!(
+            "<KeePassFile><Meta><Generator>a &amp; b</Generator><Color/></Meta><Root>\
+             <Group><Entry><String><Key>Password</Key><Value Protected=\"True\">{encrypted}\
+             </Value></String><String><Key>Notes</Key><Value Protected=\"True\"/></String>\
+             </Entry></Group></Root></KeePassFile>"
+        );
+        let parsed = parse(xml.as_bytes(), &mut stream()).unwrap();
+        assert_eq!(
+            *parsed
+                .child("Root")
+                .unwrap()
+                .child("Group")
+                .unwrap()
+                .child("Entry")
+                .unwrap()
+                .child("String")
+                .unwrap()
+                .child("Value")
+                .unwrap()
+                .text(),
+            "secret"
+        );
+        let out = String::from_utf8(written(&parsed)).unwrap();
+
+        let expected = format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<KeePassFile>\n\
+             \t<Meta>\n\t\t<Generator>a &amp; b</Generator>\n\t\t<Color/>\n\t</Meta>\n\t<Root>\n\
+             \t\t<Group>\n\t\t\t<Entry>\n\t\t\t\t<String>\n\t\t\t\t\t<Key>Password</Key>\n\
+             \t\t\t\t\t<Value Protected=\"True\">{}</Value>\n\t\t\t\t</String>\n\t\t\t\t<String>\n\
+             \t\t\t\t\t<Key>Notes</Key>\n\t\t\t\t\t<Value Protected=\"True\"/>\n\t\t\t\t</String>\n\
+             \t\t\t</Entry>\n\t\t</Group>\n\t</Root>\n</KeePassFile>\n",
+            encrypted
+        );
+        assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn written_document_parses_back_identically() {
+        let xml = "<?xml version=\"1.0\"?><KeePassFile><Meta><FutureField Mode=\"x &amp; y &quot;q&quot;\">\
+                   kept</FutureField></Meta><Notes>  leading and trailing  \n</Notes>\
+                   <Mixed>a &lt;b&gt; <Inner>i</Inner> tail</Mixed><Empty/>\
+                   <Value Protected=\"True\">PK0nXQ==</Value></KeePassFile>";
+        let original = parse(xml.as_bytes(), &mut stream()).unwrap();
+        let reparsed = parse(&written(&original), &mut stream()).unwrap();
+        assert!(reparsed == original);
+        assert!(parse(&written(&reparsed), &mut stream()).unwrap() == original);
+    }
+
+    #[test]
+    fn strips_characters_xml_forbids() {
+        let root = Element {
+            name: "KeePassFile".into(),
+            attributes: vec![("a".into(), "x\u{1}y\"".into())],
+            children: vec![Node::Text(Zeroizing::new(
+                "tab\tnl\nbell\u{7}del\u{7f}ok".into(),
+            ))],
+        };
+        assert_eq!(
+            String::from_utf8(written(&root)).unwrap(),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n\
+             <KeePassFile a=\"xy&quot;\">tab\tnl\nbelldelok</KeePassFile>\n"
         );
     }
 

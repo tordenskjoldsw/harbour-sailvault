@@ -11,6 +11,7 @@ use super::header::uuid;
 use super::key::{CompositeKey, KEY_LENGTH};
 use super::variant_dictionary::{Value, VariantDictionary};
 use crate::argon2_memory::{self, Argon2Failure};
+use crate::random;
 
 // Named as in KeePassXC (KeePass2.cpp): the KDBX 3 UUID marks AES-KDF in KDBX
 // 3.1 files, the KDBX 4 UUID is the one KeePass 2.x writes in KDBX 4.
@@ -31,6 +32,8 @@ const ARGON2_PARALLELISM: RangeInclusive<u32> = 1..=64;
 const ARGON2_SALT_LENGTH: RangeInclusive<usize> = 8..=64;
 const ARGON2_VERSION_10: u32 = 0x10;
 const ARGON2_VERSION_13: u32 = 0x13;
+// KeePassXC's `Kdf::randomizeSeed` draws 32 bytes for both KDFs.
+const SEED_LENGTH: usize = 32;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Argon2Variant {
@@ -97,6 +100,51 @@ impl KdfParameters {
         };
         parameters.validate()?;
         Ok(parameters)
+    }
+
+    /// The same parameters with a fresh seed. KeePassXC and KeePass draw a
+    /// new one on every save.
+    pub(crate) fn with_new_seed(&self) -> Result<Self> {
+        let mut renewed = self.clone();
+        match &mut renewed {
+            Self::AesKdf { seed, .. } => random::fill(seed)?,
+            Self::Argon2 { salt, .. } => *salt = random::array::<SEED_LENGTH>()?.to_vec(),
+        }
+        Ok(renewed)
+    }
+
+    /// Keys in the order KeePassXC writes them (sorted, `$UUID` first). A
+    /// KDBX 4 file always carries the KDBX 4 AES-KDF UUID.
+    pub(crate) fn to_dictionary(&self) -> VariantDictionary {
+        let entries = match self {
+            Self::AesKdf { rounds, seed } => vec![
+                ("$UUID".to_owned(), Value::ByteArray(KDF_AES_KDBX4.to_vec())),
+                ("R".to_owned(), Value::UInt64(*rounds)),
+                ("S".to_owned(), Value::ByteArray(seed.to_vec())),
+            ],
+            Self::Argon2 {
+                variant,
+                iterations,
+                memory_bytes,
+                parallelism,
+                version,
+                salt,
+            } => {
+                let id = match variant {
+                    Argon2Variant::Argon2d => KDF_ARGON2D,
+                    Argon2Variant::Argon2id => KDF_ARGON2ID,
+                };
+                vec![
+                    ("$UUID".to_owned(), Value::ByteArray(id.to_vec())),
+                    ("I".to_owned(), Value::UInt64(*iterations)),
+                    ("M".to_owned(), Value::UInt64(*memory_bytes)),
+                    ("P".to_owned(), Value::UInt32(*parallelism)),
+                    ("S".to_owned(), Value::ByteArray(salt.clone())),
+                    ("V".to_owned(), Value::UInt32(*version)),
+                ]
+            }
+        };
+        VariantDictionary::from_entries(entries)
     }
 
     fn validate(&self) -> Result<()> {
@@ -245,5 +293,36 @@ mod tests {
             );
         }
         assert!(argon2(2, 1 << 20).transform(&key).is_ok());
+    }
+
+    #[test]
+    fn dictionary_round_trips_and_new_seed_changes_only_the_seed() {
+        let aes = KdfParameters::AesKdf {
+            rounds: 60_000,
+            seed: [5; 32],
+        };
+        for parameters in [aes, argon2(3, 16 << 20)] {
+            let dictionary = parameters.to_dictionary();
+            assert_eq!(
+                KdfParameters::from_dictionary(&dictionary).unwrap(),
+                parameters
+            );
+            assert_eq!(
+                VariantDictionary::parse(&dictionary.serialize().unwrap()).unwrap(),
+                dictionary
+            );
+
+            let renewed = parameters.with_new_seed().unwrap();
+            assert_ne!(renewed, parameters);
+            let seedless = |p: &KdfParameters| {
+                let mut p = p.clone();
+                match &mut p {
+                    KdfParameters::AesKdf { seed, .. } => *seed = [0; 32],
+                    KdfParameters::Argon2 { salt, .. } => salt.clear(),
+                }
+                p
+            };
+            assert_eq!(seedless(&renewed), seedless(&parameters));
+        }
     }
 }

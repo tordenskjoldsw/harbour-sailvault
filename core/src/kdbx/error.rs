@@ -26,6 +26,12 @@ pub enum KdbxError {
     InvalidInnerHeader(&'static str),
     InvalidXml(&'static str),
     LimitExceeded(&'static str),
+    CompressionFailed,
+    /// The kernel provided no random bytes; nothing was written.
+    RandomUnavailable,
+    /// The serialized database did not decrypt back to the same content;
+    /// nothing is written.
+    WriteVerificationFailed,
 }
 
 impl fmt::Display for KdbxError {
@@ -52,10 +58,21 @@ impl fmt::Display for KdbxError {
             Self::InvalidInnerHeader(reason) => write!(f, "invalid inner header: {reason}"),
             Self::InvalidXml(reason) => write!(f, "invalid database XML: {reason}"),
             Self::LimitExceeded(what) => write!(f, "limit exceeded: {what}"),
+            Self::CompressionFailed => f.write_str("compression failed"),
+            Self::RandomUnavailable => f.write_str("random number generator unavailable"),
+            Self::WriteVerificationFailed => {
+                f.write_str("the written database does not decrypt to the same content")
+            }
         }
     }
 }
 
 impl std::error::Error for KdbxError {}
+
+impl From<getrandom::Error> for KdbxError {
+    fn from(_: getrandom::Error) -> Self {
+        Self::RandomUnavailable
+    }
+}
 
 pub type Result<T> = std::result::Result<T, KdbxError>;

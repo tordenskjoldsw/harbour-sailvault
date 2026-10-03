@@ -23,7 +23,10 @@ enum {
     SV_INVALID_KEY_FILE = 6,
     SV_CORRUPTED = 7,
     SV_LIMIT_EXCEEDED = 8,
-    SV_NOT_FOUND = 9
+    SV_NOT_FOUND = 9,
+    /* Saving failed before anything was handed out: no random bytes, or the
+     * serialized file did not decrypt back to the same content. */
+    SV_WRITE_FAILED = 10
 };
 
 enum { SV_UUID_LENGTH = 16 };
@@ -40,6 +43,12 @@ typedef struct SvString {
     uint8_t *data;
     size_t length;
 } SvString;
+
+/* A serialized database file. Release with sv_bytes_free. */
+typedef struct SvBytes {
+    uint8_t *data;
+    size_t length;
+} SvBytes;
 
 /* Runs the KDF; call off the UI thread. A database handle is not thread-safe:
  * use it from one thread at a time. */
@@ -73,6 +82,12 @@ int32_t sv_database_field_value(const SvDatabase *database, const uint8_t *entry
                                 const uint8_t *key, size_t key_length, SvString *out);
 
 void sv_string_free(SvString string);
+
+/* Serializes the database with fresh seeds and verifies it by decrypting it
+ * again. Runs the KDF; call off the UI thread. Other threads may read the
+ * database meanwhile but must not modify or free it. */
+int32_t sv_database_save(const SvDatabase *database, SvBytes *out);
+void sv_bytes_free(SvBytes bytes);
 
 #ifdef __cplusplus
 }

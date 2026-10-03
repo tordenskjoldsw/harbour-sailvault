@@ -58,6 +58,29 @@ impl VariantDictionary {
         Ok(Self { entries })
     }
 
+    pub(crate) fn from_entries(entries: Vec<(String, Value)>) -> Self {
+        Self { entries }
+    }
+
+    pub(crate) fn serialize(&self) -> Result<Vec<u8>> {
+        let mut out = VERSION.to_le_bytes().to_vec();
+        for (name, value) in &self.entries {
+            out.push(type_id(value));
+            write_sized(&mut out, name.as_bytes())?;
+            match value {
+                Value::UInt32(v) => write_sized(&mut out, &v.to_le_bytes())?,
+                Value::UInt64(v) => write_sized(&mut out, &v.to_le_bytes())?,
+                Value::Bool(v) => write_sized(&mut out, &[u8::from(*v)])?,
+                Value::Int32(v) => write_sized(&mut out, &v.to_le_bytes())?,
+                Value::Int64(v) => write_sized(&mut out, &v.to_le_bytes())?,
+                Value::String(v) => write_sized(&mut out, v.as_bytes())?,
+                Value::ByteArray(v) => write_sized(&mut out, v)?,
+            }
+        }
+        out.push(TYPE_END);
+        Ok(out)
+    }
+
     pub fn get(&self, name: &str) -> Option<&Value> {
         self.entries
             .iter()
@@ -73,6 +96,26 @@ impl VariantDictionary {
 fn read_sized<'a>(reader: &mut ByteReader<'a>, invalid: KdbxError) -> Result<&'a [u8]> {
     let length = usize::try_from(reader.i32(invalid)?).map_err(|_| invalid)?;
     reader.take(length, invalid)
+}
+
+fn write_sized(out: &mut Vec<u8>, bytes: &[u8]) -> Result<()> {
+    let length = i32::try_from(bytes.len())
+        .map_err(|_| KdbxError::LimitExceeded("variant dictionary value"))?;
+    out.extend_from_slice(&length.to_le_bytes());
+    out.extend_from_slice(bytes);
+    Ok(())
+}
+
+fn type_id(value: &Value) -> u8 {
+    match value {
+        Value::UInt32(_) => TYPE_UINT32,
+        Value::UInt64(_) => TYPE_UINT64,
+        Value::Bool(_) => TYPE_BOOL,
+        Value::Int32(_) => TYPE_INT32,
+        Value::Int64(_) => TYPE_INT64,
+        Value::String(_) => TYPE_STRING,
+        Value::ByteArray(_) => TYPE_BYTE_ARRAY,
+    }
 }
 
 fn decode_value(value_type: u8, bytes: &[u8]) -> Option<Value> {
@@ -125,6 +168,7 @@ mod tests {
         assert_eq!(names, ["a", "b", "c", "d", "e", "f", "g"]);
         assert_eq!(dictionary.get("b"), Some(&Value::UInt64(8)));
         assert_eq!(dictionary.get("f"), Some(&Value::String("text".into())));
+        assert_eq!(dictionary.serialize().unwrap(), data);
     }
 
     #[test]

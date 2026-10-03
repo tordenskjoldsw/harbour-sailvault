@@ -1,5 +1,6 @@
-//! KDBX 4 reader. Format details are verified against KeePassXC
-//! (`src/format/Kdbx4Reader.cpp`, `KdbxXmlReader.cpp`, `keys/`).
+//! KDBX 4 reader and writer. Format details are verified against KeePassXC
+//! (`src/format/Kdbx4Reader.cpp`, `Kdbx4Writer.cpp`, `KdbxXmlReader.cpp`,
+//! `KdbxXmlWriter.cpp`, `keys/`).
 
 mod database;
 mod error;

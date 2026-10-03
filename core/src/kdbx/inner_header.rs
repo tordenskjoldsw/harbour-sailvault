@@ -6,6 +6,7 @@ use sha2::{Digest, Sha512};
 use zeroize::Zeroizing;
 
 use super::error::{KdbxError, Result};
+use super::header::write_field;
 use super::reader::ByteReader;
 
 const FIELD_END: u8 = 0;
@@ -15,9 +16,11 @@ const FIELD_BINARY: u8 = 3;
 const STREAM_CHACHA20: u32 = 3;
 const BINARY_FLAG_PROTECTED: u8 = 0x01;
 const MAX_BINARIES: usize = 100_000;
+pub(crate) const STREAM_KEY_LENGTH: usize = 64;
 
 /// An attachment from the inner header binary pool. Entries reference it by
 /// its position in the pool.
+#[derive(PartialEq, Eq)]
 pub struct Binary {
     pub protected: bool,
     pub data: Zeroizing<Vec<u8>>,
@@ -85,6 +88,31 @@ impl InnerHeader {
             reader.position(),
         ))
     }
+
+    /// Serializes the inner header with `stream_key` for the protected values
+    /// of the XML that follows it. The binary pool keeps its order, so the
+    /// `Ref` attributes in the XML stay valid.
+    pub(crate) fn serialize(
+        &self,
+        stream_key: &[u8; STREAM_KEY_LENGTH],
+        out: &mut Vec<u8>,
+    ) -> Result<()> {
+        write_field(out, FIELD_STREAM_ID, &STREAM_CHACHA20.to_le_bytes())?;
+        write_field(out, FIELD_STREAM_KEY, stream_key)?;
+        for binary in &self.binaries {
+            let length = u32::try_from(binary.data.len() + 1)
+                .map_err(|_| KdbxError::LimitExceeded("attachment size"))?;
+            out.push(FIELD_BINARY);
+            out.extend_from_slice(&length.to_le_bytes());
+            out.push(if binary.protected {
+                BINARY_FLAG_PROTECTED
+            } else {
+                0
+            });
+            out.extend_from_slice(&binary.data);
+        }
+        write_field(out, FIELD_END, &[])
+    }
 }
 
 /// Keystream for `Protected="True"` values. Values consume it in document
@@ -99,5 +127,39 @@ impl ProtectedStream {
 
     pub(crate) fn apply(&mut self, data: &mut [u8]) {
         self.0.apply_keystream(data);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn serialized_inner_header_parses_back() {
+        let original = InnerHeader {
+            binaries: vec![
+                Binary {
+                    protected: true,
+                    data: Zeroizing::new(b"attachment".to_vec()),
+                },
+                Binary {
+                    protected: false,
+                    data: Zeroizing::new(Vec::new()),
+                },
+            ],
+        };
+        let key = [9u8; STREAM_KEY_LENGTH];
+        let mut bytes = Vec::new();
+        original.serialize(&key, &mut bytes).unwrap();
+        bytes.extend_from_slice(b"<xml/>");
+
+        let (parsed, mut stream, offset) = InnerHeader::parse(&bytes).unwrap();
+        assert_eq!(&bytes[offset..], b"<xml/>");
+        assert!(parsed.binaries == original.binaries);
+        let mut probe = [0u8; 8];
+        stream.apply(&mut probe);
+        let mut expected = [0u8; 8];
+        ProtectedStream::new(&key).apply(&mut expected);
+        assert_eq!(probe, expected);
     }
 }

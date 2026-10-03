@@ -21,6 +21,7 @@ pub const SV_INVALID_KEY_FILE: i32 = 6;
 pub const SV_CORRUPTED: i32 = 7;
 pub const SV_LIMIT_EXCEEDED: i32 = 8;
 pub const SV_NOT_FOUND: i32 = 9;
+pub const SV_WRITE_FAILED: i32 = 10;
 
 const UUID_LENGTH: usize = 16;
 
@@ -28,15 +29,22 @@ pub struct SvDatabase {
     database: Database,
 }
 
-// The C++ bridge opens the database on a pool thread and uses it on the main
-// thread, so the handle must stay Send.
+// The C++ bridge opens and saves the database on a pool thread and reads it
+// on the main thread, so the handle must stay Send and Sync.
 const _: fn() = || {
-    fn assert_send<T: Send>() {}
-    assert_send::<SvDatabase>();
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<SvDatabase>();
 };
 
 #[repr(C)]
 pub struct SvString {
+    pub data: *mut u8,
+    pub length: usize,
+}
+
+/// A serialized database file.
+#[repr(C)]
+pub struct SvBytes {
     pub data: *mut u8,
     pub length: usize,
 }
@@ -81,6 +89,9 @@ fn status(error: KdbxError) -> i32 {
         | KdbxError::DecompressionFailed
         | KdbxError::InvalidInnerHeader(_)
         | KdbxError::InvalidXml(_) => SV_CORRUPTED,
+        KdbxError::CompressionFailed
+        | KdbxError::RandomUnavailable
+        | KdbxError::WriteVerificationFailed => SV_WRITE_FAILED,
     }
 }
 
@@ -189,7 +200,7 @@ pub unsafe extern "C" fn sv_database_open(
         Ok(key) => key,
         Err(error) => return status(error),
     };
-    match Database::open(data, &key) {
+    match Database::open(data, key) {
         Ok(database) => {
             *out = Box::into_raw(Box::new(SvDatabase { database }));
             SV_OK
@@ -494,6 +505,49 @@ pub unsafe extern "C" fn sv_database_field_value(
     }
 }
 
+/// Serializes the database as a KDBX 4 file with fresh seeds, verified by
+/// decrypting it again. Runs the KDF: call it off the UI thread. Release the
+/// result with `sv_bytes_free`.
+///
+/// # Safety
+///
+/// `database` must be a live handle that no other thread modifies or frees
+/// meanwhile; `out` must be valid for one write.
+#[no_mangle]
+pub unsafe extern "C" fn sv_database_save(database: *const SvDatabase, out: *mut SvBytes) -> i32 {
+    let (Some(database), Some(out)) = (database.as_ref(), out.as_mut()) else {
+        return SV_INVALID_ARGUMENT;
+    };
+    *out = SvBytes {
+        data: std::ptr::null_mut(),
+        length: 0,
+    };
+    match database.database.save() {
+        Ok(file) => {
+            let boxed = file.into_boxed_slice();
+            out.length = boxed.len();
+            out.data = Box::into_raw(boxed).cast();
+            SV_OK
+        }
+        Err(error) => status(error),
+    }
+}
+
+/// Releases a file from `sv_database_save`.
+///
+/// # Safety
+///
+/// `bytes` must come from this API and not have been freed.
+#[no_mangle]
+pub unsafe extern "C" fn sv_bytes_free(bytes: SvBytes) {
+    if !bytes.data.is_null() {
+        drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(
+            bytes.data,
+            bytes.length,
+        )));
+    }
+}
+
 /// Zeroizes and releases a string from this API.
 ///
 /// # Safety
@@ -678,6 +732,10 @@ mod tests {
             sv_database_free(std::ptr::null_mut());
             sv_list_free(std::ptr::null_mut());
             sv_string_free(SvString {
+                data: std::ptr::null_mut(),
+                length: 0,
+            });
+            sv_bytes_free(SvBytes {
                 data: std::ptr::null_mut(),
                 length: 0,
             });

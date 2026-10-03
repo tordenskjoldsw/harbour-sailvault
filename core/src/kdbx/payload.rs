@@ -1,9 +1,10 @@
-use std::io::Read;
+use std::io::{Read, Write};
 
 use aes::cipher::block_padding::Pkcs7;
-use aes::cipher::{BlockDecryptMut, KeyIvInit, StreamCipher};
+use aes::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit, StreamCipher};
 use chacha20::ChaCha20;
 use flate2::read::GzDecoder;
+use flate2::write::GzEncoder;
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256, Sha512};
 use zeroize::Zeroizing;
@@ -17,6 +18,9 @@ const HASH_LENGTH: usize = 32;
 const HEADER_HMAC_BLOCK_INDEX: u64 = u64::MAX;
 const MAX_PAYLOAD_LENGTH: usize = 256 << 20;
 const MAX_XML_LENGTH: usize = 512 << 20;
+// KeePassXC's HmacBlockStream block size.
+const BLOCK_LENGTH: usize = 1 << 20;
+const CBC_BLOCK_LENGTH: usize = 16;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -58,6 +62,12 @@ impl PayloadKeys {
         ));
         HmacSha256::new_from_slice(block_key.as_ref()).expect("HMAC accepts keys of any length")
     }
+
+    fn header_hmac(&self, header: &OuterHeader) -> HmacSha256 {
+        let mut hmac = self.block_hmac(HEADER_HMAC_BLOCK_INDEX);
+        hmac.update(&header.bytes);
+        hmac
+    }
 }
 
 /// Checks the header hash, which detects corruption before the slow KDF
@@ -85,9 +95,8 @@ pub(crate) fn verify_header_hmac(
 ) -> Result<usize> {
     let mut reader = ByteReader::new(&data[header_length + HASH_LENGTH..]);
     let stored_hmac = reader.take(HASH_LENGTH, KdbxError::HeaderCorrupted)?;
-    let mut hmac = keys.block_hmac(HEADER_HMAC_BLOCK_INDEX);
-    hmac.update(&header.bytes);
-    hmac.verify_slice(stored_hmac)
+    keys.header_hmac(header)
+        .verify_slice(stored_hmac)
         .map_err(|_| KdbxError::InvalidCredentials)?;
     Ok(header_length + 2 * HASH_LENGTH)
 }
@@ -172,4 +181,150 @@ fn gunzip(compressed: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
         return Err(KdbxError::LimitExceeded("decompressed size"));
     }
     Ok(decompressed)
+}
+
+/// Appends the header SHA-256 and HMAC that follow the header in the file.
+pub(crate) fn write_header_authentication(
+    header: &OuterHeader,
+    keys: &PayloadKeys,
+    out: &mut Vec<u8>,
+) {
+    out.extend_from_slice(&Sha256::digest(&header.bytes));
+    out.extend_from_slice(&keys.header_hmac(header).finalize().into_bytes());
+}
+
+/// Compresses and encrypts the inner header and XML, then appends them as
+/// HMAC-protected blocks ending with an empty block.
+pub(crate) fn encrypt(
+    plaintext: &[u8],
+    header: &OuterHeader,
+    keys: &PayloadKeys,
+    out: &mut Vec<u8>,
+) -> Result<()> {
+    let compressed = match header.compression {
+        Compression::None => Zeroizing::new(plaintext.to_vec()),
+        Compression::Gzip => gzip(plaintext)?,
+    };
+    let ciphertext = encrypt_payload(header, keys, compressed)?;
+    let blocks = ciphertext
+        .chunks(BLOCK_LENGTH)
+        .chain(std::iter::once(&[][..]));
+    for (index, block) in (0u64..).zip(blocks) {
+        let length = u32::try_from(block.len()).expect("blocks are at most BLOCK_LENGTH");
+        let mut hmac = keys.block_hmac(index);
+        hmac.update(&index.to_le_bytes());
+        hmac.update(&length.to_le_bytes());
+        hmac.update(block);
+        out.extend_from_slice(&hmac.finalize().into_bytes());
+        out.extend_from_slice(&length.to_le_bytes());
+        out.extend_from_slice(block);
+    }
+    Ok(())
+}
+
+fn encrypt_payload(
+    header: &OuterHeader,
+    keys: &PayloadKeys,
+    mut buffer: Zeroizing<Vec<u8>>,
+) -> Result<Vec<u8>> {
+    let key = keys.cipher_key.as_ref();
+    let iv = header.encryption_iv.as_slice();
+    let plaintext_length = buffer.len();
+    match header.cipher {
+        Cipher::Aes256 => {
+            buffer.resize(padded_length(plaintext_length), 0);
+            cbc::Encryptor::<aes::Aes256>::new_from_slices(key, iv)
+                .map_err(|_| KdbxError::DecryptionFailed)?
+                .encrypt_padded_mut::<Pkcs7>(&mut buffer, plaintext_length)
+                .map_err(|_| KdbxError::DecryptionFailed)?;
+        }
+        Cipher::Twofish => {
+            buffer.resize(padded_length(plaintext_length), 0);
+            cbc::Encryptor::<twofish::Twofish>::new_from_slices(key, iv)
+                .map_err(|_| KdbxError::DecryptionFailed)?
+                .encrypt_padded_mut::<Pkcs7>(&mut buffer, plaintext_length)
+                .map_err(|_| KdbxError::DecryptionFailed)?;
+        }
+        Cipher::ChaCha20 => ChaCha20::new_from_slices(key, iv)
+            .map_err(|_| KdbxError::DecryptionFailed)?
+            .apply_keystream(&mut buffer),
+    }
+    Ok(std::mem::take(&mut *buffer))
+}
+
+/// PKCS#7 always adds between 1 and 16 bytes.
+fn padded_length(length: usize) -> usize {
+    length + CBC_BLOCK_LENGTH - length % CBC_BLOCK_LENGTH
+}
+
+fn gzip(data: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
+    let mut encoder = GzEncoder::new(Vec::new(), flate2::Compression::default());
+    encoder
+        .write_all(data)
+        .and_then(|_| encoder.finish())
+        .map(Zeroizing::new)
+        .map_err(|_| KdbxError::CompressionFailed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kdbx::kdf::KdfParameters;
+
+    fn header(cipher: Cipher, compression: Compression) -> OuterHeader {
+        OuterHeader {
+            minor_version: 0,
+            cipher,
+            compression,
+            kdf: KdfParameters::AesKdf {
+                rounds: 1,
+                seed: [0; 32],
+            },
+            master_seed: [3; 32],
+            encryption_iv: vec![4; cipher.iv_length()],
+            public_custom_data: None,
+            bytes: b"header bytes".to_vec(),
+        }
+    }
+
+    #[test]
+    fn encrypted_payload_decrypts_back_for_every_cipher_and_size() {
+        let transformed = [7u8; KEY_LENGTH];
+        let large: Vec<u8> = (0..(2 * BLOCK_LENGTH + 123))
+            .map(|i| (i % 251) as u8)
+            .collect();
+        for cipher in [Cipher::Aes256, Cipher::ChaCha20, Cipher::Twofish] {
+            for compression in [Compression::None, Compression::Gzip] {
+                let header = header(cipher, compression);
+                let keys = PayloadKeys::derive(&header, &transformed);
+                for plaintext in [&b""[..], b"short", &[0u8; 16], &large] {
+                    let mut file = Vec::new();
+                    write_header_authentication(&header, &keys, &mut file);
+                    encrypt(plaintext, &header, &keys, &mut file).unwrap();
+                    verify_header_hash(&file, &header, 0).unwrap();
+                    let start = verify_header_hmac(&file, &header, 0, &keys).unwrap();
+                    let decrypted = decrypt(&file[start..], &header, &keys).unwrap();
+                    assert_eq!(
+                        decrypted.as_slice(),
+                        plaintext,
+                        "{cipher:?} {compression:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn tampered_block_is_rejected() {
+        let header = header(Cipher::Aes256, Compression::None);
+        let keys = PayloadKeys::derive(&header, &[1; KEY_LENGTH]);
+        let mut file = Vec::new();
+        encrypt(b"payload", &header, &keys, &mut file).unwrap();
+        let last = file.len() - 1 - 36;
+        file[last] ^= 1;
+        assert_eq!(
+            decrypt(&file, &header, &keys).map(|_| ()),
+            Err(KdbxError::PayloadCorrupted)
+        );
+    }
 }

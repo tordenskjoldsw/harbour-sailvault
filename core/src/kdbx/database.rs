@@ -4,46 +4,76 @@ use zeroize::Zeroizing;
 
 use super::error::{KdbxError, Result};
 use super::header::OuterHeader;
-use super::inner_header::{Binary, InnerHeader};
-use super::key::CompositeKey;
+use super::inner_header::{Binary, InnerHeader, ProtectedStream, STREAM_KEY_LENGTH};
+use super::key::{CompositeKey, KEY_LENGTH};
 use super::payload::{self, PayloadKeys};
 use super::xml::{self, Element};
+use crate::random;
 
 const UUID_LENGTH: usize = 16;
 
 /// An unlocked KDBX 4 database: the outer header, the inner header with the
-/// attachment pool, and the complete XML document.
+/// attachment pool, the complete XML document and the composite key, which
+/// every save needs again because the KDF seed changes.
 pub struct Database {
     header: OuterHeader,
     inner: InnerHeader,
     document: Element,
+    key: CompositeKey,
 }
 
 impl Database {
     /// Unlocks a KDBX 4 file. Runs the KDF, so it must not run on the UI
     /// thread.
-    pub fn open(data: &[u8], key: &CompositeKey) -> Result<Self> {
+    pub fn open(data: &[u8], key: CompositeKey) -> Result<Self> {
         let (header, header_length) = OuterHeader::parse(data)?;
         payload::verify_header_hash(data, &header, header_length)?;
-        let transformed = header.kdf.transform(key)?;
-        let keys = PayloadKeys::derive(&header, &transformed);
-        let payload_start = payload::verify_header_hmac(data, &header, header_length, &keys)?;
-        let plaintext = payload::decrypt(&data[payload_start..], &header, &keys)?;
-
-        let (inner, mut stream, xml_start) = InnerHeader::parse(&plaintext)?;
-        let document = xml::parse(&plaintext[xml_start..], &mut stream)?;
-        drop(stream);
-        if document.name != "KeePassFile" {
-            return Err(KdbxError::InvalidXml("unexpected root element"));
-        }
+        let transformed = header.kdf.transform(&key)?;
+        let (inner, document) = decrypt(data, &header, header_length, &transformed)?;
         let database = Self {
             header,
             inner,
             document,
+            key,
         };
         database.root_group()?;
         validate_fields(&database.document)?;
         Ok(database)
+    }
+
+    /// Serializes the database as a KDBX 4 file with a fresh master seed,
+    /// IV, KDF seed and inner stream key, then decrypts the result again and
+    /// compares it with the model before returning it. Runs the KDF, so it
+    /// must not run on the UI thread.
+    pub fn save(&self) -> Result<Vec<u8>> {
+        let header = self.header.renewed()?;
+        let transformed = header.kdf.transform(&self.key)?;
+        let keys = PayloadKeys::derive(&header, &transformed);
+
+        let stream_key = Zeroizing::new(random::array::<STREAM_KEY_LENGTH>()?);
+        let mut plaintext = Zeroizing::new(Vec::new());
+        self.inner.serialize(&stream_key, &mut plaintext)?;
+        xml::write(
+            &self.document,
+            &mut ProtectedStream::new(stream_key.as_ref()),
+            &mut plaintext,
+        );
+
+        let mut file = header.bytes.clone();
+        payload::write_header_authentication(&header, &keys, &mut file);
+        payload::encrypt(&plaintext, &header, &keys, &mut file)?;
+        self.verify(&file, &transformed)?;
+        Ok(file)
+    }
+
+    fn verify(&self, file: &[u8], transformed: &[u8; KEY_LENGTH]) -> Result<()> {
+        let (header, header_length) = OuterHeader::parse(file)?;
+        payload::verify_header_hash(file, &header, header_length)?;
+        let (inner, document) = decrypt(file, &header, header_length, transformed)?;
+        if document != self.document || inner.binaries != self.inner.binaries {
+            return Err(KdbxError::WriteVerificationFailed);
+        }
+        Ok(())
     }
 
     pub fn header(&self) -> &OuterHeader {
@@ -104,6 +134,25 @@ impl Database {
     pub fn attachment(&self, reference: &Attachment<'_>) -> Option<&Binary> {
         self.inner.binaries.get(reference.pool_index?)
     }
+}
+
+/// Authenticates and decrypts the payload with an already transformed key.
+fn decrypt(
+    data: &[u8],
+    header: &OuterHeader,
+    header_length: usize,
+    transformed: &[u8; KEY_LENGTH],
+) -> Result<(InnerHeader, Element)> {
+    let keys = PayloadKeys::derive(header, transformed);
+    let payload_start = payload::verify_header_hmac(data, header, header_length, &keys)?;
+    let plaintext = payload::decrypt(&data[payload_start..], header, &keys)?;
+
+    let (inner, mut stream, xml_start) = InnerHeader::parse(&plaintext)?;
+    let document = xml::parse(&plaintext[xml_start..], &mut stream)?;
+    if document.name != "KeePassFile" {
+        return Err(KdbxError::InvalidXml("unexpected root element"));
+    }
+    Ok((inner, document))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -262,7 +311,6 @@ fn decode_uuid(element: &Element) -> Option<[u8; UUID_LENGTH]> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kdbx::inner_header::ProtectedStream;
 
     fn document(strings: &str) -> Element {
         let xml = format!(

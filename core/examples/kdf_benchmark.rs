@@ -77,19 +77,20 @@ fn main() {
         (rounds as f64 / elapsed.as_secs_f64()) as u64
     );
 
-    let fixture_key = CompositeKey::new(Some(b"sailvault-fixture"), None).expect("password is set");
+    let fixture_key =
+        || CompositeKey::new(Some(b"sailvault-fixture"), None).expect("password is set");
     let open = median(
         (0..RUNS)
             .map(|_| {
                 let start = Instant::now();
-                Database::open(FIXTURE, &fixture_key).expect("fixture opens");
+                Database::open(FIXTURE, fixture_key()).expect("fixture opens");
                 start.elapsed()
             })
             .collect(),
     );
     let fixture_kdf = time_kdf(
         &OuterHeader::parse(FIXTURE).expect("fixture header").0.kdf,
-        &fixture_key,
+        &fixture_key(),
     );
     println!("open,fixture total,{}", open.as_millis());
     println!(
@@ -101,14 +102,14 @@ fn main() {
         (0..RUNS)
             .map(|_| {
                 let start = Instant::now();
-                Database::open(LARGE, &fixture_key).expect("large fixture opens");
+                Database::open(LARGE, fixture_key()).expect("large fixture opens");
                 start.elapsed()
             })
             .collect(),
     );
     let large_kdf = time_kdf(
         &OuterHeader::parse(LARGE).expect("large header").0.kdf,
-        &fixture_key,
+        &fixture_key(),
     );
     println!("large,open total (1000 entries),{}", large_open.as_millis());
     println!(
@@ -116,7 +117,7 @@ fn main() {
         large_open.saturating_sub(large_kdf).as_millis()
     );
 
-    let database = Database::open(LARGE, &fixture_key).expect("large fixture opens");
+    let database = Database::open(LARGE, fixture_key()).expect("large fixture opens");
     let list_root = median(
         (0..RUNS)
             .map(|_| {

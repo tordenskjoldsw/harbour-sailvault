@@ -2,6 +2,7 @@ mod argon2_memory;
 pub mod bitwarden;
 pub mod ffi;
 pub mod kdbx;
+mod random;
 
 use std::os::raw::c_char;
 

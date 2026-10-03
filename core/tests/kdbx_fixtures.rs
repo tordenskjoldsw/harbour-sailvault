@@ -118,9 +118,12 @@ const KEY_FILE: &[u8] = include_bytes!("fixtures/fixture.keyx");
 
 use sailvault_core::kdbx::{CompositeKey, Database, Entry, Group};
 
+fn key(key_file: bool) -> CompositeKey {
+    CompositeKey::new(Some(PASSWORD), key_file.then_some(KEY_FILE)).unwrap()
+}
+
 fn open(data: &[u8], key_file: bool) -> Database {
-    let key = CompositeKey::new(Some(PASSWORD), key_file.then_some(KEY_FILE)).unwrap();
-    Database::open(data, &key).unwrap()
+    Database::open(data, key(key_file)).unwrap()
 }
 
 fn kdbx4_fixtures() -> [(&'static str, Database); 5] {
@@ -251,47 +254,45 @@ fn every_kdbx4_fixture_exposes_the_full_content() {
 
 #[test]
 fn wrong_password_or_missing_key_file_is_reported() {
-    let wrong = CompositeKey::new(Some(b"wrong"), None).unwrap();
     for data in [AES_AESKDF, AES_ARGON2D, CHACHA20_ARGON2ID, TWOFISH_AESKDF] {
+        let wrong = CompositeKey::new(Some(b"wrong"), None).unwrap();
         assert_eq!(
-            Database::open(data, &wrong).map(|_| ()),
+            Database::open(data, wrong).map(|_| ()),
             Err(KdbxError::InvalidCredentials)
         );
     }
-    let without_key_file = CompositeKey::new(Some(PASSWORD), None).unwrap();
     assert_eq!(
-        Database::open(AES_AESKDF_KEYFILE, &without_key_file).map(|_| ()),
+        Database::open(AES_AESKDF_KEYFILE, key(false)).map(|_| ()),
         Err(KdbxError::InvalidCredentials)
     );
 }
 
 #[test]
 fn tampered_files_are_rejected() {
-    let key = CompositeKey::new(Some(PASSWORD), None).unwrap();
     let (_, header_length) = OuterHeader::parse(AES_ARGON2D).unwrap();
 
     let mut hash = AES_ARGON2D.to_vec();
     hash[header_length] ^= 0x01;
     assert_eq!(
-        Database::open(&hash, &key).map(|_| ()),
+        Database::open(&hash, key(false)).map(|_| ()),
         Err(KdbxError::HeaderCorrupted)
     );
 
     let mut header = AES_ARGON2D.to_vec();
     header[header_length - 10] ^= 0x01;
-    assert!(Database::open(&header, &key).is_err());
+    assert!(Database::open(&header, key(false)).is_err());
 
     let mut payload = AES_ARGON2D.to_vec();
     let last = payload.len() - 50;
     payload[last] ^= 0x01;
     assert_eq!(
-        Database::open(&payload, &key).map(|_| ()),
+        Database::open(&payload, key(false)).map(|_| ()),
         Err(KdbxError::PayloadCorrupted)
     );
 
     let truncated = &AES_ARGON2D[..AES_ARGON2D.len() - 40];
     assert_eq!(
-        Database::open(truncated, &key).map(|_| ()),
+        Database::open(truncated, key(false)).map(|_| ()),
         Err(KdbxError::PayloadCorrupted)
     );
 }
@@ -365,4 +366,139 @@ fn large_fixture_lists_and_searches_1000_entries() {
     assert_eq!(found.len(), 1);
     assert_eq!(value(&found[0].entry, "Password"), "password-0500");
     assert_eq!(database.search("example.org").unwrap().len(), 1000);
+}
+
+// Writer: every fixture must survive a save unchanged, and KeePassXC must
+// read what SailVault writes.
+
+use std::io::Write as _;
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
+
+struct TempFile(PathBuf);
+
+impl TempFile {
+    fn write(name: &str, data: &[u8]) -> Self {
+        let path =
+            std::env::temp_dir().join(format!("sailvault-{}-{name}.kdbx", std::process::id()));
+        std::fs::write(&path, data).unwrap();
+        Self(path)
+    }
+}
+
+impl Drop for TempFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// Runs keepassxc-cli, the reference implementation, on a database file:
+/// `keepassxc-cli <arguments> -q [-k fixture.keyx] <file> <trailing>`.
+fn keepassxc_cli(arguments: &[&str], file: &TempFile, key_file: bool, trailing: &[&str]) -> String {
+    let mut command = Command::new("keepassxc-cli");
+    // KeePassXC keeps CustomData in a QHash, whose order depends on the
+    // per-process hash seed; a fixed seed makes two exports comparable.
+    command.env("QT_HASH_SEED", "0").args(arguments).arg("-q");
+    if key_file {
+        command.arg("-k").arg(fixture_path("fixture.keyx"));
+    }
+    let mut child = command
+        .arg(&file.0)
+        .args(trailing)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("keepassxc-cli must be installed to run the writer tests");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"sailvault-fixture\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "keepassxc-cli {arguments:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
+fn fixture_path(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name)
+}
+
+fn settings(header: &OuterHeader) -> (u16, Cipher, Compression, KdfParameters) {
+    let mut kdf = header.kdf.clone();
+    match &mut kdf {
+        KdfParameters::AesKdf { seed, .. } => *seed = [0; 32],
+        KdfParameters::Argon2 { salt, .. } => salt.clear(),
+    }
+    (header.minor_version, header.cipher, header.compression, kdf)
+}
+
+fn all_kdbx4_fixtures() -> Vec<(&'static str, &'static [u8], bool)> {
+    vec![
+        ("aes-aeskdf", AES_AESKDF, false),
+        ("aes-aeskdf-keyfile", AES_AESKDF_KEYFILE, true),
+        ("aes-argon2d", AES_ARGON2D, false),
+        ("chacha20-argon2id", CHACHA20_ARGON2ID, false),
+        ("twofish-aeskdf", TWOFISH_AESKDF, false),
+        ("1000-entries", LARGE, false),
+    ]
+}
+
+#[test]
+fn saved_fixtures_reopen_with_identical_content_and_settings() {
+    for (name, data, key_file) in all_kdbx4_fixtures() {
+        let database = open(data, key_file);
+        let saved = database.save().unwrap();
+        assert_ne!(saved, data, "{name}: seeds must be fresh");
+
+        let reopened = Database::open(&saved, key(key_file)).unwrap();
+        assert!(reopened.document() == database.document(), "{name}");
+        assert!(reopened.binaries() == database.binaries(), "{name}");
+        assert_eq!(
+            settings(reopened.header()),
+            settings(database.header()),
+            "{name}"
+        );
+        assert_ne!(
+            reopened.header().kdf,
+            database.header().kdf,
+            "{name}: KDF seed must be fresh"
+        );
+    }
+}
+
+#[test]
+fn keepassxc_reads_saved_fixtures_as_the_originals() {
+    for (name, data, key_file) in all_kdbx4_fixtures() {
+        let saved = open(data, key_file).save().unwrap();
+        let original_file = TempFile::write(&format!("{name}-original"), data);
+        let saved_file = TempFile::write(&format!("{name}-saved"), &saved);
+        let original = keepassxc_cli(&["export", "-f", "xml"], &original_file, key_file, &[]);
+        let exported = keepassxc_cli(&["export", "-f", "xml"], &saved_file, key_file, &[]);
+        assert!(exported.contains("<KeePassFile>"), "{name}");
+        let difference = original
+            .lines()
+            .zip(exported.lines())
+            .enumerate()
+            .find(|(_, (a, b))| a != b)
+            .map(|(line, (a, b))| format!("line {line}: {a:?} vs {b:?}"))
+            .unwrap_or_else(|| {
+                format!(
+                    "{} vs {} lines",
+                    original.lines().count(),
+                    exported.lines().count()
+                )
+            });
+        assert!(
+            original == exported,
+            "{name}: KeePassXC export differs at {difference}"
+        );
+    }
 }
