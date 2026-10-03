@@ -298,7 +298,8 @@ entry page, copy and lock. Two bugs found on the
 device and fixed before that: the unlock result was dropped (quintptr is no
 Qt 5.6 metatype) and the entry list bound its model to itself in QML.
 Verified on the device later the same day: clipboard
-cleared after 30 seconds; a wrong password is shown at the password field.
+cleared after 30 seconds; a wrong password is shown at the password field;
+the 1000-entry fixture unlocks, lists and searches without noticeable delay.
 Measured: cold start to the unlock page 557 ms (median, target < 1 s); with
 1000 entries the core opens the database in 33 ms after the KDF and searches
 in about 2 ms (target: list < 0.5 s after key derivation). Details in
