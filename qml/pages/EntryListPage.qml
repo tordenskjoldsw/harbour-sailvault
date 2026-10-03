@@ -10,6 +10,22 @@ Page {
 
     allowedOrientations: Orientation.All
 
+    // A page-level remorse: the list reloads after the deletion, which
+    // would destroy a remorse shown inside the deleted item's delegate.
+    function deleteItem(itemId, isGroup) {
+        var permanent = vault.deletesPermanently(itemId)
+        var text = isGroup
+                ? (permanent ? qsTr("Deleting group permanently")
+                             : qsTr("Moving group to the recycle bin"))
+                : (permanent ? qsTr("Deleting permanently")
+                             : qsTr("Moving to the recycle bin"))
+        remorse.execute(text, function() { vault.deleteItem(itemId) })
+    }
+
+    RemorsePopup {
+        id: remorse
+    }
+
     SilicaListView {
         id: listView
 
@@ -123,13 +139,7 @@ Page {
                     MenuItem {
                         text: qsTr("Delete")
                         enabled: !vault.saving
-                        onClicked: {
-                            var groupId = model.id
-                            item.remorseAction(vault.deletesPermanently(groupId)
-                                               ? qsTr("Deleting group permanently")
-                                               : qsTr("Moving group to the recycle bin"),
-                                               function() { vault.deleteItem(groupId) })
-                        }
+                        onClicked: page.deleteItem(model.id, true)
                     }
                 }
             }
@@ -147,13 +157,7 @@ Page {
                     MenuItem {
                         text: qsTr("Delete")
                         enabled: !vault.saving
-                        onClicked: {
-                            var entryId = model.id
-                            item.remorseAction(vault.deletesPermanently(entryId)
-                                               ? qsTr("Deleting permanently")
-                                               : qsTr("Moving to the recycle bin"),
-                                               function() { vault.deleteItem(entryId) })
-                        }
+                        onClicked: page.deleteItem(model.id, false)
                     }
                     MenuItem {
                         text: qsTr("Copy user name")
