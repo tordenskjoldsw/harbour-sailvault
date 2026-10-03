@@ -3,6 +3,7 @@ TARGET = harbour-sailvault
 CONFIG += sailfishapp
 
 HEADERS += \
+    src/boottime.h \
     src/clipboardguard.h \
     src/entrylistmodel.h \
     src/secure.h \

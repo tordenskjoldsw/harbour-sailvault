@@ -1,29 +1,33 @@
 #ifndef CLIPBOARDGUARD_H
 #define CLIPBOARDGUARD_H
 
-#include <QByteArray>
 #include <QObject>
 #include <QString>
-#include <QTimer>
 
-// Puts a value on the clipboard and removes it again after a timeout, on
+#include <functional>
+
+// Puts a value on the clipboard and removes it again after a deadline, on
 // lock and on exit, but only while the clipboard still holds that value.
-// It keeps a hash of the value, never the value itself.
+// It keeps no copy or hash of the value: to compare, it asks the source
+// for the value again.
 class ClipboardGuard : public QObject
 {
     Q_OBJECT
 
 public:
+    using ValueSource = std::function<QString()>;
+
     explicit ClipboardGuard(QObject *parent = nullptr);
 
-    void copy(const QString &text);
+    void copy(const QString &text, ValueSource source);
     void clear();
+    bool isPending() const;
+    // Clears the clipboard once the deadline has passed, counting sleep time.
+    void enforceDeadline();
 
 private:
-    static QByteArray digest(const QString &text);
-
-    QTimer m_timer;
-    QByteArray m_digest;
+    ValueSource m_source;
+    long long m_deadlineMs = 0;
 };
 
 #endif // CLIPBOARDGUARD_H

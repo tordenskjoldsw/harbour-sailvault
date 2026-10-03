@@ -6,24 +6,16 @@
 #include <qqml.h>
 
 #include <cstdio>
-#include <ctime>
 #include <memory>
 
 #include <sailfishapp.h>
 
+#include "boottime.h"
 #include "entrylistmodel.h"
 #include "sailvault_core.h"
 #include "vault.h"
 
 namespace {
-
-// CLOCK_BOOTTIME matches /proc/uptime, which the measurement script reads on the device.
-long long bootTimeMs()
-{
-    timespec now;
-    clock_gettime(CLOCK_BOOTTIME, &now);
-    return static_cast<long long>(now.tv_sec) * 1000 + now.tv_nsec / 1000000;
-}
 
 void printFirstFrameTimestamp(QQuickWindow *window)
 {

@@ -1,43 +1,51 @@
 #include "clipboardguard.h"
 
 #include <QClipboard>
-#include <QCryptographicHash>
 #include <QGuiApplication>
+
+#include "boottime.h"
 
 namespace {
 
-const int ClearAfterMs = 30 * 1000;
+const long long ClearAfterMs = 30 * 1000;
 
 } // namespace
 
 ClipboardGuard::ClipboardGuard(QObject *parent)
     : QObject(parent)
 {
-    m_timer.setSingleShot(true);
-    m_timer.setInterval(ClearAfterMs);
-    connect(&m_timer, &QTimer::timeout, this, &ClipboardGuard::clear);
-    connect(qApp, &QCoreApplication::aboutToQuit, this, &ClipboardGuard::clear);
 }
 
-void ClipboardGuard::copy(const QString &text)
+void ClipboardGuard::copy(const QString &text, ValueSource source)
 {
     QGuiApplication::clipboard()->setText(text);
-    m_digest = digest(text);
-    m_timer.start();
+    m_source = std::move(source);
+    m_deadlineMs = bootTimeMs() + ClearAfterMs;
 }
 
 void ClipboardGuard::clear()
 {
-    m_timer.stop();
-    if (m_digest.isEmpty())
+    if (!m_source)
         return;
     QClipboard *clipboard = QGuiApplication::clipboard();
-    if (digest(clipboard->text()) == m_digest)
+    const QString current = clipboard->text();
+    if (!current.isEmpty() && current == m_source()) {
         clipboard->clear();
-    m_digest.clear();
+        // aboutToQuit runs after the event loop has stopped; flush so the
+        // compositor receives the cleared selection before the app exits.
+        QGuiApplication::sync();
+    }
+    m_source = nullptr;
+    m_deadlineMs = 0;
 }
 
-QByteArray ClipboardGuard::digest(const QString &text)
+bool ClipboardGuard::isPending() const
 {
-    return QCryptographicHash::hash(text.toUtf8(), QCryptographicHash::Sha256);
+    return static_cast<bool>(m_source);
+}
+
+void ClipboardGuard::enforceDeadline()
+{
+    if (m_source && bootTimeMs() >= m_deadlineMs)
+        clear();
 }

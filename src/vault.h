@@ -6,12 +6,19 @@
 #include <QTimer>
 #include <QVariantList>
 
+#include <atomic>
+#include <memory>
+
 #include "clipboardguard.h"
 #include "sailvault_core.h"
 
 // Owns the unlocked database handle and the lock state. QML sees titles
 // and the one value the user shows or copies; everything else stays in
 // the Rust core.
+//
+// Lock and clipboard deadlines are measured on CLOCK_BOOTTIME and checked
+// before every access and by a watchdog, because Qt timers stop while the
+// phone sleeps.
 class Vault : public QObject
 {
     Q_OBJECT
@@ -51,13 +58,14 @@ public:
     QString keyFilePath() const;
     void setKeyFilePath(const QString &path);
 
-    const SvDatabase *database() const;
+    // Null when locked or when a lock deadline has passed.
+    const SvDatabase *database();
 
     Q_INVOKABLE void unlock(const QString &password);
     Q_INVOKABLE void lock();
     Q_INVOKABLE void clearError();
-    Q_INVOKABLE QVariantList fields(const QString &entryId) const;
-    Q_INVOKABLE QString fieldValue(const QString &entryId, const QString &key) const;
+    Q_INVOKABLE QVariantList fields(const QString &entryId);
+    Q_INVOKABLE QString fieldValue(const QString &entryId, const QString &key);
     Q_INVOKABLE bool copyField(const QString &entryId, const QString &key);
 
 signals:
@@ -73,21 +81,28 @@ protected:
 private slots:
     void onUnlockFinished(int attempt, int status, qulonglong handle);
     void onApplicationStateChanged(Qt::ApplicationState state);
-    void lockAutomatically();
+    void enforceDeadlines();
 
 private:
+    QString readField(const QString &entryId, const QString &key) const;
+    void lockAutomatically();
+    void cancelPendingUnlock();
+    void updateWatchdog();
     void setState(State state);
     void setError(Error error);
     void saveSettings() const;
 
     SvDatabase *m_database = nullptr;
     int m_attempt = 0;
+    std::shared_ptr<std::atomic_bool> m_unlockCancelled;
     State m_state = Locked;
     Error m_error = NoError;
     QString m_databasePath;
     QString m_keyFilePath;
+    long long m_lastActivityMs = 0;
+    long long m_backgroundSinceMs = 0;
     QTimer m_idleTimer;
-    QTimer m_backgroundTimer;
+    QTimer m_watchdog;
     ClipboardGuard m_clipboard;
 };
 

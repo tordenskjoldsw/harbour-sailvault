@@ -1,6 +1,7 @@
 #include "vault.h"
 
 #include <QByteArray>
+#include <QCoreApplication>
 #include <QEvent>
 #include <QFile>
 #include <QGuiApplication>
@@ -10,12 +11,15 @@
 #include <QStandardPaths>
 #include <QThreadPool>
 
+#include "boottime.h"
 #include "secure.h"
 
 namespace {
 
-const int IdleLockMs = 5 * 60 * 1000;
-const int BackgroundLockMs = 60 * 1000;
+const long long IdleLockMs = 5 * 60 * 1000;
+const long long BackgroundLockMs = 60 * 1000;
+// Bounds how late a deadline is enforced after the phone wakes up.
+const int WatchdogIntervalMs = 5 * 1000;
 const qint64 MaxDatabaseBytes = 256 * 1024 * 1024;
 const qint64 MaxKeyFileBytes = 1024 * 1024;
 const int StatusFileUnreadable = -1;
@@ -27,25 +31,35 @@ QString settingsPath()
         + QStringLiteral("/settings.ini");
 }
 
+// Reads at most the size seen at open time into one exact allocation, so a
+// file swapped while reading cannot grow the buffer and no partial copies
+// are left behind by reallocation.
 int readFile(const QString &path, qint64 maxBytes, QByteArray &out)
 {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly))
         return StatusFileUnreadable;
-    if (file.size() > maxBytes)
+    const qint64 size = file.size();
+    if (size > maxBytes)
         return StatusTooLarge;
-    out = file.readAll();
-    return file.error() == QFileDevice::NoError ? SV_OK : StatusFileUnreadable;
+    out = QByteArray(static_cast<int>(size), Qt::Uninitialized);
+    if (size > 0 && file.read(out.data(), size) != size) {
+        secureWipe(out);
+        return StatusFileUnreadable;
+    }
+    return SV_OK;
 }
 
 // Reads the files and runs the KDF on a pool thread, then hands the result
-// to the vault on its own thread.
+// to the vault on its own thread. A cancelled task frees its result itself.
 class UnlockTask : public QRunnable
 {
 public:
-    UnlockTask(Vault *vault, int attempt, const QString &databasePath,
-               const QString &keyFilePath, const QByteArray &password)
+    UnlockTask(Vault *vault, std::shared_ptr<std::atomic_bool> cancelled, int attempt,
+               const QString &databasePath, const QString &keyFilePath,
+               const QByteArray &password)
         : m_vault(vault)
+        , m_cancelled(std::move(cancelled))
         , m_attempt(attempt)
         , m_databasePath(databasePath)
         , m_keyFilePath(keyFilePath)
@@ -64,9 +78,8 @@ public:
         const int status = open(&database);
         secureWipe(m_password);
 
-        const QPointer<Vault> vault = m_vault;
-        const bool delivered = vault
-            && QMetaObject::invokeMethod(vault, "onUnlockFinished", Qt::QueuedConnection,
+        const bool delivered = !*m_cancelled
+            && QMetaObject::invokeMethod(m_vault, "onUnlockFinished", Qt::QueuedConnection,
                                          Q_ARG(int, m_attempt), Q_ARG(int, status),
                                          Q_ARG(qulonglong, reinterpret_cast<qulonglong>(database)));
         if (!delivered)
@@ -96,7 +109,10 @@ private:
         return status;
     }
 
-    QPointer<Vault> m_vault;
+    // The vault outlives every task: its destructor cancels and waits for
+    // the pool before it is destroyed.
+    Vault *m_vault;
+    std::shared_ptr<std::atomic_bool> m_cancelled;
     int m_attempt;
     QString m_databasePath;
     QString m_keyFilePath;
@@ -138,17 +154,17 @@ QByteArray entryUuid(const QString &entryId)
 
 Vault::Vault(QObject *parent)
     : QObject(parent)
+    , m_unlockCancelled(std::make_shared<std::atomic_bool>(false))
 {
     const QSettings settings(settingsPath(), QSettings::IniFormat);
     m_databasePath = settings.value(QStringLiteral("databasePath")).toString();
     m_keyFilePath = settings.value(QStringLiteral("keyFilePath")).toString();
 
     m_idleTimer.setSingleShot(true);
-    m_idleTimer.setInterval(IdleLockMs);
-    m_backgroundTimer.setSingleShot(true);
-    m_backgroundTimer.setInterval(BackgroundLockMs);
-    connect(&m_idleTimer, &QTimer::timeout, this, &Vault::lockAutomatically);
-    connect(&m_backgroundTimer, &QTimer::timeout, this, &Vault::lockAutomatically);
+    m_idleTimer.setInterval(static_cast<int>(IdleLockMs));
+    m_watchdog.setInterval(WatchdogIntervalMs);
+    connect(&m_idleTimer, &QTimer::timeout, this, &Vault::enforceDeadlines);
+    connect(&m_watchdog, &QTimer::timeout, this, &Vault::enforceDeadlines);
     connect(qApp, &QGuiApplication::applicationStateChanged, this,
             &Vault::onApplicationStateChanged);
     connect(qApp, &QCoreApplication::aboutToQuit, this, &Vault::lock);
@@ -157,6 +173,12 @@ Vault::Vault(QObject *parent)
 
 Vault::~Vault()
 {
+    cancelPendingUnlock();
+    QThreadPool::globalInstance()->waitForDone();
+    // A task may have posted its result before it saw the cancellation;
+    // deliver it now so onUnlockFinished frees the handle.
+    QCoreApplication::sendPostedEvents(this, QEvent::MetaCall);
+    m_clipboard.clear();
     sv_database_free(m_database);
 }
 
@@ -198,8 +220,9 @@ void Vault::setKeyFilePath(const QString &path)
     emit keyFilePathChanged();
 }
 
-const SvDatabase *Vault::database() const
+const SvDatabase *Vault::database()
 {
+    enforceDeadlines();
     return m_database;
 }
 
@@ -210,8 +233,9 @@ void Vault::unlock(const QString &password)
     QByteArray passwordBytes = password.toUtf8();
     setError(NoError);
     setState(Unlocking);
-    QThreadPool::globalInstance()->start(
-        new UnlockTask(this, ++m_attempt, m_databasePath, m_keyFilePath, passwordBytes));
+    QThreadPool::globalInstance()->start(new UnlockTask(this, m_unlockCancelled, ++m_attempt,
+                                                        m_databasePath, m_keyFilePath,
+                                                        passwordBytes));
     secureWipe(passwordBytes);
 }
 
@@ -230,15 +254,19 @@ void Vault::onUnlockFinished(int attempt, int status, qulonglong handle)
     }
     m_database = database;
     saveSettings();
+    m_lastActivityMs = bootTimeMs();
     m_idleTimer.start();
     setState(Unlocked);
+    // The app may have left the foreground while the KDF ran.
+    onApplicationStateChanged(QGuiApplication::applicationState());
 }
 
 void Vault::lock()
 {
     m_idleTimer.stop();
-    m_backgroundTimer.stop();
+    m_backgroundSinceMs = 0;
     m_clipboard.clear();
+    updateWatchdog();
     ++m_attempt;
     if (m_state == Unlocking) {
         setState(Locked);
@@ -249,6 +277,13 @@ void Vault::lock()
     sv_database_free(m_database);
     m_database = nullptr;
     setState(Locked);
+}
+
+void Vault::cancelPendingUnlock()
+{
+    m_unlockCancelled->store(true);
+    m_unlockCancelled = std::make_shared<std::atomic_bool>(false);
+    ++m_attempt;
 }
 
 void Vault::clearError()
@@ -264,13 +299,38 @@ void Vault::lockAutomatically()
     emit lockedAutomatically();
 }
 
-QVariantList Vault::fields(const QString &entryId) const
+void Vault::enforceDeadlines()
+{
+    m_clipboard.enforceDeadline();
+    if (m_state == Unlocked) {
+        const long long now = bootTimeMs();
+        const bool idle = now - m_lastActivityMs >= IdleLockMs;
+        const bool background = m_backgroundSinceMs != 0
+            && now - m_backgroundSinceMs >= BackgroundLockMs;
+        if (idle || background)
+            lockAutomatically();
+    }
+    updateWatchdog();
+}
+
+void Vault::updateWatchdog()
+{
+    const bool needed = m_clipboard.isPending()
+        || (m_state == Unlocked && m_backgroundSinceMs != 0);
+    if (needed && !m_watchdog.isActive())
+        m_watchdog.start();
+    else if (!needed)
+        m_watchdog.stop();
+}
+
+QVariantList Vault::fields(const QString &entryId)
 {
     QVariantList result;
     const QByteArray uuid = entryUuid(entryId);
+    const SvDatabase *handle = database();
     SvFieldList *fields = nullptr;
-    if (!m_database || uuid.isEmpty()
-        || sv_database_fields(m_database, reinterpret_cast<const uint8_t *>(uuid.constData()),
+    if (!handle || uuid.isEmpty()
+        || sv_database_fields(handle, reinterpret_cast<const uint8_t *>(uuid.constData()),
                               &fields) != SV_OK)
         return result;
     for (size_t index = 0; index < sv_field_list_length(fields); ++index) {
@@ -286,7 +346,12 @@ QVariantList Vault::fields(const QString &entryId) const
     return result;
 }
 
-QString Vault::fieldValue(const QString &entryId, const QString &key) const
+QString Vault::fieldValue(const QString &entryId, const QString &key)
+{
+    return database() ? readField(entryId, key) : QString();
+}
+
+QString Vault::readField(const QString &entryId, const QString &key) const
 {
     const QByteArray uuid = entryUuid(entryId);
     const QByteArray keyBytes = key.toUtf8();
@@ -304,7 +369,10 @@ bool Vault::copyField(const QString &entryId, const QString &key)
     const QString value = fieldValue(entryId, key);
     if (value.isEmpty())
         return false;
-    m_clipboard.copy(value);
+    // The guard compares against the core's value instead of keeping a copy
+    // or hash; lock() clears the clipboard before it frees the database.
+    m_clipboard.copy(value, [this, entryId, key] { return readField(entryId, key); });
+    updateWatchdog();
     return true;
 }
 
@@ -314,8 +382,11 @@ bool Vault::eventFilter(QObject *watched, QEvent *event)
     case QEvent::TouchBegin:
     case QEvent::MouseButtonPress:
     case QEvent::KeyPress:
-        if (m_state == Unlocked)
+    case QEvent::InputMethod:
+        if (m_state == Unlocked) {
+            m_lastActivityMs = bootTimeMs();
             m_idleTimer.start();
+        }
         break;
     default:
         break;
@@ -325,12 +396,15 @@ bool Vault::eventFilter(QObject *watched, QEvent *event)
 
 void Vault::onApplicationStateChanged(Qt::ApplicationState state)
 {
-    if (m_state != Unlocked)
-        return;
-    if (state == Qt::ApplicationActive)
-        m_backgroundTimer.stop();
-    else if (!m_backgroundTimer.isActive())
-        m_backgroundTimer.start();
+    if (state == Qt::ApplicationActive) {
+        // Check before clearing the background stamp, so time spent asleep
+        // in the background still counts.
+        enforceDeadlines();
+        m_backgroundSinceMs = 0;
+    } else if (m_state == Unlocked && m_backgroundSinceMs == 0) {
+        m_backgroundSinceMs = bootTimeMs();
+    }
+    updateWatchdog();
 }
 
 void Vault::setState(State state)
