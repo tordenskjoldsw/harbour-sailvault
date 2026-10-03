@@ -162,6 +162,7 @@ impl Database {
         merge_into(&mut document, &target, group, &context, &mut summary)?;
         if summary != MergeSummary::default() {
             *self.document_mut() = document;
+            self.drop_unused_binaries();
         }
         Ok(summary)
     }
@@ -248,6 +249,7 @@ impl Database {
             .children
             .push(Node::Element(previous));
         truncate_history(entry, &limits, &attachment_sizes);
+        self.drop_unused_binaries();
         Ok(true)
     }
 
@@ -263,6 +265,7 @@ impl Database {
             self.deleted_objects_mut()?
                 .children
                 .push(Node::Element(deleted_object(uuid, &time)));
+            self.drop_unused_binaries();
             return Ok(true);
         }
 
@@ -332,6 +335,7 @@ impl Database {
                 let meta = self.meta_mut()?;
                 set_child_text(meta, "RecycleBinUUID", &encode_uuid(&NO_UUID));
             }
+            self.drop_unused_binaries();
             return Ok(true);
         }
 
@@ -479,6 +483,7 @@ impl Database {
         for group in emptied.children_named("Group") {
             record_deleted(group, &time, deleted);
         }
+        self.drop_unused_binaries();
         Ok(true)
     }
 

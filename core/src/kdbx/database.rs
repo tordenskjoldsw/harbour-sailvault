@@ -7,7 +7,7 @@ use super::header::OuterHeader;
 use super::inner_header::{Binary, InnerHeader, ProtectedStream, STREAM_KEY_LENGTH};
 use super::key::{CompositeKey, KEY_LENGTH};
 use super::payload::{self, PayloadKeys};
-use super::xml::{self, Element};
+use super::xml::{self, Element, Node};
 use crate::random;
 use crate::secret::SecretBuffer;
 
@@ -162,6 +162,55 @@ impl Database {
 
     pub fn attachment(&self, reference: &Attachment<'_>) -> Option<&Binary> {
         self.inner.binaries.get(reference.pool_index?)
+    }
+
+    /// Removes attachments that no entry or history item references any
+    /// more and renumbers the references, as KeePassXC rebuilds its pool on
+    /// every save. Without this, a deleted attachment would stay in the file.
+    pub(super) fn drop_unused_binaries(&mut self) {
+        let mut used = vec![false; self.inner.binaries.len()];
+        for_each_binary_ref(&mut self.document, &mut |reference| {
+            if let Some(used) = reference.parse().ok().and_then(|i: usize| used.get_mut(i)) {
+                *used = true;
+            }
+        });
+        if used.iter().all(|&used| used) {
+            return;
+        }
+        let mut new_index = Vec::with_capacity(used.len());
+        let mut kept = 0usize;
+        for &used in &used {
+            new_index.push(kept);
+            kept += usize::from(used);
+        }
+        for_each_binary_ref(&mut self.document, &mut |reference| {
+            if let Some(&index) = reference.parse().ok().and_then(|i: usize| new_index.get(i)) {
+                *reference = index.to_string();
+            }
+        });
+        let mut used = used.into_iter();
+        self.inner
+            .binaries
+            .retain(|_| used.next().expect("one flag per attachment"));
+    }
+}
+
+/// Calls `visit` with the `Ref` attribute of every attachment of every entry
+/// and history item.
+fn for_each_binary_ref(element: &mut Element, visit: &mut impl FnMut(&mut String)) {
+    if element.name == "Binary" {
+        if let Some((_, reference)) = element
+            .child_mut("Value")
+            .and_then(|value| value.attributes.iter_mut().find(|(key, _)| key == "Ref"))
+        {
+            visit(reference);
+        }
+        return;
+    }
+    for child in &mut element.children {
+        if let Node::Element(child) = child {
+            for_each_binary_ref(child, visit);
+        }
     }
 }
 
@@ -389,6 +438,31 @@ mod tests {
 
     fn string(key: &str, value: &str) -> String {
         format!("<String><Key>{key}</Key><Value>{value}</Value></String>")
+    }
+
+    #[test]
+    fn unused_attachments_are_dropped_and_references_renumbered() {
+        let attachment = |r: &str| format!("<Binary><Key>{r}</Key><Value Ref=\"{r}\"/></Binary>");
+        let mut database = Database::from_document(document(&format!(
+            "{}<History><Entry>{}{}</Entry></History>",
+            attachment("2"),
+            attachment("2"),
+            attachment("9")
+        )));
+        database.inner.binaries = (0..4u8)
+            .map(|i| Binary {
+                protected: false,
+                data: Zeroizing::new(vec![i]),
+            })
+            .collect();
+
+        database.drop_unused_binaries();
+
+        let data: Vec<u8> = database.binaries().iter().map(|b| b.data[0]).collect();
+        assert_eq!(data, [2]);
+        let mut references = Vec::new();
+        for_each_binary_ref(&mut database.document, &mut |r| references.push(r.clone()));
+        assert_eq!(references, ["0", "0", "9"]);
     }
 
     #[test]

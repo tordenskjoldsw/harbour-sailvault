@@ -1145,6 +1145,22 @@ fn line_breaks_and_control_characters_survive_a_save() {
 }
 
 #[test]
+fn a_deleted_attachment_leaves_the_file() {
+    let mut database = open(AES_AESKDF, false);
+    let special = entry(&database.root_group().unwrap(), "Special characters äöü 🔐")
+        .uuid()
+        .unwrap();
+    assert_eq!(database.binaries().len(), 1);
+    assert_eq!(database.delete_entry(&special, NOW), Ok(false));
+    assert_eq!(database.binaries().len(), 1, "the recycle bin keeps it");
+    assert_eq!(database.delete_entry(&special, NOW), Ok(true));
+    assert!(database.binaries().is_empty());
+
+    let reopened = Database::open(&database.save().unwrap(), key(false)).unwrap();
+    assert!(reopened.binaries().is_empty());
+}
+
+#[test]
 fn a_new_database_opens_in_keepassxc_with_its_settings() {
     let mut database = Database::create(key(false), "Passwords", KdfLevel::Standard, NOW).unwrap();
     let root = database.root_group().unwrap();
