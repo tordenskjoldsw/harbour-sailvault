@@ -142,7 +142,9 @@ The phone holds the primary copy, so a writer bug can destroy real data.
 
 - Save atomically: write a temporary file, verify it, then rename
 - Verify every save by decrypting the written file and comparing the model
-- Keep rotating backups of previous versions in the app data directory
+- Keep the last 3 versions as backups in the app's private data directory
+  (`~/.local/share/de.tordenskjold/sailvault/backups/`), never next to the
+  database; delete them when the master password or key file changes
 - Every edit pushes the previous state into entry history and updates
   `LastModificationTime`; deletes go to the recycle bin by default
 - Hard deletes write `DeletedObjects`; moves set `LocationChanged`
@@ -323,13 +325,39 @@ Exit: usable as a daily read-only KeePass app on the Jolla Phone; criteria 2,
 
 ### Phase 4 - Write and import
 
-- KDBX4 writer, round trip against KeePassXC (criterion 3)
-- Random source for the writer (seeds, IVs, salts, new UUIDs); the previous
-  random-number interface was removed in the cleanup and has to come back in
-  a form that fits the no-I/O core
-- Create, edit, delete (recycle bin, remorse), history, password generator
-- Data safety design (section 7)
-- Bitwarden/Vaultwarden import into a new or existing database
+Order (decided 2026-10-03): creating entries first, then editing and
+deleting, then the Bitwarden import. A security review of the Phase 3 state
+comes before any Phase 4 code.
+
+Part A - create entries:
+
+1. Random source in the core: the `getrandom` crate (Linux `getrandom`
+   syscall), the only exception to the no-I/O rule; used for master seed,
+   IVs, inner stream key, UUIDs and the password generator
+2. KDBX4 writer: serializes the lossless XML tree, re-encrypts protected
+   values with a new inner stream, inner header with attachments, gzip,
+   HMAC block stream, outer header; writes back the KDBX minor version that
+   was read. Which header values KeePassXC regenerates on every save (master
+   seed, IV, inner stream key, KDF seed) is checked in `Kdbx4Writer.cpp`
+   before implementing
+3. Round-trip tests: read, write, read again yields an identical tree for
+   every fixture; `keepassxc-cli` opens every written file and its export
+   matches the original
+4. New entry in the core: new UUID, KDBX4 timestamps, `Protected` flags
+   from the database's MemoryProtection settings
+5. Safe save in C++ (section 7): backup, temporary file, verify by
+   decrypting it again, atomic rename; save right after the user accepts
+6. UI: "New entry" in the pulley menu, an entry dialog (title, user name,
+   password, URL, notes) and a password generator
+7. Device test: create entries on the phone, open the file in KeePassXC
+
+Part B - edit and delete: history, recycle bin with remorse, hard delete
+writes `DeletedObjects`.
+
+Part C - Bitwarden/Vaultwarden import into a new or existing database.
+
+Exit: criterion 3 (lossless KeePassXC round trip) met for every fixture and
+for files changed on the phone.
 
 ### Phase 5 - Nextcloud sync
 
@@ -387,9 +415,6 @@ Exit: usable as a daily read-only KeePass app on the Jolla Phone; criteria 2,
 
 Proposed in review (2026-10-03), not decided:
 
-- Move the Harbour submission to right after Phase 3. A read-only KDBX4 app
-  for aarch64 is already useful, and QA feedback on permissions and file
-  access arrives before the risky write phase.
 - Decide the convenience unlock before Phase 3 instead of after the MVP. It
   affects how key material is held in RAM, and typing the full master
   password on every unlock pushes users toward weaker passwords.
@@ -404,6 +429,17 @@ Proposed in review (2026-10-03), not decided:
 
 Decided:
 
+- Harbour submission (2026-10-03): not right after Phase 3; the maintainer
+  submits later.
+- Phase 4 order (2026-10-03): create entries, then edit and delete, then
+  the Bitwarden import.
+- Random source (2026-10-03): `getrandom` in the core, documented exception
+  to the no-I/O rule.
+- Saving (2026-10-03): immediately after the user accepts a change, like
+  KeePassXC's autosave; no separate save button.
+- Backups (2026-10-03): last 3 versions in the private data directory;
+  deleted on credential changes. Fewer copies limit exposure to old
+  passwords, three are enough to roll back a faulty save.
 - TOTP (2026-10-03): SailVault generates no TOTP codes; see section 4.
 - File location for Phase 3 (2026-10-03): the user picks the KDBX file with
   the Sailfish file picker from Documents or Downloads; Sailjail permissions
