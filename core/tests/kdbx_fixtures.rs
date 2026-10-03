@@ -777,3 +777,44 @@ fn moved_entries_keep_their_history_and_keepassxc_finds_them() {
     );
     assert_eq!(shown, "current-password-3\n");
 }
+
+#[test]
+fn a_new_group_survives_a_save_and_keepassxc_lists_its_entries() {
+    let mut database = open(AES_AESKDF, false);
+    let (banking, login, bin) = {
+        let root = database.root_group().unwrap();
+        (
+            subgroup(&root, "Banking").uuid().unwrap(),
+            entry(&root, "Example login").uuid().unwrap(),
+            subgroup(&root, "Recycle Bin").uuid().unwrap(),
+        )
+    };
+    let mail = database.add_group(&banking, "Mail äöü", NOW).unwrap();
+    assert_eq!(database.move_entry(&login, &mail, NOW), Ok(true));
+    database
+        .add_entry(&mail, &[("Title", "Newsletter")], NOW)
+        .unwrap();
+    assert_eq!(
+        database.add_group(&bin, "Kept", NOW),
+        Err(KdbxError::InvalidGroup("inside the recycle bin"))
+    );
+
+    let saved = database.save().unwrap();
+    let reopened = Database::open(&saved, key(false)).unwrap();
+    let mail = subgroup(
+        &subgroup(&reopened.root_group().unwrap(), "Banking"),
+        "Mail äöü",
+    );
+    assert_eq!(mail.entries().count(), 2);
+
+    let file = TempFile::write("new-group", &saved);
+    let listing = keepassxc_cli(&["ls", "-R", "-f"], &file, false, &[]);
+    assert!(
+        listing.contains("Banking/Mail äöü/Example login\n"),
+        "{listing}"
+    );
+    assert!(
+        listing.contains("Banking/Mail äöü/Newsletter\n"),
+        "{listing}"
+    );
+}

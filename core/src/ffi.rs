@@ -107,7 +107,9 @@ fn status(error: KdbxError) -> i32 {
         | KdbxError::InvalidXml(_) => SV_CORRUPTED,
         KdbxError::CompressionFailed | KdbxError::WriteVerificationFailed => SV_WRITE_FAILED,
         KdbxError::RandomUnavailable => SV_RANDOM_UNAVAILABLE,
-        KdbxError::InvalidEntry(_) | KdbxError::RootGroupProtected => SV_INVALID_ARGUMENT,
+        KdbxError::InvalidEntry(_) | KdbxError::InvalidGroup(_) | KdbxError::RootGroupProtected => {
+            SV_INVALID_ARGUMENT
+        }
         KdbxError::UnknownGroup | KdbxError::UnknownEntry => SV_NOT_FOUND,
     }
 }
@@ -182,6 +184,17 @@ fn find_group<'a>(database: &'a Database, uuid: &[u8; UUID_LENGTH]) -> Option<Gr
         group.groups().find_map(|child| search(child, uuid))
     }
     search(database.root_group().ok()?, uuid)
+}
+
+/// # Safety
+///
+/// `group_uuid` must be null (the root group) or valid for reads of 16 bytes.
+unsafe fn group_or_root(database: &Database, group_uuid: *const u8) -> Option<[u8; UUID_LENGTH]> {
+    if group_uuid.is_null() {
+        database.root_group().ok()?.uuid()
+    } else {
+        read_uuid(group_uuid)
+    }
 }
 
 fn field_text(entry: &Entry<'_>, key: &str) -> Zeroizing<String> {
@@ -626,21 +639,78 @@ pub unsafe extern "C" fn sv_database_add_entry(
     if uuid_out.is_null() {
         return SV_INVALID_ARGUMENT;
     }
-    let group_uuid = if group_uuid.is_null() {
-        database
-            .database
-            .root_group()
-            .ok()
-            .and_then(|root| root.uuid())
-    } else {
-        read_uuid(group_uuid)
-    };
-    let Some(group_uuid) = group_uuid else {
+    let Some(group_uuid) = group_or_root(&database.database, group_uuid) else {
         return SV_NOT_FOUND;
     };
     match database.database.add_entry(&group_uuid, &pairs, now) {
         Ok(uuid) => {
             slice::from_raw_parts_mut(uuid_out, UUID_LENGTH).copy_from_slice(&uuid);
+            SV_OK
+        }
+        Err(error) => status(error),
+    }
+}
+
+/// Adds a group named `name` to the group with `parent_uuid` (null for the
+/// root group) and writes its UUID to `uuid_out`. Refused inside the
+/// recycle bin and for an empty name.
+///
+/// # Safety
+///
+/// `database` must be a live handle not in use by another thread;
+/// `parent_uuid` null or valid for 16 bytes; `name` valid UTF-8 of
+/// `name_length` bytes; `uuid_out` valid for writes of 16 bytes.
+#[no_mangle]
+pub unsafe extern "C" fn sv_database_add_group(
+    database: *mut SvDatabase,
+    parent_uuid: *const u8,
+    name: *const u8,
+    name_length: usize,
+    now: i64,
+    uuid_out: *mut u8,
+) -> i32 {
+    let (Some(database), Some(name)) = (
+        database.as_mut(),
+        bytes(name, name_length).and_then(|n| std::str::from_utf8(n).ok()),
+    ) else {
+        return SV_INVALID_ARGUMENT;
+    };
+    if uuid_out.is_null() {
+        return SV_INVALID_ARGUMENT;
+    }
+    let Some(parent_uuid) = group_or_root(&database.database, parent_uuid) else {
+        return SV_NOT_FOUND;
+    };
+    match database.database.add_group(&parent_uuid, name, now) {
+        Ok(uuid) => {
+            slice::from_raw_parts_mut(uuid_out, UUID_LENGTH).copy_from_slice(&uuid);
+            SV_OK
+        }
+        Err(error) => status(error),
+    }
+}
+
+/// Whether the entry or group with `uuid` is the recycle bin or inside it.
+///
+/// # Safety
+///
+/// `database` must be a live handle; `uuid` valid for 16 bytes; `out` valid
+/// for one write.
+#[no_mangle]
+pub unsafe extern "C" fn sv_database_in_recycle_bin(
+    database: *const SvDatabase,
+    uuid: *const u8,
+    out: *mut bool,
+) -> i32 {
+    let (Some(database), Some(uuid), Some(out)) =
+        (database.as_ref(), read_uuid(uuid), out.as_mut())
+    else {
+        return SV_INVALID_ARGUMENT;
+    };
+    *out = false;
+    match database.database.in_recycle_bin(&uuid) {
+        Ok(inside) => {
+            *out = inside;
             SV_OK
         }
         Err(error) => status(error),
@@ -1198,6 +1268,41 @@ mod tests {
             assert_eq!(
                 sv_database_move_entry(database, cards.as_ptr(), cards.as_ptr(), 0, &mut moved),
                 SV_NOT_FOUND
+            );
+
+            let name = "Mail";
+            let mut mail = [0u8; UUID_LENGTH];
+            assert_eq!(
+                sv_database_add_group(
+                    database,
+                    std::ptr::null(),
+                    name.as_ptr(),
+                    name.len(),
+                    0,
+                    mail.as_mut_ptr()
+                ),
+                SV_OK
+            );
+            let mut inside = true;
+            assert_eq!(
+                sv_database_in_recycle_bin(database, mail.as_ptr(), &mut inside),
+                SV_OK
+            );
+            assert!(!inside);
+            let mut groups = std::ptr::null_mut();
+            assert_eq!(sv_database_groups(database, &mut groups), SV_OK);
+            assert_eq!(list_text(groups, sv_list_length(groups) - 1, 0), "Mail");
+            sv_list_free(groups);
+            assert_eq!(
+                sv_database_add_group(
+                    database,
+                    std::ptr::null(),
+                    name.as_ptr(),
+                    0,
+                    0,
+                    mail.as_mut_ptr()
+                ),
+                SV_INVALID_ARGUMENT
             );
 
             let mut content = std::ptr::null_mut();

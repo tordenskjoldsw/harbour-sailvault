@@ -33,6 +33,7 @@ pub enum KdbxError {
     /// nothing is written.
     WriteVerificationFailed,
     InvalidEntry(&'static str),
+    InvalidGroup(&'static str),
     UnknownGroup,
     UnknownEntry,
     RootGroupProtected,
@@ -68,6 +69,7 @@ impl fmt::Display for KdbxError {
                 f.write_str("the written database does not decrypt to the same content")
             }
             Self::InvalidEntry(reason) => write!(f, "invalid entry: {reason}"),
+            Self::InvalidGroup(reason) => write!(f, "invalid group: {reason}"),
             Self::UnknownGroup => f.write_str("group not found"),
             Self::UnknownEntry => f.write_str("entry not found"),
             Self::RootGroupProtected => f.write_str("the root group cannot be deleted"),

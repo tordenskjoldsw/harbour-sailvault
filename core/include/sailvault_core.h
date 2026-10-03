@@ -106,10 +106,20 @@ void sv_string_free(SvString string);
 /* Adds an entry to a group (group_uuid NULL means the root group), in memory
  * only until sv_database_save. The five standard fields (Title, UserName,
  * Password, URL, Notes) are always written; now is in seconds since the Unix
- * epoch. Writes the entry's UUID to uuid_out. */
+ * epoch. Writes the entry's UUID to uuid_out. Refused inside the recycle
+ * bin. */
 int32_t sv_database_add_entry(SvDatabase *database, const uint8_t *group_uuid,
                               const SvField *fields, size_t field_count, int64_t now,
                               uint8_t *uuid_out);
+
+/* Adds a group (parent_uuid NULL means the root group) and writes its UUID to
+ * uuid_out. Refused inside the recycle bin and for an empty name. */
+int32_t sv_database_add_group(SvDatabase *database, const uint8_t *parent_uuid,
+                              const uint8_t *name, size_t name_length, int64_t now,
+                              uint8_t *uuid_out);
+/* Whether an entry or group is the recycle bin or inside it; no new entries
+ * or groups are added there. */
+int32_t sv_database_in_recycle_bin(const SvDatabase *database, const uint8_t *uuid, bool *out);
 
 /* Sets fields of an entry. A changed entry keeps its previous state as a
  * history item; changed_out says whether anything changed. */

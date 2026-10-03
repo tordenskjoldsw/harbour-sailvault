@@ -19,6 +19,8 @@ const UNIX_EPOCH_SECONDS: i64 = 62_135_596_800;
 // KeePassXC's defaults for Meta/HistoryMaxItems and Meta/HistoryMaxSize.
 const DEFAULT_HISTORY_MAX_ITEMS: i64 = 10;
 const DEFAULT_HISTORY_MAX_SIZE: i64 = 6 * 1024 * 1024;
+// KeePassXC's Group::DefaultIconNumber and Group::RecycleBinIconNumber.
+const GROUP_ICON: &str = "48";
 const RECYCLE_BIN_ICON: &str = "43";
 const NO_UUID: [u8; UUID_LENGTH] = [0; UUID_LENGTH];
 // Entry children that KeePassXC writes after the String elements.
@@ -44,12 +46,54 @@ impl Database {
         now: i64,
     ) -> Result<[u8; UUID_LENGTH]> {
         validate_keys(fields)?;
+        self.require_outside_recycle_bin(group_uuid)?;
         let protected_keys = self.protected_standard_keys();
         let uuid = new_uuid()?;
         let entry = build_entry(&uuid, fields, &protected_keys, now);
         let group = group_mut(self.document_mut(), group_uuid).ok_or(KdbxError::UnknownGroup)?;
         insert_entry(group, entry);
         Ok(uuid)
+    }
+
+    /// Adds a group named `name` at the end of the group with `parent_uuid`
+    /// and returns its UUID. Searching and auto-type are inherited, as in a
+    /// group created in KeePassXC.
+    pub fn add_group(
+        &mut self,
+        parent_uuid: &[u8; UUID_LENGTH],
+        name: &str,
+        now: i64,
+    ) -> Result<[u8; UUID_LENGTH]> {
+        if name.is_empty() {
+            return Err(KdbxError::InvalidGroup("empty name"));
+        }
+        self.require_outside_recycle_bin(parent_uuid)?;
+        let uuid = new_uuid()?;
+        let group = build_group(&uuid, name, GROUP_ICON, "null", &kdbx_time(now));
+        let parent = group_mut(self.document_mut(), parent_uuid).ok_or(KdbxError::UnknownGroup)?;
+        parent.children.push(Node::Element(group));
+        Ok(uuid)
+    }
+
+    /// Whether the entry or group with `uuid` is the recycle bin or inside
+    /// it.
+    pub fn in_recycle_bin(&self, uuid: &[u8; UUID_LENGTH]) -> Result<bool> {
+        let path = entry_path(self.document(), uuid)
+            .or_else(|| group_path(self.document(), uuid))
+            .ok_or(KdbxError::UnknownGroup)?;
+        Ok(self.recycle_bin().is_some_and(|bin| {
+            groups_on_path(self.document(), &path)
+                .iter()
+                .any(|group| group.child("UUID").and_then(decode_uuid) == Some(bin))
+        }))
+    }
+
+    /// KeePassXC offers no new entries or groups in the recycle bin.
+    fn require_outside_recycle_bin(&self, group_uuid: &[u8; UUID_LENGTH]) -> Result<()> {
+        if self.in_recycle_bin(group_uuid)? {
+            return Err(KdbxError::InvalidGroup("inside the recycle bin"));
+        }
+        Ok(())
     }
 
     /// Sets fields of the entry with `uuid`. A changed entry gets its
@@ -243,21 +287,7 @@ impl Database {
         }
         let uuid = new_uuid()?;
         let time = kdbx_time(now);
-        let group = element(
-            "Group",
-            vec![
-                text("UUID", &encode_uuid(&uuid)),
-                text("Name", "Recycle Bin"),
-                text("Notes", ""),
-                text("IconID", RECYCLE_BIN_ICON),
-                times(&time),
-                text("IsExpanded", "True"),
-                text("DefaultAutoTypeSequence", ""),
-                text("EnableAutoType", "false"),
-                text("EnableSearching", "false"),
-                text("LastTopVisibleEntry", &encode_uuid(&NO_UUID)),
-            ],
-        );
+        let group = build_group(&uuid, "Recycle Bin", RECYCLE_BIN_ICON, "false", &time);
         root_group_mut(self.document_mut())?
             .children
             .push(Node::Element(group));
@@ -368,6 +398,32 @@ fn build_entry(
     ));
     children.push(element("History", Vec::new()));
     element("Entry", children)
+}
+
+/// A group as KeePassXC's `KdbxXmlWriter::writeGroup` writes it;
+/// `enabled` is the tri-state for auto-type and searching.
+fn build_group(
+    uuid: &[u8; UUID_LENGTH],
+    name: &str,
+    icon: &str,
+    enabled: &str,
+    time: &str,
+) -> Element {
+    element(
+        "Group",
+        vec![
+            text("UUID", &encode_uuid(uuid)),
+            text("Name", name),
+            text("Notes", ""),
+            text("IconID", icon),
+            times(time),
+            text("IsExpanded", "True"),
+            text("DefaultAutoTypeSequence", ""),
+            text("EnableAutoType", enabled),
+            text("EnableSearching", enabled),
+            text("LastTopVisibleEntry", &encode_uuid(&NO_UUID)),
+        ],
+    )
 }
 
 fn times(time: &str) -> Element {
@@ -1182,6 +1238,82 @@ mod tests {
         assert_eq!(
             database.move_entry(&[0x99; 16], &ROOT, NOW),
             Err(KdbxError::UnknownEntry)
+        );
+    }
+
+    #[test]
+    fn new_groups_follow_keepassxc_layout_and_stay_out_of_the_recycle_bin() {
+        let mut database = build(
+            &enabled_bin_meta(),
+            &format!("{}{}", banking_xml(), bin_xml()),
+        );
+        let mail = database.add_group(&ROOT, "Mail", NOW).unwrap();
+
+        let root = database.root_group().unwrap();
+        assert_eq!(group_names(&root), ["Banking", "Recycle Bin", "Mail"]);
+        let group = root.groups().last().unwrap();
+        assert_eq!(group.uuid(), Some(mail));
+        let names: Vec<&str> = group
+            .element()
+            .elements()
+            .map(|e| e.name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "UUID",
+                "Name",
+                "Notes",
+                "IconID",
+                "Times",
+                "IsExpanded",
+                "DefaultAutoTypeSequence",
+                "EnableAutoType",
+                "EnableSearching",
+                "LastTopVisibleEntry"
+            ]
+        );
+        let child = |name: &str| group.element().child(name).unwrap().text().to_string();
+        assert_eq!(child("IconID"), "48");
+        assert_eq!(child("EnableSearching"), "null");
+        assert_eq!(
+            *group
+                .element()
+                .child("Times")
+                .unwrap()
+                .child("CreationTime")
+                .unwrap()
+                .text(),
+            kdbx_time(NOW)
+        );
+
+        database
+            .add_entry(&mail, &[("Title", "Inbox")], NOW)
+            .unwrap();
+        assert_eq!(database.in_recycle_bin(&mail), Ok(false));
+        assert_eq!(database.in_recycle_bin(&BIN), Ok(true));
+        assert_eq!(
+            database.add_group(&BIN, "Kept", NOW),
+            Err(KdbxError::InvalidGroup("inside the recycle bin"))
+        );
+        assert_eq!(
+            database.add_entry(&BIN, &[("Title", "x")], NOW),
+            Err(KdbxError::InvalidGroup("inside the recycle bin"))
+        );
+        assert_eq!(
+            database.add_group(&ROOT, "", NOW),
+            Err(KdbxError::InvalidGroup("empty name"))
+        );
+        assert_eq!(
+            database.add_group(&[0x99; 16], "x", NOW),
+            Err(KdbxError::UnknownGroup)
+        );
+
+        assert_eq!(database.delete_group(&BANKING, NOW), Ok(false));
+        assert_eq!(database.in_recycle_bin(&CARD), Ok(true));
+        assert_eq!(
+            database.add_group(&CARDS, "x", NOW),
+            Err(KdbxError::InvalidGroup("inside the recycle bin"))
         );
     }
 }
