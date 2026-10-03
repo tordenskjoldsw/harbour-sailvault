@@ -1,3 +1,5 @@
+pub mod crypto;
+
 use std::os::raw::c_char;
 
 const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "\0");
