@@ -2,7 +2,7 @@
 //! does, so imported entries look like entries KeePassXC imported. Where
 //! SailVault differs, `docs/bitwarden-export.md` says why.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
@@ -119,29 +119,40 @@ fn descend<'a>(root: &'a mut NewGroup, path: &[usize]) -> &'a mut NewGroup {
 /// The fields of one entry under construction. Custom keys never replace
 /// a field: a taken key gets a numbered suffix.
 #[derive(Default)]
-struct Fields(Vec<NewField>);
+struct Fields {
+    list: Vec<NewField>,
+    keys: HashSet<String>,
+    // The next suffix to try for a key, so that many fields with one name
+    // stay linear.
+    next_suffix: HashMap<String, usize>,
+}
 
 impl Fields {
     fn get(&self, key: &str) -> &str {
-        self.0
+        self.list
             .iter()
             .find(|field| field.key == key)
             .map_or("", |field| field.value.as_str())
     }
 
     fn contains(&self, key: &str) -> bool {
-        STANDARD_KEYS.contains(&key) || self.0.iter().any(|field| field.key == key)
+        STANDARD_KEYS.contains(&key) || self.keys.contains(key)
     }
 
     /// Sets `key`, replacing its value, as `EntryAttributes::set` does.
     fn set(&mut self, key: &str, value: &str, protected: bool) {
-        match self.0.iter_mut().find(|field| field.key == key) {
+        match self.list.iter_mut().find(|field| field.key == key) {
             Some(field) => {
                 field.value = Zeroizing::new(value.to_owned());
                 field.protected = protected;
             }
-            None => self.0.push(NewField::new(key, value, protected)),
+            None => self.push(NewField::new(key, value, protected)),
         }
+    }
+
+    fn push(&mut self, field: NewField) {
+        self.keys.insert(field.key.clone());
+        self.list.push(field);
     }
 
     fn set_if_present(&mut self, key: &str, value: &str, protected: bool) {
@@ -155,12 +166,13 @@ impl Fields {
     fn add_unique(&mut self, key: &str, value: &str, protected: bool) {
         let key = if key.is_empty() { "field" } else { key };
         let mut unique = key.to_owned();
-        let mut number = 2;
+        let mut number = self.next_suffix.get(key).copied().unwrap_or(2);
         while self.contains(&unique) {
             unique = format!("{key}_{number}");
             number += 1;
         }
-        self.0.push(NewField::new(unique, value, protected));
+        self.next_suffix.insert(key.to_owned(), number);
+        self.push(NewField::new(unique, value, protected));
     }
 }
 
@@ -217,7 +229,7 @@ fn map_item(item: &Item) -> NewEntry {
                 snapshot.set(key, value, false);
             }
             Some(NewEntry {
-                fields: snapshot.0,
+                fields: snapshot.list,
                 created,
                 modified: Some(last_used),
                 ..NewEntry::default()
@@ -227,7 +239,7 @@ fn map_item(item: &Item) -> NewEntry {
     NewEntry {
         uuid: parse_uuid(item.id.as_str()),
         origin: Some(ORIGIN_BITWARDEN),
-        fields: fields.0,
+        fields: fields.list,
         tags,
         created,
         modified,
