@@ -65,6 +65,18 @@ fn main() {
         }
     }
 
+    // The levels offered when creating a database.
+    for (iterations, memory_mib) in [(3, 256), (4, 512), (4, 1024)] {
+        let elapsed = time_kdf(
+            &argon2(Argon2Variant::Argon2id, iterations, memory_mib, 4),
+            &key,
+        );
+        println!(
+            "level,argon2id t={iterations} m={memory_mib}MiB p=4,{}",
+            elapsed.as_millis()
+        );
+    }
+
     let rounds = 1_000_000;
     let aes = KdfParameters::AesKdf {
         rounds,

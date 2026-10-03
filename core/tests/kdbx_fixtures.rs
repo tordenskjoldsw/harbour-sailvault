@@ -117,7 +117,7 @@ const PASSWORD: &[u8] = b"sailvault-fixture";
 const KEY_FILE: &[u8] = include_bytes!("fixtures/fixture.keyx");
 
 use sailvault_core::bitwarden;
-use sailvault_core::kdbx::{CompositeKey, Database, Entry, Group};
+use sailvault_core::kdbx::{CompositeKey, Database, Entry, Group, KdfLevel};
 
 fn key(key_file: bool) -> CompositeKey {
     CompositeKey::new(Some(PASSWORD), key_file.then_some(KEY_FILE)).unwrap()
@@ -1094,7 +1094,7 @@ fn sailvault_core_kdbx_time(unix_seconds: i64) -> String {
 
 #[test]
 fn a_new_database_opens_in_keepassxc_with_its_settings() {
-    let mut database = Database::create(key(false), "Passwords", NOW).unwrap();
+    let mut database = Database::create(key(false), "Passwords", KdfLevel::Standard, NOW).unwrap();
     let root = database.root_group().unwrap();
     assert_eq!(*root.name(), "Root");
     assert_eq!(root.entries().count() + root.groups().count(), 0);

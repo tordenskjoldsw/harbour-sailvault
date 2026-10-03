@@ -16,6 +16,7 @@ mod search;
 mod variant_dictionary;
 mod xml;
 
+pub use create::KdfLevel;
 pub use database::{Attachment, Database, DeletedObject, Entry, Field, Group};
 pub use edit::{MergeSummary, NewEntry, NewField, NewGroup, ORIGIN_BITWARDEN};
 pub use error::{KdbxError, Result};

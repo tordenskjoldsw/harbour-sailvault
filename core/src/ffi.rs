@@ -10,7 +10,9 @@ use std::slice;
 use zeroize::Zeroizing;
 
 use crate::bitwarden::{self, ExportKind, ImportError};
-use crate::kdbx::{CompositeKey, Database, Entry, Group, KdbxError, ListedEntry, NewGroup};
+use crate::kdbx::{
+    CompositeKey, Database, Entry, Group, KdbxError, KdfLevel, ListedEntry, NewGroup,
+};
 use crate::password::{self, CharacterClasses, PasswordError};
 
 pub const SV_OK: i32 = 0;
@@ -30,6 +32,10 @@ pub const SV_NOT_AN_EXPORT: i32 = 12;
 pub const SV_EXPORT_UNENCRYPTED: i32 = 0;
 pub const SV_EXPORT_PASSWORD_PROTECTED: i32 = 1;
 pub const SV_EXPORT_ACCOUNT_RESTRICTED: i32 = 2;
+
+pub const SV_KDF_STANDARD: u32 = 0;
+pub const SV_KDF_HIGH: u32 = 1;
+pub const SV_KDF_MAXIMUM: u32 = 2;
 
 pub const SV_CLASS_LOWER: u32 = 1;
 pub const SV_CLASS_UPPER: u32 = 2;
@@ -307,8 +313,9 @@ pub unsafe extern "C" fn sv_database_open(
     }
 }
 
-/// Creates a new, empty database named `name` and protected by `password`
-/// (see `Database::create`), and serializes it as the file to write. Runs the
+/// Creates a new, empty database named `name`, protected by `password` with
+/// the key derivation `SV_KDF_*` `kdf_level` (see `Database::create`), and
+/// serializes it as the file to write. Runs the
 /// KDF: call it off the UI thread. On success `*out` receives the unlocked
 /// handle and `*file_out` the file; release them with `sv_database_free` and
 /// `sv_bytes_free`.
@@ -323,6 +330,7 @@ pub unsafe extern "C" fn sv_database_create(
     password_length: usize,
     name: *const u8,
     name_length: usize,
+    kdf_level: u32,
     now: i64,
     out: *mut *mut SvDatabase,
     file_out: *mut SvBytes,
@@ -341,8 +349,14 @@ pub unsafe extern "C" fn sv_database_create(
     ) else {
         return SV_INVALID_ARGUMENT;
     };
+    let level = match kdf_level {
+        SV_KDF_STANDARD => KdfLevel::Standard,
+        SV_KDF_HIGH => KdfLevel::High,
+        SV_KDF_MAXIMUM => KdfLevel::Maximum,
+        _ => return SV_INVALID_ARGUMENT,
+    };
     let created = CompositeKey::new(Some(password), None)
-        .and_then(|key| Database::create(key, name, now))
+        .and_then(|key| Database::create(key, name, level, now))
         .and_then(|database| Ok((database.save()?, database)));
     match created {
         Ok((file, database)) => {
@@ -1926,6 +1940,7 @@ mod tests {
                     0,
                     name.as_ptr(),
                     name.len(),
+                    SV_KDF_STANDARD,
                     0,
                     &mut database,
                     &mut file
@@ -1938,6 +1953,7 @@ mod tests {
                     PASSWORD.len(),
                     name.as_ptr(),
                     name.len(),
+                    SV_KDF_STANDARD,
                     0,
                     &mut database,
                     &mut file
