@@ -68,7 +68,7 @@ Page {
                 page.creating = false
             if (vault.state === Vault.Unlocked) {
                 pageStack.push(Qt.resolvedUrl("EntryListPage.qml"),
-                               { "groupId": "", "groupName": qsTr("SailVault") })
+                               { "groupId": "", "groupName": "SailVault" })
             }
         }
     }
@@ -118,7 +118,7 @@ Page {
             enabled: !page.unlocking
 
             PageHeader {
-                title: qsTr("SailVault")
+                title: "SailVault"
                 description: window.lockedAutomatically ? qsTr("Locked automatically") : ""
             }
 

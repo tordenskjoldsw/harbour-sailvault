@@ -1,6 +1,7 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
 import "thirdparty.js" as ThirdParty
+import "../components"
 
 Page {
     id: page
@@ -29,11 +30,7 @@ Page {
                         description: package_.version + " · " + package_.license
                     }
 
-                    Label {
-                        x: Theme.horizontalPageMargin
-                        width: parent.width - 2 * Theme.horizontalPageMargin
-                        textFormat: Text.PlainText
-                        wrapMode: Text.Wrap
+                    Paragraph {
                         font.pixelSize: Theme.fontSizeExtraSmall
                         color: Theme.highlightColor
                         text: ThirdParty.texts[package_.text]
@@ -59,11 +56,7 @@ Page {
                 title: qsTr("Third-party licenses")
             }
 
-            Label {
-                x: Theme.horizontalPageMargin
-                width: parent.width - 2 * Theme.horizontalPageMargin
-                textFormat: Text.PlainText
-                wrapMode: Text.Wrap
+            Paragraph {
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.highlightColor
                 text: qsTr("SailVault includes these libraries. Where a library offers a choice of licenses, SailVault uses the MIT license.")

@@ -175,7 +175,6 @@ Page {
                         width: parent.width - 2 * Theme.horizontalPageMargin
 
                         Label {
-
                             textFormat: Text.PlainText
                             width: parent.width
                             font.pixelSize: Theme.fontSizeExtraSmall
@@ -185,7 +184,6 @@ Page {
                         }
 
                         Label {
-
                             textFormat: Text.PlainText
                             width: parent.width
                             wrapMode: Text.Wrap

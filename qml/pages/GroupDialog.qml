@@ -22,25 +22,32 @@ Dialog {
             Notices.show(qsTr("The group could not be saved"), Notice.Long)
     }
 
-    Column {
-        width: parent.width
+    SilicaFlickable {
+        anchors.fill: parent
+        contentHeight: column.height
 
-        DialogHeader {
-            title: dialog.renaming ? qsTr("Rename group") : qsTr("New group")
-            acceptText: qsTr("Save")
-        }
-
-        TextField {
-            id: nameField
+        Column {
+            id: column
 
             width: parent.width
-            label: qsTr("Name")
-            placeholderText: label
-            text: dialog.currentName
-            focus: true
-            EnterKey.enabled: dialog.canAccept
-            EnterKey.iconSource: "image://theme/icon-m-enter-accept"
-            EnterKey.onClicked: dialog.accept()
+
+            DialogHeader {
+                title: dialog.renaming ? qsTr("Rename group") : qsTr("New group")
+                acceptText: qsTr("Save")
+            }
+
+            TextField {
+                id: nameField
+
+                width: parent.width
+                label: qsTr("Name")
+                placeholderText: label
+                text: dialog.currentName
+                focus: true
+                EnterKey.enabled: dialog.canAccept
+                EnterKey.iconSource: "image://theme/icon-m-enter-accept"
+                EnterKey.onClicked: dialog.accept()
+            }
         }
     }
 }

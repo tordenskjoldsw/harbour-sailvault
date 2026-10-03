@@ -96,11 +96,7 @@ Dialog {
                 EnterKey.onClicked: dialog.accept()
             }
 
-            Label {
-                x: Theme.horizontalPageMargin
-                width: parent.width - 2 * Theme.horizontalPageMargin
-                textFormat: Text.PlainText
-                wrapMode: Text.Wrap
+            Paragraph {
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.secondaryHighlightColor
                 text: qsTr("Use a long passphrase of several words. Nobody can open the database without it, and it cannot be recovered.")

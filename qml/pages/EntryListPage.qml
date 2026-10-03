@@ -2,6 +2,7 @@ import QtQuick 2.0
 import Sailfish.Silica 1.0
 import Sailfish.Pickers 1.0
 import harbour.sailvault 1.0
+import "../components"
 
 Page {
     id: page
@@ -159,45 +160,15 @@ Page {
                 }
             }
 
-            Image {
-                id: icon
-
-                x: Theme.horizontalPageMargin
-                anchors.verticalCenter: parent.verticalCenter
-                source: (model.isGroup ? "image://theme/icon-m-folder" : "image://theme/icon-m-keys")
-                        + (item.highlighted ? "?" + Theme.highlightColor : "")
-            }
-
-            Column {
-                anchors {
-                    left: icon.right
-                    leftMargin: Theme.paddingMedium
-                    right: parent.right
-                    rightMargin: Theme.horizontalPageMargin
-                    verticalCenter: parent.verticalCenter
-                }
-
-                Label {
-
-                    textFormat: Text.PlainText
-                    width: parent.width
-                    truncationMode: TruncationMode.Fade
-                    color: item.highlighted ? Theme.highlightColor : Theme.primaryColor
-                    text: model.title.length > 0 ? model.title : qsTr("(no title)")
-                }
-
-                Label {
-
-                    textFormat: Text.PlainText
-                    width: parent.width
-                    visible: text.length > 0
-                    truncationMode: TruncationMode.Fade
-                    font.pixelSize: Theme.fontSizeExtraSmall
-                    color: item.highlighted ? Theme.secondaryHighlightColor : Theme.secondaryColor
-                    text: entries.query.length > 0 && model.location.length > 0
-                          ? model.userName + (model.userName.length > 0 ? " · " : "") + model.location
-                          : model.userName
-                }
+            TwoLineLabel {
+                anchors.fill: parent
+                highlighted: item.highlighted
+                iconSource: model.isGroup ? "image://theme/icon-m-folder" : "image://theme/icon-m-keys"
+                title: model.title.length > 0 ? model.title : qsTr("(no title)")
+                description: entries.query.length > 0 && model.location.length > 0
+                             ? model.userName + (model.userName.length > 0 ? " · " : "")
+                               + model.location
+                             : model.userName
             }
 
             Component {

@@ -1,5 +1,6 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
+import "../components"
 
 Page {
     id: page
@@ -66,11 +67,7 @@ Page {
                     qsTr("SailVault is free software under the MIT license. Read the code, check what I claim here and tell me what you find.")
                 ]
 
-                Label {
-                    x: Theme.horizontalPageMargin
-                    width: page.width - 2 * Theme.horizontalPageMargin
-                    textFormat: Text.PlainText
-                    wrapMode: Text.Wrap
+                Paragraph {
                     color: Theme.highlightColor
                     text: modelData
                 }
@@ -114,11 +111,7 @@ Page {
                 }
             }
 
-            Label {
-                x: Theme.horizontalPageMargin
-                width: parent.width - 2 * Theme.horizontalPageMargin
-                textFormat: Text.PlainText
-                wrapMode: Text.Wrap
+            Paragraph {
                 font.pixelSize: Theme.fontSizeExtraSmall
                 color: Theme.secondaryColor
                 text: qsTr("Copyright 2026 Tobias Kaminski. SailVault is an independent project and not affiliated with KeePass, KeePassXC, Bitwarden or Jolla.")

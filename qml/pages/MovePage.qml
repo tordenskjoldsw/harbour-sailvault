@@ -1,6 +1,7 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
 import harbour.sailvault 1.0
+import "../components"
 
 // Moves the entry or group itemId into a group picked from every group
 // outside the recycle bin; a group is never offered as its own target.
@@ -48,43 +49,12 @@ Page {
 
             onClicked: page.moveTo(model.id, model.title)
 
-            Image {
-                id: icon
-
-                x: Theme.horizontalPageMargin
-                anchors.verticalCenter: parent.verticalCenter
-                source: "image://theme/icon-m-folder"
-                        + (item.highlighted ? "?" + Theme.highlightColor : "")
-            }
-
-            Column {
-                anchors {
-                    left: icon.right
-                    leftMargin: Theme.paddingMedium
-                    right: parent.right
-                    rightMargin: Theme.horizontalPageMargin
-                    verticalCenter: parent.verticalCenter
-                }
-
-                Label {
-
-                    textFormat: Text.PlainText
-                    width: parent.width
-                    truncationMode: TruncationMode.Fade
-                    color: item.highlighted ? Theme.highlightColor : Theme.primaryColor
-                    text: model.title.length > 0 ? model.title : qsTr("(no name)")
-                }
-
-                Label {
-
-                    textFormat: Text.PlainText
-                    width: parent.width
-                    visible: text.length > 0
-                    truncationMode: TruncationMode.Fade
-                    font.pixelSize: Theme.fontSizeExtraSmall
-                    color: item.highlighted ? Theme.secondaryHighlightColor : Theme.secondaryColor
-                    text: model.location
-                }
+            TwoLineLabel {
+                anchors.fill: parent
+                highlighted: item.highlighted
+                iconSource: "image://theme/icon-m-folder"
+                title: model.title.length > 0 ? model.title : qsTr("(no name)")
+                description: model.location
             }
         }
 

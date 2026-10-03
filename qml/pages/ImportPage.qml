@@ -84,12 +84,7 @@ Page {
                 description: page.path.substring(page.path.lastIndexOf("/") + 1)
             }
 
-            Label {
-
-                textFormat: Text.PlainText
-                x: Theme.horizontalPageMargin
-                width: parent.width - 2 * Theme.horizontalPageMargin
-                wrapMode: Text.Wrap
+            Paragraph {
                 color: importer.kind === Importer.AccountRestricted ? Theme.errorColor
                                                                     : Theme.highlightColor
                 text: {
@@ -125,14 +120,9 @@ Page {
                 }
             }
 
-            Label {
-
-                textFormat: Text.PlainText
-                x: Theme.horizontalPageMargin
-                width: parent.width - 2 * Theme.horizontalPageMargin
+            Paragraph {
                 visible: page.error >= 0 && page.error !== Importer.WrongPassword
                          && page.error !== Importer.Locked
-                wrapMode: Text.Wrap
                 color: Theme.errorColor
                 text: page.statusText(page.error)
             }

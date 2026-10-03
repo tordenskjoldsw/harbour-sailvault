@@ -16,15 +16,13 @@ CoverBackground {
         }
 
         Label {
-
             textFormat: Text.PlainText
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
-            text: qsTr("SailVault")
+            text: "SailVault"
         }
 
         Label {
-
             textFormat: Text.PlainText
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
