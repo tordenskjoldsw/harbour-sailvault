@@ -7,6 +7,15 @@ Page {
 
     property string entryId
 
+    // The move reloads the list, which destroys the tapped delegate, so the
+    // page finishes the action instead of the delegate's handler.
+    function moveTo(groupId, groupName) {
+        if (vault.moveEntry(entryId, groupId)) {
+            Notices.show(qsTr("Moved to %1").arg(groupName), Notice.Short)
+            pageStack.pop()
+        }
+    }
+
     allowedOrientations: Orientation.All
 
     SilicaListView {
@@ -29,12 +38,7 @@ Page {
             height: Theme.itemSizeMedium
             enabled: !vault.saving
 
-            onClicked: {
-                if (vault.moveEntry(page.entryId, model.id)) {
-                    Notices.show(qsTr("Moved to %1").arg(model.title), Notice.Short)
-                    pageStack.pop()
-                }
-            }
+            onClicked: page.moveTo(model.id, model.title)
 
             Image {
                 id: icon
