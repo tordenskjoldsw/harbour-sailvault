@@ -47,11 +47,11 @@ correct and authenticates every byte before using it.
 | L13 compatibility | fixed: UUID names pinned by a test, KeePassXC boolean rules, Comment field, VariantDictionary Bool and trailing bytes; Salsa20 inner stream stays unsupported (fails closed) | `fcc1f38` |
 | I1 clipboard on exit | fixed: `QGuiApplication::sync()` after clearing; verified on the device | `a5f8585` |
 | I2 keyboard input | fixed | `a5f8585` |
-| I3 empty password | open: needs a separate "no password" control in the UI | - |
+| I3 empty password | fixed: empty field means no password, a failed attempt is retried with an empty password, as in KeePassXC; not tested on the device with a real file | see git log |
 | I4 Send assertion | fixed | `fcc1f38` |
 | I5 key file during unlock | fixed | `98a82c6` |
 | I6 unused dependencies | fixed for argon2 alloc (password-hash, rand_core removed); libQt5Network stays (sailfishapp) | `0afd2d5` |
-| I7 duplicate keys, `&amp;` in key file | open, behavior documented | - |
+| I7 duplicate keys, `&amp;` in key file | fixed: repeated keys with a value are rejected like KeePassXC, an empty earlier value is replaced; key files resolve references | see git log |
 
 Device tests on the Jolla Phone (Sailfish OS 5.2.0.18), 2026-10-03, after
 installing the fixed build:
