@@ -109,7 +109,8 @@ public:
     Q_INVOKABLE void lock();
     Q_INVOKABLE void clearError();
     // version -1 is the current state of an entry, 0 and up its history
-    // items, oldest first.
+    // items, oldest first. Each field has its key and whether it is shown
+    // hidden: protected in the file, or a one-time password secret.
     Q_INVOKABLE QVariantList fields(const QString &entryId, int version = -1);
     Q_INVOKABLE QString fieldValue(const QString &entryId, const QString &key, int version = -1);
     Q_INVOKABLE bool copyField(const QString &entryId, const QString &key, int version = -1);

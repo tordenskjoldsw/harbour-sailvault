@@ -289,6 +289,15 @@ qint64 unixSeconds()
     return QDateTime::currentMSecsSinceEpoch() / 1000;
 }
 
+// One-time password secrets, in KeePassXC's and KeePass's attributes, are
+// shown hidden even when a file stores them unprotected.
+bool isOneTimePasswordSecret(const QString &key)
+{
+    return key == QLatin1String("otp") || key == QLatin1String("TOTP Seed")
+        || key.startsWith(QLatin1String("TimeOtp-Secret"))
+        || key.startsWith(QLatin1String("HmacOtp-Secret"));
+}
+
 // UTF-8 copies of entry fields for the core, wiped when they go out of
 // scope. The map's own QString copies cannot be wiped (see the threat model).
 class CoreFields
@@ -599,9 +608,11 @@ QVariantList Vault::fields(const QString &entryId, int version)
         SvString key = emptyCoreString();
         if (sv_field_list_key(fields, index, &key) != SV_OK)
             continue;
+        const QString name = takeCoreString(key);
         QVariantMap field;
-        field.insert(QStringLiteral("key"), takeCoreString(key));
-        field.insert(QStringLiteral("protected"), sv_field_list_is_protected(fields, index));
+        field.insert(QStringLiteral("key"), name);
+        field.insert(QStringLiteral("protected"),
+                     sv_field_list_is_protected(fields, index) || isOneTimePasswordSecret(name));
         result.append(field);
     }
     sv_field_list_free(fields);
