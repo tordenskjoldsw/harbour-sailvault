@@ -2,6 +2,7 @@ import QtQuick 2.0
 import Sailfish.Silica 1.0
 import Sailfish.Pickers 1.0
 import harbour.sailvault 1.0
+import "../components"
 
 Page {
     id: page
@@ -107,15 +108,12 @@ Page {
                 onClicked: pageStack.push(keyFilePicker)
             }
 
-            PasswordField {
+            PasswordInput {
                 id: passwordField
 
-                width: parent.width
                 label: qsTr("Master password")
-                errorHighlight: page.passwordError
-                description: page.passwordError ? page.errorText(vault.error) : ""
+                errorText: page.passwordError ? page.errorText(vault.error) : ""
                 EnterKey.enabled: vault.databasePath.length > 0
-                EnterKey.iconSource: "image://theme/icon-m-enter-accept"
                 EnterKey.onClicked: page.unlock()
                 onTextChanged: {
                     if (text.length > 0)

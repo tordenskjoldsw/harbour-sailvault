@@ -1,6 +1,7 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
 import harbour.sailvault 1.0
+import "../components"
 
 // Imports the Bitwarden/Vaultwarden export at path into a new group of the
 // root group, and offers to delete an unencrypted export afterwards.
@@ -84,20 +85,20 @@ Page {
                 }
             }
 
-            PasswordField {
+            PasswordInput {
                 id: passwordField
 
-                width: parent.width
                 visible: page.kind === Importer.PasswordProtected && page.importedCount < 0
                 enabled: !importer.busy
-                label: page.error === Importer.WrongPassword ? page.statusText(page.error)
-                                                             : qsTr("Export password")
-                placeholderText: qsTr("Export password")
-                errorHighlight: page.error === Importer.WrongPassword
+                label: qsTr("Export password")
+                errorText: page.error === Importer.WrongPassword ? page.statusText(page.error) : ""
                 focus: visible
                 EnterKey.enabled: text.length > 0
-                EnterKey.iconSource: "image://theme/icon-m-enter-accept"
                 EnterKey.onClicked: page.startImport()
+                onTextChanged: {
+                    if (text.length > 0 && page.error === Importer.WrongPassword)
+                        page.error = -1
+                }
             }
 
             Label {

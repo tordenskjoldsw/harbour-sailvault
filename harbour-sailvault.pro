@@ -52,6 +52,7 @@ QMAKE_LFLAGS += -Wl,-z,relro,-z,now -s
 
 DISTFILES += \
     qml/harbour-sailvault.qml \
+    qml/components/PasswordInput.qml \
     qml/cover/CoverPage.qml \
     qml/pages/EntryListPage.qml \
     qml/pages/GroupDialog.qml \
