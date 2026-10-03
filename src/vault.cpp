@@ -2,16 +2,17 @@
 
 #include <QByteArray>
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QEvent>
-#include <QFile>
 #include <QGuiApplication>
-#include <QPointer>
 #include <QRunnable>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QThreadPool>
+#include <QVector>
 
 #include "boottime.h"
+#include "databasefile.h"
 #include "secure.h"
 
 namespace {
@@ -20,10 +21,6 @@ const long long IdleLockMs = 5 * 60 * 1000;
 const long long BackgroundLockMs = 60 * 1000;
 // Bounds how late a deadline is enforced after the phone wakes up.
 const int WatchdogIntervalMs = 5 * 1000;
-const qint64 MaxDatabaseBytes = 256 * 1024 * 1024;
-const qint64 MaxKeyFileBytes = 1024 * 1024;
-const int StatusFileUnreadable = -1;
-const int StatusTooLarge = -2;
 
 QString settingsPath()
 {
@@ -31,23 +28,12 @@ QString settingsPath()
         + QStringLiteral("/settings.ini");
 }
 
-// Reads at most the size seen at open time into one exact allocation, so a
-// file swapped while reading cannot grow the buffer and no partial copies
-// are left behind by reallocation.
-int readFile(const QString &path, qint64 maxBytes, QByteArray &out)
+// Backups live in the app's private data directory, never next to the
+// database, which may be shared or synced.
+QString backupDirectory()
 {
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly))
-        return StatusFileUnreadable;
-    const qint64 size = file.size();
-    if (size > maxBytes)
-        return StatusTooLarge;
-    out = QByteArray(static_cast<int>(size), Qt::Uninitialized);
-    if (size > 0 && file.read(out.data(), size) != size) {
-        secureWipe(out);
-        return StatusFileUnreadable;
-    }
-    return SV_OK;
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+        + QStringLiteral("/backups");
 }
 
 // Reads the files and runs the KDF on a pool thread, then hands the result
@@ -75,27 +61,29 @@ public:
     void run() override
     {
         SvDatabase *database = nullptr;
-        const int status = open(&database);
+        QByteArray digest;
+        const int status = open(&database, digest);
         secureWipe(m_password);
 
         const bool delivered = !*m_cancelled
             && QMetaObject::invokeMethod(m_vault, "onUnlockFinished", Qt::QueuedConnection,
                                          Q_ARG(int, m_attempt), Q_ARG(int, status),
-                                         Q_ARG(qulonglong, reinterpret_cast<qulonglong>(database)));
+                                         Q_ARG(qulonglong, reinterpret_cast<qulonglong>(database)),
+                                         Q_ARG(QByteArray, digest));
         if (!delivered)
             sv_database_free(database);
     }
 
 private:
-    int open(SvDatabase **database)
+    int open(SvDatabase **database, QByteArray &digest)
     {
         QByteArray data;
-        int status = readFile(m_databasePath, MaxDatabaseBytes, data);
+        int status = readDatabaseFile(m_databasePath, MaxDatabaseBytes, data);
         if (status != SV_OK)
             return status;
         QByteArray keyFile;
         if (!m_keyFilePath.isEmpty()) {
-            status = readFile(m_keyFilePath, MaxKeyFileBytes, keyFile);
+            status = readDatabaseFile(m_keyFilePath, MaxKeyFileBytes, keyFile);
             if (status != SV_OK)
                 return status;
         }
@@ -106,6 +94,10 @@ private:
         if (status == SV_INVALID_CREDENTIALS && m_password.isEmpty())
             status = openWith(data, keyFile, true, database);
         secureWipe(keyFile);
+        // A later save compares the file against this digest to notice
+        // changes by other programs.
+        if (status == SV_OK)
+            digest = fileDigest(data);
         return status;
     }
 
@@ -130,6 +122,51 @@ private:
     QByteArray m_password;
 };
 
+// Serializes the database, which runs the KDF, and replaces the file on a
+// pool thread. The vault keeps the handle alive and read-only until the
+// result arrives.
+class SaveTask : public QRunnable
+{
+public:
+    SaveTask(Vault *vault, int attempt, const SvDatabase *database, const QString &databasePath,
+             const QByteArray &expectedDigest)
+        : m_vault(vault)
+        , m_attempt(attempt)
+        , m_database(database)
+        , m_databasePath(databasePath)
+        , m_expectedDigest(expectedDigest)
+    {
+    }
+
+    void run() override
+    {
+        SvBytes file;
+        file.data = nullptr;
+        file.length = 0;
+        int status = sv_database_save(m_database, &file);
+        QByteArray digest;
+        bool replacedChangedFile = false;
+        if (status == SV_OK) {
+            const QByteArray data = QByteArray::fromRawData(
+                reinterpret_cast<const char *>(file.data), static_cast<int>(file.length));
+            status = writeDatabaseFile(m_databasePath, data, backupDirectory(), m_expectedDigest,
+                                       replacedChangedFile);
+            digest = fileDigest(data);
+        }
+        sv_bytes_free(file);
+        QMetaObject::invokeMethod(m_vault, "onSaveFinished", Qt::QueuedConnection,
+                                  Q_ARG(int, m_attempt), Q_ARG(int, status),
+                                  Q_ARG(QByteArray, digest), Q_ARG(bool, replacedChangedFile));
+    }
+
+private:
+    Vault *m_vault;
+    int m_attempt;
+    const SvDatabase *m_database;
+    QString m_databasePath;
+    QByteArray m_expectedDigest;
+};
+
 Vault::Error errorFor(int status)
 {
     switch (status) {
@@ -150,6 +187,11 @@ Vault::Error errorFor(int status)
         return Vault::TooLarge;
     case StatusFileUnreadable:
         return Vault::FileUnreadable;
+    case StatusFileUnwritable:
+        return Vault::FileUnwritable;
+    case SV_WRITE_FAILED:
+    case SV_RANDOM_UNAVAILABLE:
+        return Vault::SaveFailed;
     default:
         return Vault::Corrupted;
     }
@@ -159,6 +201,16 @@ QByteArray entryUuid(const QString &entryId)
 {
     const QByteArray uuid = QByteArray::fromHex(entryId.toLatin1());
     return uuid.size() == SV_UUID_LENGTH ? uuid : QByteArray();
+}
+
+const uint8_t *bytePointer(const QByteArray &bytes)
+{
+    return reinterpret_cast<const uint8_t *>(bytes.constData());
+}
+
+uint32_t characterClass(bool selected, int flag)
+{
+    return selected ? static_cast<uint32_t>(flag) : 0u;
 }
 
 } // namespace
@@ -185,9 +237,10 @@ Vault::Vault(QObject *parent)
 Vault::~Vault()
 {
     cancelPendingUnlock();
+    // A running save finishes writing the file first.
     QThreadPool::globalInstance()->waitForDone();
     // A task may have posted its result before it saw the cancellation;
-    // deliver it now so onUnlockFinished frees the handle.
+    // deliver it now so the slot frees or locks the handle.
     QCoreApplication::sendPostedEvents(this, QEvent::MetaCall);
     m_clipboard.clear();
     sv_database_free(m_database);
@@ -201,6 +254,16 @@ Vault::State Vault::state() const
 Vault::Error Vault::error() const
 {
     return m_error;
+}
+
+bool Vault::saving() const
+{
+    return m_saving;
+}
+
+bool Vault::dirty() const
+{
+    return m_dirty;
 }
 
 QString Vault::databasePath() const
@@ -250,7 +313,7 @@ void Vault::unlock(const QString &password)
     secureWipe(passwordBytes);
 }
 
-void Vault::onUnlockFinished(int attempt, int status, qulonglong handle)
+void Vault::onUnlockFinished(int attempt, int status, qulonglong handle, const QByteArray &digest)
 {
     SvDatabase *database = reinterpret_cast<SvDatabase *>(handle);
     if (m_state != Unlocking || attempt != m_attempt) {
@@ -264,6 +327,7 @@ void Vault::onUnlockFinished(int attempt, int status, qulonglong handle)
         return;
     }
     m_database = database;
+    m_fileDigest = digest;
     saveSettings();
     m_lastActivityMs = bootTimeMs();
     m_idleTimer.start();
@@ -278,6 +342,11 @@ void Vault::lock()
     m_backgroundSinceMs = 0;
     m_clipboard.clear();
     updateWatchdog();
+    if (m_saving) {
+        // The save task still reads the handle; onSaveFinished locks.
+        m_lockAfterSave = true;
+        return;
+    }
     ++m_attempt;
     if (m_state == Unlocking) {
         setState(Locked);
@@ -287,6 +356,8 @@ void Vault::lock()
         return;
     sv_database_free(m_database);
     m_database = nullptr;
+    m_fileDigest.clear();
+    setDirty(false);
     setState(Locked);
 }
 
@@ -306,6 +377,10 @@ void Vault::lockAutomatically()
 {
     if (m_state != Unlocked)
         return;
+    if (m_saving) {
+        m_autoLockAfterSave = true;
+        return;
+    }
     lock();
     emit lockedAutomatically();
 }
@@ -340,9 +415,7 @@ QVariantList Vault::fields(const QString &entryId)
     const QByteArray uuid = entryUuid(entryId);
     const SvDatabase *handle = database();
     SvFieldList *fields = nullptr;
-    if (!handle || uuid.isEmpty()
-        || sv_database_fields(handle, reinterpret_cast<const uint8_t *>(uuid.constData()),
-                              &fields) != SV_OK)
+    if (!handle || uuid.isEmpty() || sv_database_fields(handle, bytePointer(uuid), &fields) != SV_OK)
         return result;
     for (size_t index = 0; index < sv_field_list_length(fields); ++index) {
         SvString key = emptyCoreString();
@@ -368,8 +441,7 @@ QString Vault::readField(const QString &entryId, const QString &key) const
     const QByteArray keyBytes = key.toUtf8();
     SvString value = emptyCoreString();
     if (!m_database || uuid.isEmpty()
-        || sv_database_field_value(m_database, reinterpret_cast<const uint8_t *>(uuid.constData()),
-                                   reinterpret_cast<const uint8_t *>(keyBytes.constData()),
+        || sv_database_field_value(m_database, bytePointer(uuid), bytePointer(keyBytes),
                                    static_cast<size_t>(keyBytes.size()), &value) != SV_OK)
         return QString();
     return takeCoreString(value);
@@ -385,6 +457,91 @@ bool Vault::copyField(const QString &entryId, const QString &key)
     m_clipboard.copy(value, [this, entryId, key] { return readField(entryId, key); });
     updateWatchdog();
     return true;
+}
+
+bool Vault::addEntry(const QString &groupId, const QVariantMap &fields)
+{
+    if (m_saving || !database())
+        return false;
+    const QByteArray group = QByteArray::fromHex(groupId.toLatin1());
+    QVector<QByteArray> buffers;
+    buffers.reserve(2 * fields.size());
+    for (auto field = fields.constBegin(); field != fields.constEnd(); ++field) {
+        buffers.append(field.key().toUtf8());
+        buffers.append(field.value().toString().toUtf8());
+    }
+    QVector<SvField> coreFields(fields.size());
+    for (int index = 0; index < coreFields.size(); ++index) {
+        const QByteArray &key = buffers.at(2 * index);
+        const QByteArray &value = buffers.at(2 * index + 1);
+        coreFields[index].key = bytePointer(key);
+        coreFields[index].key_length = static_cast<size_t>(key.size());
+        coreFields[index].value = bytePointer(value);
+        coreFields[index].value_length = static_cast<size_t>(value.size());
+    }
+    QByteArray uuid(SV_UUID_LENGTH, Qt::Uninitialized);
+    const int status = sv_database_add_entry(
+        m_database, group.size() == SV_UUID_LENGTH ? bytePointer(group) : nullptr,
+        coreFields.constData(), static_cast<size_t>(coreFields.size()),
+        QDateTime::currentMSecsSinceEpoch() / 1000, reinterpret_cast<uint8_t *>(uuid.data()));
+    for (QByteArray &buffer : buffers)
+        secureWipe(buffer);
+    if (status != SV_OK)
+        return false;
+    setDirty(true);
+    emit contentChanged();
+    save();
+    return true;
+}
+
+void Vault::save()
+{
+    if (m_state != Unlocked || m_saving || !m_dirty || !m_database)
+        return;
+    setSaving(true);
+    QThreadPool::globalInstance()->start(
+        new SaveTask(this, m_attempt, m_database, m_databasePath, m_fileDigest));
+}
+
+void Vault::onSaveFinished(int attempt, int status, const QByteArray &digest,
+                           bool replacedChangedFile)
+{
+    setSaving(false);
+    if (attempt == m_attempt && m_state == Unlocked) {
+        if (status == SV_OK) {
+            m_fileDigest = digest;
+            setDirty(false);
+            if (replacedChangedFile)
+                emit savedOverChangedFile();
+        } else {
+            setError(errorFor(status));
+            emit saveFailed();
+        }
+    }
+    if (m_autoLockAfterSave) {
+        m_autoLockAfterSave = false;
+        m_lockAfterSave = false;
+        lockAutomatically();
+    } else if (m_lockAfterSave) {
+        m_lockAfterSave = false;
+        lock();
+    } else {
+        // A deadline that passed during the save has no timer left.
+        enforceDeadlines();
+    }
+}
+
+QString Vault::generatePassword(int length, bool lower, bool upper, bool digits,
+                                bool symbols) const
+{
+    const uint32_t classes = characterClass(lower, SV_CLASS_LOWER)
+        | characterClass(upper, SV_CLASS_UPPER) | characterClass(digits, SV_CLASS_DIGITS)
+        | characterClass(symbols, SV_CLASS_SYMBOLS);
+    SvString password = emptyCoreString();
+    if (length <= 0
+        || sv_generate_password(static_cast<size_t>(length), classes, &password) != SV_OK)
+        return QString();
+    return takeCoreString(password);
 }
 
 bool Vault::eventFilter(QObject *watched, QEvent *event)
@@ -432,6 +589,22 @@ void Vault::setError(Error error)
         return;
     m_error = error;
     emit errorChanged();
+}
+
+void Vault::setSaving(bool saving)
+{
+    if (m_saving == saving)
+        return;
+    m_saving = saving;
+    emit savingChanged();
+}
+
+void Vault::setDirty(bool dirty)
+{
+    if (m_dirty == dirty)
+        return;
+    m_dirty = dirty;
+    emit dirtyChanged();
 }
 
 void Vault::saveSettings() const

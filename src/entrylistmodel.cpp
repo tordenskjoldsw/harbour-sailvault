@@ -29,8 +29,10 @@ void EntryListModel::setSource(Vault *source)
     if (m_vault)
         disconnect(m_vault, nullptr, this, nullptr);
     m_vault = source;
-    if (m_vault)
+    if (m_vault) {
         connect(m_vault, &Vault::stateChanged, this, &EntryListModel::reload);
+        connect(m_vault, &Vault::contentChanged, this, &EntryListModel::reload);
+    }
     emit sourceChanged();
     reload();
 }

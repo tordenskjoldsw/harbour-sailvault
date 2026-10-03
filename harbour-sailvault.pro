@@ -5,12 +5,14 @@ CONFIG += sailfishapp
 HEADERS += \
     src/boottime.h \
     src/clipboardguard.h \
+    src/databasefile.h \
     src/entrylistmodel.h \
     src/secure.h \
     src/vault.h
 
 SOURCES += \
     src/clipboardguard.cpp \
+    src/databasefile.cpp \
     src/entrylistmodel.cpp \
     src/main.cpp \
     src/vault.cpp

@@ -1,10 +1,12 @@
 #ifndef VAULT_H
 #define VAULT_H
 
+#include <QByteArray>
 #include <QObject>
 #include <QString>
 #include <QTimer>
 #include <QVariantList>
+#include <QVariantMap>
 
 #include <atomic>
 #include <memory>
@@ -19,11 +21,17 @@
 // Lock and clipboard deadlines are measured on CLOCK_BOOTTIME and checked
 // before every access and by a watchdog, because Qt timers stop while the
 // phone sleeps.
+//
+// An edit changes the database in memory and starts a save at once. While
+// the save runs on a pool thread the handle is read-only for everyone, and
+// a lock request waits for the save to finish.
 class Vault : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(State state READ state NOTIFY stateChanged)
     Q_PROPERTY(Error error READ error NOTIFY errorChanged)
+    Q_PROPERTY(bool saving READ saving NOTIFY savingChanged)
+    Q_PROPERTY(bool dirty READ dirty NOTIFY dirtyChanged)
     Q_PROPERTY(QString databasePath READ databasePath WRITE setDatabasePath NOTIFY databasePathChanged)
     Q_PROPERTY(QString keyFilePath READ keyFilePath WRITE setKeyFilePath NOTIFY keyFilePathChanged)
 
@@ -44,7 +52,9 @@ public:
         UnsupportedFormat,
         Corrupted,
         TooLarge,
-        FileUnreadable
+        FileUnreadable,
+        FileUnwritable,
+        SaveFailed
     };
     Q_ENUM(Error)
 
@@ -53,6 +63,9 @@ public:
 
     State state() const;
     Error error() const;
+    bool saving() const;
+    // Changes in memory that no save has written yet.
+    bool dirty() const;
     QString databasePath() const;
     void setDatabasePath(const QString &path);
     QString keyFilePath() const;
@@ -67,19 +80,35 @@ public:
     Q_INVOKABLE QVariantList fields(const QString &entryId);
     Q_INVOKABLE QString fieldValue(const QString &entryId, const QString &key);
     Q_INVOKABLE bool copyField(const QString &entryId, const QString &key);
+    // fields maps field names to values; an empty groupId means the root
+    // group. Starts a save on success.
+    Q_INVOKABLE bool addEntry(const QString &groupId, const QVariantMap &fields);
+    Q_INVOKABLE void save();
+    Q_INVOKABLE QString generatePassword(int length, bool lower, bool upper, bool digits,
+                                         bool symbols) const;
 
 signals:
     void stateChanged();
     void errorChanged();
+    void savingChanged();
+    void dirtyChanged();
     void databasePathChanged();
     void keyFilePathChanged();
     void lockedAutomatically();
+    // The entries or groups changed; lists reload.
+    void contentChanged();
+    void saveFailed();
+    // The file had been changed by another program since it was unlocked;
+    // that version is kept in the backups.
+    void savedOverChangedFile();
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private slots:
-    void onUnlockFinished(int attempt, int status, qulonglong handle);
+    void onUnlockFinished(int attempt, int status, qulonglong handle, const QByteArray &digest);
+    void onSaveFinished(int attempt, int status, const QByteArray &digest,
+                        bool replacedChangedFile);
     void onApplicationStateChanged(Qt::ApplicationState state);
     void enforceDeadlines();
 
@@ -90,6 +119,8 @@ private:
     void updateWatchdog();
     void setState(State state);
     void setError(Error error);
+    void setSaving(bool saving);
+    void setDirty(bool dirty);
     void saveSettings() const;
 
     SvDatabase *m_database = nullptr;
@@ -97,6 +128,12 @@ private:
     std::shared_ptr<std::atomic_bool> m_unlockCancelled;
     State m_state = Locked;
     Error m_error = NoError;
+    bool m_saving = false;
+    bool m_dirty = false;
+    bool m_lockAfterSave = false;
+    bool m_autoLockAfterSave = false;
+    // SHA-256 of the file as it was unlocked or last saved.
+    QByteArray m_fileDigest;
     QString m_databasePath;
     QString m_keyFilePath;
     long long m_lastActivityMs = 0;

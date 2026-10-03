@@ -1,0 +1,34 @@
+#ifndef DATABASEFILE_H
+#define DATABASEFILE_H
+
+#include <QByteArray>
+#include <QString>
+
+// File I/O for the database, used by the unlock and save tasks on pool
+// threads. Negative statuses complement the core's SV_* codes.
+enum DatabaseFileStatus {
+    StatusFileUnreadable = -1,
+    StatusTooLarge = -2,
+    StatusFileUnwritable = -3
+};
+
+const qint64 MaxDatabaseBytes = 256 * 1024 * 1024;
+const qint64 MaxKeyFileBytes = 1024 * 1024;
+
+// Reads at most the size seen at open time into one exact allocation, so a
+// file swapped while reading cannot grow the buffer and no partial copies
+// are left behind by reallocation.
+int readDatabaseFile(const QString &path, qint64 maxBytes, QByteArray &out);
+
+QByteArray fileDigest(const QByteArray &data);
+
+// Replaces the database file without a window in which it is incomplete:
+// copies the current file into backupDir (keeping the newest three), writes
+// data to a temporary file next to the database, syncs and re-reads it, then
+// renames it over the original. A file that no longer matches expectedDigest
+// was changed by another program; it is replaced too, and the backup keeps
+// that version, which replacedChangedFile reports.
+int writeDatabaseFile(const QString &path, const QByteArray &data, const QString &backupDir,
+                      const QByteArray &expectedDigest, bool &replacedChangedFile);
+
+#endif // DATABASEFILE_H
