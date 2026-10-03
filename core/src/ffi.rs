@@ -9,7 +9,8 @@ use std::slice;
 
 use zeroize::Zeroizing;
 
-use crate::kdbx::{CompositeKey, Database, Entry, Group, KdbxError, ListedEntry};
+use crate::bitwarden::{self, ExportKind, ImportError};
+use crate::kdbx::{CompositeKey, Database, Entry, Group, KdbxError, ListedEntry, NewGroup};
 use crate::password::{self, CharacterClasses, PasswordError};
 
 pub const SV_OK: i32 = 0;
@@ -24,6 +25,11 @@ pub const SV_LIMIT_EXCEEDED: i32 = 8;
 pub const SV_NOT_FOUND: i32 = 9;
 pub const SV_WRITE_FAILED: i32 = 10;
 pub const SV_RANDOM_UNAVAILABLE: i32 = 11;
+pub const SV_NOT_AN_EXPORT: i32 = 12;
+
+pub const SV_EXPORT_UNENCRYPTED: i32 = 0;
+pub const SV_EXPORT_PASSWORD_PROTECTED: i32 = 1;
+pub const SV_EXPORT_ACCOUNT_RESTRICTED: i32 = 2;
 
 pub const SV_CLASS_LOWER: u32 = 1;
 pub const SV_CLASS_UPPER: u32 = 2;
@@ -36,12 +42,19 @@ pub struct SvDatabase {
     database: Database,
 }
 
-// The C++ bridge opens and saves the database on a pool thread and reads it
-// on the main thread, so the handle must stay Send and Sync.
+// The C++ bridge opens and saves the database and reads imports on a pool
+// thread and uses them on the main thread, so the handles must stay Send
+// and Sync.
 const _: fn() = || {
     fn assert_send_sync<T: Send + Sync>() {}
     assert_send_sync::<SvDatabase>();
+    assert_send_sync::<SvImport>();
 };
+
+/// A Bitwarden export, read and mapped, ready to be added to a database.
+pub struct SvImport {
+    group: NewGroup,
+}
 
 #[repr(C)]
 pub struct SvString {
@@ -112,6 +125,29 @@ fn status(error: KdbxError) -> i32 {
         }
         KdbxError::UnknownGroup | KdbxError::UnknownEntry => SV_NOT_FOUND,
     }
+}
+
+fn import_status(error: ImportError) -> i32 {
+    match error {
+        ImportError::NotAnExport => SV_NOT_AN_EXPORT,
+        ImportError::WrongPassword => SV_INVALID_CREDENTIALS,
+        ImportError::PasswordRequired => SV_INVALID_ARGUMENT,
+        ImportError::AccountRestricted | ImportError::UnsupportedEncStringType(_) => {
+            SV_UNSUPPORTED_FORMAT
+        }
+        ImportError::InvalidKdfParameters | ImportError::TooLarge | ImportError::FolderTooDeep => {
+            SV_LIMIT_EXCEEDED
+        }
+        ImportError::InvalidEncString
+        | ImportError::MacMismatch
+        | ImportError::DecryptionFailed
+        | ImportError::InvalidUtf8
+        | ImportError::InvalidJson => SV_CORRUPTED,
+    }
+}
+
+fn entry_count(group: &NewGroup) -> usize {
+    group.entries.len() + group.groups.iter().map(entry_count).sum::<usize>()
 }
 
 /// # Safety
@@ -928,6 +964,135 @@ pub unsafe extern "C" fn sv_generate_password(
     }
 }
 
+/// The kind of a Bitwarden export (`SV_EXPORT_*`), from its top level only,
+/// so the UI can ask for a password or warn about a plain file.
+///
+/// # Safety
+///
+/// `data` must be valid for reads of `length` bytes and `kind_out` for one
+/// write.
+#[no_mangle]
+pub unsafe extern "C" fn sv_bitwarden_export_kind(
+    data: *const u8,
+    length: usize,
+    kind_out: *mut i32,
+) -> i32 {
+    let (Some(data), Some(kind_out)) = (bytes(data, length), kind_out.as_mut()) else {
+        return SV_INVALID_ARGUMENT;
+    };
+    match bitwarden::export_kind(data) {
+        Ok(kind) => {
+            *kind_out = match kind {
+                ExportKind::Unencrypted => SV_EXPORT_UNENCRYPTED,
+                ExportKind::PasswordProtected => SV_EXPORT_PASSWORD_PROTECTED,
+                ExportKind::AccountRestricted => SV_EXPORT_ACCOUNT_RESTRICTED,
+            };
+            SV_OK
+        }
+        Err(error) => import_status(error),
+    }
+}
+
+/// Reads a Bitwarden export and maps it to a group named `group_name`. A
+/// password-protected export needs `password` and runs its KDF: call this
+/// off the UI thread. Release the result with `sv_import_free`.
+///
+/// # Safety
+///
+/// Each pointer must be null or valid for reads of its length; `group_name`
+/// must be UTF-8; `out` must be valid for one write.
+#[no_mangle]
+pub unsafe extern "C" fn sv_bitwarden_read(
+    data: *const u8,
+    length: usize,
+    password: *const u8,
+    password_length: usize,
+    has_password: bool,
+    group_name: *const u8,
+    group_name_length: usize,
+    out: *mut *mut SvImport,
+) -> i32 {
+    let Some(out) = out.as_mut() else {
+        return SV_INVALID_ARGUMENT;
+    };
+    *out = std::ptr::null_mut();
+    let (Some(data), Some(password), Some(group_name)) = (
+        bytes(data, length),
+        bytes(password, password_length),
+        bytes(group_name, group_name_length).and_then(|name| std::str::from_utf8(name).ok()),
+    ) else {
+        return SV_INVALID_ARGUMENT;
+    };
+    let group = bitwarden::read_export(data, has_password.then_some(password))
+        .and_then(|vault| bitwarden::import_group(&vault, group_name));
+    match group {
+        Ok(group) => {
+            *out = Box::into_raw(Box::new(SvImport { group }));
+            SV_OK
+        }
+        Err(error) => import_status(error),
+    }
+}
+
+/// The number of entries an import adds.
+///
+/// # Safety
+///
+/// `import` must be null or a live handle from `sv_bitwarden_read`.
+#[no_mangle]
+pub unsafe extern "C" fn sv_import_entry_count(import: *const SvImport) -> usize {
+    import
+        .as_ref()
+        .map_or(0, |import| entry_count(&import.group))
+}
+
+/// Adds an import as a new group at the end of the root group, in one step,
+/// and writes the group's UUID to `uuid_out`. In memory only until
+/// `sv_database_save`.
+///
+/// # Safety
+///
+/// `database` must be a live handle not in use by another thread; `import`
+/// a live handle from `sv_bitwarden_read`; `uuid_out` valid for writes of 16
+/// bytes.
+#[no_mangle]
+pub unsafe extern "C" fn sv_database_import(
+    database: *mut SvDatabase,
+    import: *const SvImport,
+    now: i64,
+    uuid_out: *mut u8,
+) -> i32 {
+    let (Some(database), Some(import)) = (database.as_mut(), import.as_ref()) else {
+        return SV_INVALID_ARGUMENT;
+    };
+    if uuid_out.is_null() {
+        return SV_INVALID_ARGUMENT;
+    }
+    let Some(root) = group_or_root(&database.database, std::ptr::null()) else {
+        return SV_NOT_FOUND;
+    };
+    match database.database.add_group_tree(&root, &import.group, now) {
+        Ok(uuid) => {
+            slice::from_raw_parts_mut(uuid_out, UUID_LENGTH).copy_from_slice(&uuid);
+            SV_OK
+        }
+        Err(error) => status(error),
+    }
+}
+
+/// Releases an import; every value in it is zeroized.
+///
+/// # Safety
+///
+/// `import` must be null or a handle from `sv_bitwarden_read` that has not
+/// been freed.
+#[no_mangle]
+pub unsafe extern "C" fn sv_import_free(import: *mut SvImport) {
+    if !import.is_null() {
+        drop(Box::from_raw(import));
+    }
+}
+
 /// Zeroizes and releases a string from this API.
 ///
 /// # Safety
@@ -1314,6 +1479,58 @@ mod tests {
             let mut listed = [0u8; UUID_LENGTH];
             assert_eq!(sv_list_uuid(content, last, listed.as_mut_ptr()), SV_OK);
             assert_eq!(listed, entry);
+            sv_list_free(content);
+            sv_database_free(database);
+        }
+    }
+
+    #[test]
+    fn imports_a_bitwarden_export_into_the_root_group() {
+        const EXPORT: &[u8] = include_bytes!("../tests/vectors/bitwarden_unencrypted.json");
+        unsafe {
+            let mut kind = -1;
+            assert_eq!(
+                sv_bitwarden_export_kind(EXPORT.as_ptr(), EXPORT.len(), &mut kind),
+                SV_OK
+            );
+            assert_eq!(kind, SV_EXPORT_UNENCRYPTED);
+            let not_json = b"{}";
+            assert_eq!(
+                sv_bitwarden_export_kind(not_json.as_ptr(), not_json.len(), &mut kind),
+                SV_NOT_AN_EXPORT
+            );
+
+            let name = "Bitwarden import";
+            let mut import = std::ptr::null_mut();
+            assert_eq!(
+                sv_bitwarden_read(
+                    EXPORT.as_ptr(),
+                    EXPORT.len(),
+                    std::ptr::null(),
+                    0,
+                    false,
+                    name.as_ptr(),
+                    name.len(),
+                    &mut import
+                ),
+                SV_OK
+            );
+            assert_eq!(sv_import_entry_count(import), 4);
+
+            let (status, database) = open(PASSWORD);
+            assert_eq!(status, SV_OK);
+            let mut group = [0u8; UUID_LENGTH];
+            assert_eq!(
+                sv_database_import(database, import, 0, group.as_mut_ptr()),
+                SV_OK
+            );
+            sv_import_free(import);
+            let mut content = std::ptr::null_mut();
+            assert_eq!(
+                sv_database_group(database, group.as_ptr(), &mut content),
+                SV_OK
+            );
+            assert_eq!(list_text(content, 0, 0), "Work");
             sv_list_free(content);
             sv_database_free(database);
         }

@@ -27,7 +27,17 @@ enum {
     /* The serialized file did not decrypt back to the same content; nothing
      * was handed out. */
     SV_WRITE_FAILED = 10,
-    SV_RANDOM_UNAVAILABLE = 11
+    SV_RANDOM_UNAVAILABLE = 11,
+    /* The file is not a Bitwarden/Vaultwarden JSON export. */
+    SV_NOT_AN_EXPORT = 12
+};
+
+/* Kinds of Bitwarden exports, from sv_bitwarden_export_kind. */
+enum {
+    SV_EXPORT_UNENCRYPTED = 0,
+    SV_EXPORT_PASSWORD_PROTECTED = 1,
+    /* Encrypted with the account key; cannot be imported. */
+    SV_EXPORT_ACCOUNT_RESTRICTED = 2
 };
 
 /* Character classes for sv_generate_password, combined with bitwise or. */
@@ -46,6 +56,7 @@ enum { SV_COLUMN_TITLE = 0, SV_COLUMN_USER_NAME = 1, SV_COLUMN_GROUP = 2 };
 typedef struct SvDatabase SvDatabase;
 typedef struct SvList SvList;
 typedef struct SvFieldList SvFieldList;
+typedef struct SvImport SvImport;
 
 /* UTF-8, not NUL-terminated. Release with sv_string_free, which zeroizes it. */
 typedef struct SvString {
@@ -147,6 +158,21 @@ void sv_bytes_free(SvBytes bytes);
 /* A random password of length characters (4 to 128) drawn from the selected
  * SV_CLASS_* classes, each used at least once. Free it with sv_string_free. */
 int32_t sv_generate_password(size_t length, uint32_t classes, SvString *out);
+
+/* Bitwarden/Vaultwarden JSON exports. The kind comes from the top level only.
+ * sv_bitwarden_read decrypts a password-protected export (a wrong password
+ * gives SV_INVALID_CREDENTIALS) and maps it to a group named group_name; it
+ * runs the export's KDF, so call it off the UI thread. sv_database_import
+ * adds that group to the end of the root group in one step and writes its
+ * UUID to uuid_out. sv_import_free zeroizes the import. */
+int32_t sv_bitwarden_export_kind(const uint8_t *data, size_t length, int32_t *kind_out);
+int32_t sv_bitwarden_read(const uint8_t *data, size_t length, const uint8_t *password,
+                          size_t password_length, bool has_password, const uint8_t *group_name,
+                          size_t group_name_length, SvImport **out);
+size_t sv_import_entry_count(const SvImport *import);
+int32_t sv_database_import(SvDatabase *database, const SvImport *import, int64_t now,
+                           uint8_t *uuid_out);
+void sv_import_free(SvImport *import);
 
 #ifdef __cplusplus
 }
