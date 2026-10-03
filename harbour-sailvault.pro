@@ -33,7 +33,7 @@ RUST_TARGET_DIR = $$OUT_PWD/rust-target
 RUST_STATICLIB = $$RUST_TARGET_DIR/$$RUST_TRIPLE/release/libsailvault_core.a
 
 rust_core.target = $$RUST_STATICLIB
-rust_core.commands = cd $$PWD && CARGO_HOME=$$OUT_PWD/cargo-home cargo build --release --offline \
+rust_core.commands = cd $$PWD && CARGO_HOME=$$OUT_PWD/cargo-home cargo build --release --offline --locked \
     --target $$RUST_TRIPLE \
     --manifest-path $$PWD/core/Cargo.toml --target-dir $$RUST_TARGET_DIR
 rust_core.depends = FORCE
@@ -41,6 +41,10 @@ QMAKE_EXTRA_TARGETS += rust_core
 PRE_TARGETDEPS += $$RUST_STATICLIB
 
 LIBS += $$RUST_STATICLIB -lpthread -ldl -lm
+
+# Full RELRO (read-only GOT after startup) and no symbol table in the
+# shipped binary.
+QMAKE_LFLAGS += -Wl,-z,relro,-z,now -s
 
 DISTFILES += \
     qml/harbour-sailvault.qml \

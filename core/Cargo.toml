@@ -11,7 +11,7 @@ crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 aes = { version = "0.8", features = ["zeroize"] }
-argon2 = { version = "0.5", default-features = false, features = ["alloc", "zeroize"] }
+argon2 = { version = "0.5", default-features = false, features = ["zeroize"] }
 base64 = "0.22"
 cbc = { version = "0.1", features = ["zeroize"] }
 chacha20 = { version = "0.9", features = ["zeroize"] }
@@ -33,6 +33,11 @@ serde_json = "1"
 panic = "abort"
 lto = true
 codegen-units = 1
+
+# Parsers of untrusted files abort on an arithmetic overflow instead of
+# wrapping; the crypto crates keep their release speed.
+[profile.release.package.sailvault-core]
+overflow-checks = true
 
 [profile.dev]
 panic = "abort"
