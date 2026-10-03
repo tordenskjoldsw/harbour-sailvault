@@ -31,6 +31,9 @@ const KNOWN_ORIGINS: [&str; 1] = [ORIGIN_BITWARDEN];
 const AFTER_STRINGS: [&str; 4] = ["Binary", "AutoType", "CustomData", "History"];
 // A path of this length (Root, Group) is the root group itself.
 const ROOT_GROUP_PATH_LENGTH: usize = 2;
+// The reader accepts 128 levels of XML. A group's entries, their history
+// and fields need up to 8 more, and unknown elements may add some.
+const MAX_GROUP_PATH_LENGTH: usize = 100;
 
 /// A field of an entry built in the core. The standard keys are protected
 /// as `Meta/MemoryProtection` says; `protected` applies to the others.
@@ -180,6 +183,9 @@ impl Database {
             return Err(KdbxError::InvalidGroup("empty name"));
         }
         self.require_outside_recycle_bin(parent_uuid)?;
+        let parent_path =
+            group_path(self.document(), parent_uuid).ok_or(KdbxError::UnknownGroup)?;
+        require_group_depth(parent_path.len() + 1)?;
         let uuid = new_uuid()?;
         let group = build_group(&uuid, name, GROUP_ICON, "null", &kdbx_time(now));
         let parent = group_mut(self.document_mut(), parent_uuid).ok_or(KdbxError::UnknownGroup)?;
@@ -397,6 +403,10 @@ impl Database {
         parent_uuid: &[u8; UUID_LENGTH],
         now: i64,
     ) -> Result<()> {
+        let parent_path =
+            group_path(self.document(), parent_uuid).ok_or(KdbxError::UnknownGroup)?;
+        let moved = descend(self.document(), path).ok_or(KdbxError::UnknownGroup)?;
+        require_group_depth(parent_path.len() + group_height(moved))?;
         let groups = groups_on_path(self.document(), path);
         let previous_parent = groups
             .len()
@@ -763,6 +773,7 @@ fn subgroup_or_create(
     if name.is_empty() {
         return Err(KdbxError::InvalidGroup("empty name"));
     }
+    require_group_depth(parent_path.len() + 1)?;
     let parent = descend_mut(document, parent_path).ok_or(KdbxError::UnknownGroup)?;
     let existing = parent.children.iter().position(|child| match child {
         Node::Element(group) if group.name == "Group" => {
@@ -1205,6 +1216,23 @@ fn group_mut<'a>(document: &'a mut Element, uuid: &[u8; UUID_LENGTH]) -> Option<
 }
 
 /// Whether `uuid` names a group below `group`.
+/// Refuses groups nested so deep that a saved file could not be read back.
+fn require_group_depth(path_length: usize) -> Result<()> {
+    if path_length > MAX_GROUP_PATH_LENGTH {
+        return Err(KdbxError::LimitExceeded("group depth"));
+    }
+    Ok(())
+}
+
+/// Levels of groups in `group`, itself included.
+fn group_height(group: &Element) -> usize {
+    1 + group
+        .children_named("Group")
+        .map(group_height)
+        .max()
+        .unwrap_or(0)
+}
+
 fn contains_group(group: &Element, uuid: &[u8; UUID_LENGTH]) -> bool {
     group.children_named("Group").any(|child| {
         child.child("UUID").and_then(decode_uuid).as_ref() == Some(uuid)

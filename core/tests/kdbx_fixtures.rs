@@ -1161,6 +1161,40 @@ fn a_deleted_attachment_leaves_the_file() {
 }
 
 #[test]
+fn groups_nest_only_as_deep_as_a_saved_file_reads_back() {
+    let mut database = open(AES_AESKDF, false);
+    let root = database.root_group().unwrap().uuid().unwrap();
+    let mut deepest = root;
+    let mut levels = 0;
+    let refused = loop {
+        match database.add_group(&deepest, "Nested", NOW) {
+            Ok(group) => {
+                deepest = group;
+                levels += 1;
+            }
+            Err(error) => break error,
+        }
+    };
+    assert_eq!(refused, KdbxError::LimitExceeded("group depth"));
+    assert_eq!(levels, 98);
+
+    let other = database.add_group(&root, "Other", NOW).unwrap();
+    database.add_group(&other, "Child", NOW).unwrap();
+    assert_eq!(
+        database.move_group(&other, &deepest, NOW),
+        Err(KdbxError::LimitExceeded("group depth"))
+    );
+
+    let uuid = database
+        .add_entry(&deepest, &[("Title", "Deepest"), ("Password", "one")], NOW)
+        .unwrap();
+    database
+        .update_entry(&uuid, &[("Password", "two")], NOW)
+        .unwrap();
+    Database::open(&database.save().unwrap(), key(false)).unwrap();
+}
+
+#[test]
 fn a_new_database_opens_in_keepassxc_with_its_settings() {
     let mut database = Database::create(key(false), "Passwords", KdfLevel::Standard, NOW).unwrap();
     let root = database.root_group().unwrap();
