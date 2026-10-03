@@ -1,13 +1,8 @@
 TARGET = harbour-sailvault
 
 CONFIG += sailfishapp
-PKGCONFIG += sailfishsecrets
 
-HEADERS += src/systemkeystore.h
-
-SOURCES += \
-    src/main.cpp \
-    src/systemkeystore.cpp
+SOURCES += src/main.cpp
 
 INCLUDEPATH += core/include
 
