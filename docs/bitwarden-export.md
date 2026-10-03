@@ -1,130 +1,96 @@
-# Bitwarden protocol notes
+# Bitwarden export format
 
-Status: the Bitwarden client direction was shelved on 2026-10-03 (`PLAN.md`
-section 14). The key derivation and EncString sections remain relevant for
-importing password-protected Bitwarden exports; the server protocol sections
-are kept for reference only.
+Reference for importing Bitwarden/Vaultwarden exports. Verified on
+2026-10-03 against source code:
 
-Verified on 2026-10-03 against source code, not against documentation:
+- bitwarden/clients main `245879a` (`cl/`), export services and models
+- bitwarden/sdk-internal main `7227e92` (`sdk/`), reference crypto
+- KeePassXC `9e0f57a` (`kpxc/`), `src/format/BitwardenReader.cpp`
 
-- Vaultwarden tag `1.37.3` (`vw/`), the server version of the test instance
-- bitwarden/sdk-internal main `7227e92` (`sdk/`), reference crypto implementation
-- bitwarden/clients main `245879a` (`cl/`)
-- bitwarden/server main `3ff73a5` (`srv/`)
+The Bitwarden server protocol notes from the shelved client direction are in
+git history (`docs/protocol.md` before 2026-10-03).
 
-The Security Whitepaper was not compared yet. Paths are relative to each
-repository. Re-verify when the target server version changes.
+## Export kinds
 
-## Prelogin
+| Kind | Marker | Import |
+|------|--------|--------|
+| Unencrypted JSON | `"encrypted": false` | Supported; warn that the file is plaintext |
+| Password-protected JSON | `"encrypted": true, "passwordProtected": true` | Supported |
+| Account-restricted JSON | `"encrypted": true` without `passwordProtected` | Rejected: fields are encrypted with the user key, which only the server can unwrap |
+| CSV | header row | Optional later; logins and notes only, custom fields lossy |
 
-- `POST /identity/accounts/prelogin` (also `/api/accounts/prelogin`), body
-  `{"email": "..."}` (`vw/src/api/identity.rs:1058`,
-  `vw/src/api/core/accounts.rs:1336-1369`).
-- Response (camelCase): `kdf`, `kdfIterations`, `kdfMemory`,
-  `kdfParallelism`. Unknown emails get the defaults (PBKDF2, 600000), so the
-  response does not reveal whether an account exists.
-- KDF type: 0 = PBKDF2-SHA256, 1 = Argon2id (`vw/src/db/models/user.rs:89`).
-- Vaultwarden limits: PBKDF2 >= 100000 iterations; Argon2 iterations >= 1,
-  memory 15-1024 MiB, parallelism 1-16 (`accounts.rs:665-694`). The SDK is
-  stricter (Argon2 iterations >= 2, memory >= 16 MiB,
-  `sdk/crates/bitwarden-crypto/src/keys/kdf.rs:14-18`).
+## Password-protected JSON
 
-## Key derivation (`sdk/crates/bitwarden-crypto/src/keys/`)
+Top level (`cl/libs/tools/export/.../base-vault-export.service.ts:21-50`):
+`encrypted`, `passwordProtected`, `salt`, `kdfType`, `kdfIterations`,
+`kdfMemory`, `kdfParallelism`, `encKeyValidation_DO_NOT_EDIT`, `data`.
 
-- Salt: UTF-8 of `email.trim().to_lowercase()` (`kdf.rs:93-98`).
-- PBKDF2: HMAC-SHA256, 32-byte master key.
-- Argon2id: version 0x13, 32-byte output, salt = SHA-256(normalized email),
-  memory sent in MiB, converted to KiB (`kdf.rs:51-74`).
-- Login hash: `PBKDF2-SHA256(password = master key, salt = master password,
-  iterations = 1)`, base64 (`master_key.rs:81-85`).
-- Stretched master key: `HKDF-Expand-SHA256(master key, "enc", 32) ||
-  HKDF-Expand-SHA256(master key, "mac", 32)`, no Extract step
-  (`keys/utils.rs:12-19`).
+Key derivation (`sdk/crates/bitwarden-exporters/src/encrypted_json.rs:47-49`,
+`sdk/crates/bitwarden-crypto/src/keys/kdf.rs:33-76`, `keys/utils.rs:12-19`):
 
-## EncString
+1. `salt` is 16 random bytes, base64-encoded. The KDF salt is the UTF-8 bytes
+   of that base64 string; it is not decoded.
+2. `kdfType` 0: PBKDF2-HMAC-SHA256 over the password, 32 bytes.
+   `kdfType` 1: Argon2id v0x13, salt = SHA-256(salt string), memory in MiB
+   (times 1024 for KiB), 32 bytes.
+3. Stretch with HKDF-Expand-SHA256 (no Extract): `enc` = info "enc",
+   `mac` = info "mac", 32 bytes each.
+4. `encKeyValidation_DO_NOT_EDIT` (a random UUID) and `data` (the
+   unencrypted JSON export) are EncString type 2 under that key. A MAC
+   failure on the validation value means a wrong password.
 
-Symmetric (`enc_string/symmetric.rs`):
+KDF parameters follow the account's settings. Accepted ranges in the core:
+PBKDF2 5000 to 5000000 iterations; Argon2id 1 to 10 iterations, 15 to 1024
+MiB, parallelism 1 to 16 (lower bounds from Bitwarden/Vaultwarden account
+limits, upper bounds against crafted files).
 
-| Type | Layout | Algorithm | Status |
-|------|--------|-----------|--------|
-| 0 | `0.iv\|ct` | AES-256-CBC, no MAC | legacy, decrypt only |
-| 2 | `2.iv\|ct\|mac` | AES-256-CBC + HMAC-SHA256 | current |
-| 7 | `7.<base64 CBOR>` | COSE Encrypt0 | V2 accounts, not sent by Vaultwarden 1.37.3 |
+## EncString type 2
 
-- No prefix: 3 parts means type 1 (no longer parsed), otherwise type 0.
-- Type 2: key = enc(32) || mac(32); MAC = HMAC-SHA256(mac, iv || ct), checked
-  in constant time before decrypting; PKCS7 padding.
-- Base64: standard alphabet, padding optional.
+`2.<iv>|<data>|<mac>` with standard base64, padding optional
+(`sdk/crates/bitwarden-crypto/src/enc_string/symmetric.rs`). AES-256-CBC
+with PKCS7 padding; MAC = HMAC-SHA256(mac key, iv || data), checked in
+constant time before decrypting. Other types do not appear in exports.
 
-Asymmetric (`enc_string/asymmetric.rs`): 3 = RSA-2048 OAEP SHA-256,
-4 = RSA-2048 OAEP SHA-1 (the only one produced today), 5 and 6 = deprecated
-variants with HMAC.
+## Unencrypted JSON
 
-Key chain:
+Top level (`cl/libs/tools/export-vault-core/src/types/bitwarden-json-export-types.ts`):
+`encrypted: false`, `folders[{id, name}]` (personal) or
+`collections[{id, organizationId, name, externalId}]` (organization),
+`items[]`.
 
-1. `Key` (user key) is a type 2 EncString under the stretched master key
-   (type 0 under the raw master key for legacy accounts). Plaintext: 64 bytes.
-2. `PrivateKey` is a type 2 EncString under the user key; plaintext is a
-   PKCS#8 DER RSA-2048 key.
-3. `profile.organizations[].key` is an asymmetric EncString (normally type 4)
-   decrypted with the private key; plaintext: 64-byte organization key.
-4. A cipher with a `key` field: that field is decrypted with the user or
-   organization key, and all fields of the cipher use the resulting key.
+Item (`cl/libs/common/src/models/export/cipher.export.ts:184-206`): `id`,
+`organizationId`, `folderId`, `collectionIds`, `type`, `name`, `notes`,
+`favorite`, `fields[{name, value, type, linkedId}]`, `reprompt`,
+`passwordHistory[{password, lastUsedDate}]`, `revisionDate`,
+`creationDate`, `deletedDate`, `archivedDate`, `key`.
 
-## Login (`POST /identity/connect/token`, form-urlencoded)
+- `type`: 1 login, 2 secure note, 3 card, 4 identity, 5 SSH key, 6 bank
+  account, 7 driver's license, 8 passport
+- Field `type`: 0 text, 1 hidden, 2 boolean, 3 linked
+- `login`: `uris[{uri, match}]`, `username`, `password`, `totp`,
+  `fido2Credentials[...]`
+- `card`: `cardholderName`, `brand`, `number`, `expMonth`, `expYear`, `code`
+- `identity`: 18 fields (`identity.export.ts:77-94`)
+- `sshKey`: `privateKey`, `publicKey`, `keyFingerprint`
+- The zip export adds an `attachments/` folder (personal vault only)
 
-- Password grant: `grant_type=password`, `username`, `password` (login hash),
-  `scope=api offline_access`, `client_id`, `deviceType`, `deviceIdentifier`,
-  `deviceName`; optional `twoFactorToken`, `twoFactorProvider`,
-  `twoFactorRemember` (`vw/src/api/identity.rs:76-86`).
-- API key: `grant_type=client_credentials`, `client_id=user.<uuid>`,
-  `client_secret`, `scope=api`, device fields. No refresh token is returned.
-- Refresh: `grant_type=refresh_token`, `refresh_token`, `client_id`; invalid
-  token returns 400 `invalid_grant`.
-- Headers: `Bitwarden-Client-Name`, `Bitwarden-Client-Version` (semver),
-  `Device-Type`.
-- `deviceIdentifier`: any non-empty string; clients use a UUID generated once
-  and persisted.
-- Cloud `client_id` must be one of `web`, `browser`, `desktop`, `mobile`,
-  `cli`, `connector`.
-- `deviceType` has no Linux mobile value; 8 = LinuxDesktop.
+## Mapping to KDBX
 
-## Two-factor
+Follow KeePassXC's `BitwardenReader.cpp:44-262`, so imported databases match
+what KeePassXC itself produces:
 
-- Required: HTTP 400 with `TwoFactorProviders2` map
-  (`vw/src/api/identity.rs:945-1055`).
-- Providers: 0 Authenticator, 1 Email, 2 Duo, 3 YubiKey, 4 U2F, 5 Remember,
-  6 OrganizationDuo, 7 WebAuthn, 8 RecoveryCode.
-- Retry the token request with `twoFactorToken`, `twoFactorProvider`,
-  `twoFactorRemember`. With remember, the response has `TwoFactorToken`,
-  later sent as provider 5.
-- Email code: `POST /api/two-factor/send-email-login` with `email`,
-  `masterPasswordHash`, `deviceIdentifier`. Clients >= 2025.5.0 must call it
-  explicitly.
-- Cloud only: new device verification (`newDeviceOtp`).
+- Title, UserName, Password, Notes map directly; first URI to URL, further
+  URIs to `KP2A_URL_n`
+- `totp` becomes an `otpauth://` URI in the protected `otp` attribute
+- `fido2Credentials` become `KPEX_PASSKEY_*` attributes
+- `favorite` becomes the tag `Favorite`
+- Card and identity fields become `card_*` and `identity_*` attributes,
+  sensitive ones protected
+- Hidden custom fields become protected attributes
+- `passwordHistory` becomes entry history
+- `revisionDate` and `creationDate` become entry times
+- Folder path `a/b` becomes nested groups; collections are used when there
+  are no folders
 
-## Tokens (`vw/src/api/identity.rs:510-605`, `vw/src/auth.rs`)
-
-- Response: `access_token`, `expires_in`, `refresh_token`, `Key`,
-  `PrivateKey`, `Kdf*`, `UserDecryptionOptions` (PascalCase), optional
-  `TwoFactorToken`.
-- Vaultwarden: access token 2 h; refresh token 30 days (90 days for device
-  types 0 and 1), renewed on each refresh (sliding).
-- Cloud: access token 1 h; refresh token sliding 30 days (desktop) or 60 days
-  (mobile).
-
-## Sync (`GET /api/sync?excludeDomains=true`)
-
-- Top level: `profile`, `folders`, `collections`, `policies`, `ciphers`,
-  `sends`, `userDecryption` (`vw/src/api/core/ciphers.rs:121-205`).
-- Without `Bitwarden-Client-Version` >= 2024.12.0, Vaultwarden omits SSH key
-  ciphers (`ciphers.rs:128-134`).
-- Cipher types: 1 login, 2 secure note, 3 card, 4 identity, 5 SSH key,
-  6 bank account, 7 driver's license, 8 passport.
-- EncString fields: `name`, `notes`, `login.{username,password,totp,uris[].uri}`,
-  `fields[].{name,value}`, all `card.*` and `identity.*` strings,
-  `sshKey.{privateKey,publicKey,keyFingerprint}`, `passwordHistory[].password`.
-- `login.totp`: raw secret or `otpauth://` URI.
-- Custom field types: 0 text, 1 hidden, 2 boolean, 3 linked.
-- Cipher state: `favorite`, `folderId`, `collectionIds`, `organizationId`,
-  `deletedDate`, `reprompt`.
+Unverified in KeePassXC's reader: SSH keys and types 6 to 8. Decide their
+mapping when implementing the import.

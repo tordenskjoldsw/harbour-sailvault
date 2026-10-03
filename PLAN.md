@@ -248,8 +248,8 @@ Decided:
 - Direction (2026-10-03): KDBX4 password manager with Bitwarden import
   instead of a Bitwarden client. Reasons: no sandboxed KDBX4 writer exists in
   Harbour, no server product needed, standard format with KeePassXC on the
-  PC. The Bitwarden server protocol work is shelved (`docs/protocol.md`
-  keeps the notes).
+  PC. The Bitwarden server protocol work is shelved (notes in git history;
+  import details in `docs/bitwarden-export.md`).
 - KDBX codec (2026-10-03): own implementation in the core on audited
   primitives instead of the `keepass` crate; see section 5.
 - FFI (2026-10-03): hand-written C API with opaque handles; key material
