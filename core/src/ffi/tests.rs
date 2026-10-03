@@ -4,6 +4,7 @@ use super::edit::*;
 use super::password::*;
 use super::read::*;
 use super::*;
+use std::collections::{BTreeMap, BTreeSet};
 
 const FIXTURE: &[u8] = include_bytes!("../../tests/fixtures/kdbx4-aes-argon2d.kdbx");
 const PASSWORD: &[u8] = b"sailvault-fixture";
@@ -691,4 +692,163 @@ fn adds_an_entry_and_saves_a_file_that_opens_again() {
         assert_eq!(take(value), "ffi-secret");
         sv_database_free(reopened);
     }
+}
+
+#[test]
+fn renames_and_moves_groups() {
+    unsafe {
+        let (_, database) = open(PASSWORD);
+        let add = |name: &str| {
+            let mut uuid = [0u8; UUID_LENGTH];
+            let status = sv_database_add_group(
+                database,
+                std::ptr::null(),
+                name.as_ptr(),
+                name.len(),
+                0,
+                uuid.as_mut_ptr(),
+            );
+            assert_eq!(status, SV_OK);
+            uuid
+        };
+        let parent = add("Parent");
+        let child = add("Child");
+
+        let mut changed = false;
+        let renamed = "Renamed";
+        for expected in [true, false] {
+            assert_eq!(
+                sv_database_rename_group(
+                    database,
+                    child.as_ptr(),
+                    renamed.as_ptr(),
+                    renamed.len(),
+                    0,
+                    &mut changed
+                ),
+                SV_OK
+            );
+            assert_eq!(changed, expected);
+        }
+
+        let mut moved = false;
+        for expected in [true, false] {
+            assert_eq!(
+                sv_database_move_group(database, child.as_ptr(), parent.as_ptr(), 0, &mut moved),
+                SV_OK
+            );
+            assert_eq!(moved, expected);
+        }
+        assert_eq!(
+            sv_database_move_group(database, parent.as_ptr(), child.as_ptr(), 0, &mut moved),
+            SV_INVALID_ARGUMENT
+        );
+        assert!(!moved);
+
+        let mut list = std::ptr::null_mut();
+        assert_eq!(
+            sv_database_group(database, parent.as_ptr(), &mut list),
+            SV_OK
+        );
+        assert_eq!(sv_list_length(list), 1);
+        assert!(sv_list_is_group(list, 0));
+        assert_eq!(list_text(list, 0, SV_COLUMN_TITLE), "Renamed");
+        sv_list_free(list);
+        sv_database_free(database);
+    }
+}
+
+#[test]
+fn reports_kdbx3_files_with_their_own_status() {
+    const KDBX31: &[u8] = include_bytes!("../../tests/fixtures/kdbx31-aeskdf.kdbx");
+    unsafe {
+        let mut database = std::ptr::null_mut();
+        let status = sv_database_open(
+            KDBX31.as_ptr(),
+            KDBX31.len(),
+            PASSWORD.as_ptr(),
+            PASSWORD.len(),
+            true,
+            std::ptr::null(),
+            0,
+            &mut database,
+        );
+        assert_eq!(status, SV_KDBX3_UNSUPPORTED);
+        assert!(database.is_null());
+    }
+}
+
+fn identifier(text: &str) -> &str {
+    let end = text
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or(text.len());
+    &text[..end]
+}
+
+fn number(text: &str) -> i64 {
+    let digits: String = text
+        .trim_start()
+        .chars()
+        .take_while(|c| *c == '-' || c.is_ascii_digit())
+        .collect();
+    digits.parse().unwrap()
+}
+
+/// `SV_NAME = value` in the header's enums.
+fn header_constants(header: &str) -> BTreeMap<String, i64> {
+    header
+        .match_indices("SV_")
+        .filter_map(|(start, _)| {
+            let name = identifier(&header[start..]);
+            let value = header[start + name.len()..]
+                .trim_start()
+                .strip_prefix('=')?;
+            Some((name.to_owned(), number(value)))
+        })
+        .collect()
+}
+
+/// `pub const SV_NAME: type = value;` in the Rust sources.
+fn rust_constants(rust: &str) -> BTreeMap<String, i64> {
+    rust.match_indices("pub const SV_")
+        .filter_map(|(start, _)| {
+            let declaration = &rust[start + "pub const ".len()..];
+            let (_, value) = declaration.split_once('=')?;
+            Some((identifier(declaration).to_owned(), number(value)))
+        })
+        .collect()
+}
+
+/// Names of `sv_` functions declared or defined right after one of
+/// `preceding`.
+fn functions(source: &str, preceding: &[&str]) -> BTreeSet<String> {
+    source
+        .match_indices("sv_")
+        .filter_map(|(start, _)| {
+            let name = identifier(&source[start..]);
+            let declared = preceding.iter().any(|p| source[..start].ends_with(p))
+                && source[start + name.len()..].starts_with('(');
+            declared.then(|| name.to_owned())
+        })
+        .collect()
+}
+
+#[test]
+fn header_and_rust_declare_the_same_constants_and_functions() {
+    let header = include_str!("../../include/sailvault_core.h");
+    let rust = [
+        include_str!("mod.rs"),
+        include_str!("bitwarden.rs"),
+        include_str!("database.rs"),
+        include_str!("edit.rs"),
+        include_str!("password.rs"),
+        include_str!("read.rs"),
+    ]
+    .concat();
+    let constants = header_constants(header);
+    assert!(constants.len() > 25);
+    assert_eq!(constants, rust_constants(&rust));
+    let declared = functions(header, &[" ", "*"]);
+    assert!(declared.len() > 35);
+    assert_eq!(declared, functions(&rust, &["fn "]));
 }
