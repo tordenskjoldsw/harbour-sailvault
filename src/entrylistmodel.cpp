@@ -93,11 +93,6 @@ void EntryListModel::setExcludeId(const QString &excludeId)
     reload();
 }
 
-int EntryListModel::count() const
-{
-    return m_items.size();
-}
-
 int EntryListModel::rowCount(const QModelIndex &parent) const
 {
     return parent.isValid() ? 0 : m_items.size();
@@ -115,8 +110,8 @@ QVariant EntryListModel::data(const QModelIndex &index, int role) const
         return item.title;
     case UserNameRole:
         return item.userName;
-    case GroupNameRole:
-        return item.groupName;
+    case LocationRole:
+        return item.location;
     case IsGroupRole:
         return item.isGroup;
     default:
@@ -130,18 +125,31 @@ QHash<int, QByteArray> EntryListModel::roleNames() const
         {IdRole, "id"},
         {TitleRole, "title"},
         {UserNameRole, "userName"},
-        {GroupNameRole, "groupName"},
+        {LocationRole, "location"},
         {IsGroupRole, "isGroup"},
     };
 }
 
+void EntryListModel::classBegin()
+{
+}
+
+void EntryListModel::componentComplete()
+{
+    m_complete = true;
+    reload();
+}
+
 void EntryListModel::reload()
 {
-    const int previousCount = m_items.size();
+    if (!m_complete)
+        return;
+    // Before the reset: the access can lock the vault, which reloads the
+    // model through stateChanged.
+    const SvDatabase *database = m_vault ? m_vault->database() : nullptr;
     beginResetModel();
     m_items.clear();
 
-    const SvDatabase *database = m_vault ? m_vault->database() : nullptr;
     SvList *found = nullptr;
     int status = SV_INVALID_ARGUMENT;
     if (database && m_allGroups) {
@@ -170,6 +178,4 @@ void EntryListModel::reload()
         }
     }
     endResetModel();
-    if (m_items.size() != previousCount)
-        emit countChanged();
 }

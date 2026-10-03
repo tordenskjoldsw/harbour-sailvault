@@ -194,8 +194,8 @@ Page {
                     truncationMode: TruncationMode.Fade
                     font.pixelSize: Theme.fontSizeExtraSmall
                     color: item.highlighted ? Theme.secondaryHighlightColor : Theme.secondaryColor
-                    text: entries.query.length > 0 && model.groupName.length > 0
-                          ? model.userName + (model.userName.length > 0 ? " · " : "") + model.groupName
+                    text: entries.query.length > 0 && model.location.length > 0
+                          ? model.userName + (model.userName.length > 0 ? " · " : "") + model.location
                           : model.userName
                 }
             }

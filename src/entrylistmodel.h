@@ -4,6 +4,7 @@
 #include <QAbstractListModel>
 #include <QByteArray>
 #include <QPointer>
+#include <QQmlParserStatus>
 #include <QString>
 #include <QVector>
 
@@ -12,10 +13,12 @@
 // Lists one group (subgroups first) or, with a non-empty query, the search
 // results across the whole database. With allGroups it lists every group
 // outside the recycle bin instead, as move targets, without excludeId and
-// its subgroups. Holds titles and user names only.
-class EntryListModel : public QAbstractListModel
+// its subgroups. Holds titles and user names only. It loads once its QML
+// properties are all set, then on every change.
+class EntryListModel : public QAbstractListModel, public QQmlParserStatus
 {
     Q_OBJECT
+    Q_INTERFACES(QQmlParserStatus)
     // Named source, not vault: inside the model a binding "vault: vault" would
     // resolve to the model's own property instead of the context property.
     Q_PROPERTY(Vault *source READ source WRITE setSource NOTIFY sourceChanged)
@@ -23,14 +26,14 @@ class EntryListModel : public QAbstractListModel
     Q_PROPERTY(QString query READ query WRITE setQuery NOTIFY queryChanged)
     Q_PROPERTY(bool allGroups READ allGroups WRITE setAllGroups NOTIFY allGroupsChanged)
     Q_PROPERTY(QString excludeId READ excludeId WRITE setExcludeId NOTIFY excludeIdChanged)
-    Q_PROPERTY(int count READ count NOTIFY countChanged)
 
 public:
     enum Role {
         IdRole = Qt::UserRole + 1,
         TitleRole,
         UserNameRole,
-        GroupNameRole,
+        // The group an entry is in, or the path of a group's parents.
+        LocationRole,
         IsGroupRole
     };
 
@@ -46,11 +49,12 @@ public:
     void setAllGroups(bool allGroups);
     QString excludeId() const;
     void setExcludeId(const QString &excludeId);
-    int count() const;
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     QVariant data(const QModelIndex &index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
+    void classBegin() override;
+    void componentComplete() override;
 
 signals:
     void sourceChanged();
@@ -58,7 +62,6 @@ signals:
     void queryChanged();
     void allGroupsChanged();
     void excludeIdChanged();
-    void countChanged();
 
 private:
     struct Item {
@@ -66,11 +69,12 @@ private:
         bool isGroup;
         QString title;
         QString userName;
-        QString groupName;
+        QString location;
     };
 
     void reload();
 
+    bool m_complete = false;
     QPointer<Vault> m_vault;
     QString m_groupId;
     QString m_query;
