@@ -376,7 +376,7 @@ match the save time. Criterion 3 holds for a file changed on the phone.
 Part B - edit and delete: history, recycle bin with remorse, hard delete
 writes `DeletedObjects`.
 
-Status (2026-10-03): implemented, device test pending. Editing follows
+Status (2026-10-03): done and device-tested. Editing follows
 KeePassXC's `Entry::endUpdate`: the previous state becomes a history item,
 modification and access times are set, and the history is trimmed to
 `Meta/HistoryMaxItems` and `HistoryMaxSize` (KeePassXC sizes an item by its
@@ -395,6 +395,10 @@ text says whether the item is recycled or removed for good. `keepassxc-cli`
 reads saved files with all these edits. Not in Part B: creating or renaming
 groups, restoring from or emptying the recycle bin, a history viewer, and
 deleting backups on a credential change (there is no credential change yet).
+
+Device test on the Jolla Phone (Sailfish OS 5.2.0.18), 2026-10-03: entries
+were edited and deleted, and a group was deleted from the list with the
+remorse popup.
 
 Part C - Bitwarden/Vaultwarden import into a new or existing database.
 
