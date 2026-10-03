@@ -197,9 +197,9 @@ Vault::Error errorFor(int status)
     }
 }
 
-QByteArray entryUuid(const QString &entryId)
+QByteArray itemUuid(const QString &itemId)
 {
-    const QByteArray uuid = QByteArray::fromHex(entryId.toLatin1());
+    const QByteArray uuid = QByteArray::fromHex(itemId.toLatin1());
     return uuid.size() == SV_UUID_LENGTH ? uuid : QByteArray();
 }
 
@@ -454,7 +454,7 @@ void Vault::updateWatchdog()
 QVariantList Vault::fields(const QString &entryId)
 {
     QVariantList result;
-    const QByteArray uuid = entryUuid(entryId);
+    const QByteArray uuid = itemUuid(entryId);
     const SvDatabase *handle = database();
     SvFieldList *fields = nullptr;
     if (!handle || uuid.isEmpty() || sv_database_fields(handle, bytePointer(uuid), &fields) != SV_OK)
@@ -479,7 +479,7 @@ QString Vault::fieldValue(const QString &entryId, const QString &key)
 
 QString Vault::readField(const QString &entryId, const QString &key) const
 {
-    const QByteArray uuid = entryUuid(entryId);
+    const QByteArray uuid = itemUuid(entryId);
     const QByteArray keyBytes = key.toUtf8();
     SvString value = emptyCoreString();
     if (!m_database || uuid.isEmpty()
@@ -520,7 +520,7 @@ bool Vault::addEntry(const QString &groupId, const QVariantMap &fields)
 
 bool Vault::updateEntry(const QString &entryId, const QVariantMap &fields)
 {
-    const QByteArray uuid = entryUuid(entryId);
+    const QByteArray uuid = itemUuid(entryId);
     if (m_saving || uuid.isEmpty() || !database())
         return false;
     const CoreFields coreFields(fields);
@@ -533,9 +533,24 @@ bool Vault::updateEntry(const QString &entryId, const QVariantMap &fields)
     return true;
 }
 
+bool Vault::moveEntry(const QString &entryId, const QString &groupId)
+{
+    const QByteArray uuid = itemUuid(entryId);
+    const QByteArray group = itemUuid(groupId);
+    if (m_saving || uuid.isEmpty() || group.isEmpty() || !database())
+        return false;
+    bool moved = false;
+    if (sv_database_move_entry(m_database, bytePointer(uuid), bytePointer(group), unixSeconds(),
+                               &moved) != SV_OK)
+        return false;
+    if (moved)
+        commitChange();
+    return true;
+}
+
 bool Vault::deletesPermanently(const QString &itemId)
 {
-    const QByteArray uuid = entryUuid(itemId);
+    const QByteArray uuid = itemUuid(itemId);
     bool permanent = false;
     return !uuid.isEmpty() && database()
         && sv_database_delete_is_permanent(m_database, bytePointer(uuid), &permanent) == SV_OK
@@ -544,7 +559,7 @@ bool Vault::deletesPermanently(const QString &itemId)
 
 bool Vault::deleteItem(const QString &itemId)
 {
-    const QByteArray uuid = entryUuid(itemId);
+    const QByteArray uuid = itemUuid(itemId);
     if (m_saving || uuid.isEmpty() || !database())
         return false;
     bool permanent = false;

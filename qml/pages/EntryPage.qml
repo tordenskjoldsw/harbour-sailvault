@@ -79,6 +79,12 @@ Page {
                 }
             }
             MenuItem {
+                text: qsTr("Move")
+                enabled: !vault.saving
+                onClicked: pageStack.push(Qt.resolvedUrl("MoveEntryPage.qml"),
+                                          { "entryId": page.entryId })
+            }
+            MenuItem {
                 text: qsTr("Edit")
                 enabled: !vault.saving
                 onClicked: pageStack.push(Qt.resolvedUrl("EntryDialog.qml"),

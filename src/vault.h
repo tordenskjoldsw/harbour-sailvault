@@ -84,6 +84,9 @@ public:
     // group. Each change starts a save.
     Q_INVOKABLE bool addEntry(const QString &groupId, const QVariantMap &fields);
     Q_INVOKABLE bool updateEntry(const QString &entryId, const QVariantMap &fields);
+    // Moves an entry into another group; moving out of the recycle bin
+    // restores it.
+    Q_INVOKABLE bool moveEntry(const QString &entryId, const QString &groupId);
     // True when deleteItem would remove the entry or group for good instead
     // of moving it to the recycle bin.
     Q_INVOKABLE bool deletesPermanently(const QString &itemId);

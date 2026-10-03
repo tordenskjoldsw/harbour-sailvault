@@ -155,6 +155,12 @@ Page {
                                                   { "entryId": model.id })
                     }
                     MenuItem {
+                        text: qsTr("Move")
+                        enabled: !vault.saving
+                        onClicked: pageStack.push(Qt.resolvedUrl("MoveEntryPage.qml"),
+                                                  { "entryId": model.id })
+                    }
+                    MenuItem {
                         text: qsTr("Delete")
                         enabled: !vault.saving
                         onClicked: page.deleteItem(model.id, false)

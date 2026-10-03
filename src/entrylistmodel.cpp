@@ -65,6 +65,20 @@ void EntryListModel::setQuery(const QString &query)
     reload();
 }
 
+bool EntryListModel::allGroups() const
+{
+    return m_allGroups;
+}
+
+void EntryListModel::setAllGroups(bool allGroups)
+{
+    if (m_allGroups == allGroups)
+        return;
+    m_allGroups = allGroups;
+    emit allGroupsChanged();
+    reload();
+}
+
 int EntryListModel::count() const
 {
     return m_items.size();
@@ -116,7 +130,9 @@ void EntryListModel::reload()
     const SvDatabase *database = m_vault ? m_vault->database() : nullptr;
     SvList *list = nullptr;
     int status = SV_INVALID_ARGUMENT;
-    if (database && !m_query.trimmed().isEmpty()) {
+    if (database && m_allGroups) {
+        status = sv_database_groups(database, &list);
+    } else if (database && !m_query.trimmed().isEmpty()) {
         const QByteArray query = m_query.toUtf8();
         status = sv_database_search(database, reinterpret_cast<const uint8_t *>(query.constData()),
                                     static_cast<size_t>(query.size()), &list);

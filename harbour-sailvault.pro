@@ -54,6 +54,7 @@ DISTFILES += \
     qml/pages/EntryListPage.qml \
     qml/pages/EntryPage.qml \
     qml/pages/EntryDialog.qml \
+    qml/pages/MoveEntryPage.qml \
     qml/pages/UnlockPage.qml \
     rpm/harbour-sailvault.spec \
     harbour-sailvault.desktop

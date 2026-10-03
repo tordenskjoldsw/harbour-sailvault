@@ -10,7 +10,9 @@
 #include "vault.h"
 
 // Lists one group (subgroups first) or, with a non-empty query, the search
-// results across the whole database. Holds titles and user names only.
+// results across the whole database. With allGroups it lists every group
+// outside the recycle bin instead, as move targets. Holds titles and user
+// names only.
 class EntryListModel : public QAbstractListModel
 {
     Q_OBJECT
@@ -19,6 +21,7 @@ class EntryListModel : public QAbstractListModel
     Q_PROPERTY(Vault *source READ source WRITE setSource NOTIFY sourceChanged)
     Q_PROPERTY(QString groupId READ groupId WRITE setGroupId NOTIFY groupIdChanged)
     Q_PROPERTY(QString query READ query WRITE setQuery NOTIFY queryChanged)
+    Q_PROPERTY(bool allGroups READ allGroups WRITE setAllGroups NOTIFY allGroupsChanged)
     Q_PROPERTY(int count READ count NOTIFY countChanged)
 
 public:
@@ -38,6 +41,8 @@ public:
     void setGroupId(const QString &groupId);
     QString query() const;
     void setQuery(const QString &query);
+    bool allGroups() const;
+    void setAllGroups(bool allGroups);
     int count() const;
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
@@ -48,6 +53,7 @@ signals:
     void sourceChanged();
     void groupIdChanged();
     void queryChanged();
+    void allGroupsChanged();
     void countChanged();
 
 private:
@@ -64,6 +70,7 @@ private:
     QPointer<Vault> m_vault;
     QString m_groupId;
     QString m_query;
+    bool m_allGroups = false;
     QVector<Item> m_items;
 };
 
