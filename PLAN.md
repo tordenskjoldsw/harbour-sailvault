@@ -4,9 +4,9 @@ Status: 2026-10-03 - direction changed from a Bitwarden client to a KeePass
 (KDBX4) password manager with Bitwarden import. Phase 1 (device spike) is
 complete and carries over. The cleanup of the Bitwarden server client is
 done and Phase 2 (KDBX4 read core) has started.
-Next step: write the KDBX4 reader. Two items are needed first: the three
-GUI-made KDBX4 test fixtures (manual step, section 11) and the KDBX 3.1
-decision (section 14).
+Next step: write the KDBX4 reader. All test fixtures are in place; the KDBX
+3.1 decision (section 14) is still open, so 3.1 files are detected and
+reported until then.
 
 ## 1. Goal
 
@@ -225,9 +225,9 @@ format from the content: CustomData forces KDBX 4.0, without it the file
 stays 3.1. Other KDFs and ciphers need the KeePassXC GUI. KeePassXC may save
 after every settings change, so GUI fixtures are edited in place on a copy.
 
-Pending manual step (owner: Tobias) - three KDBX4 fixtures, each a copy of
-`kdbx4-aes-aeskdf.kdbx` that is already in place under its target name.
-Exact steps are in `core/tests/fixtures/README.md`:
+Manual step (done 2026-10-03, verified from the file headers) - three KDBX4
+fixtures, each a copy of `kdbx4-aes-aeskdf.kdbx` edited in the KeePassXC
+GUI. Exact steps are in `core/tests/fixtures/README.md`:
 
 1. Open the file in KeePassXC, password `sailvault-fixture`.
 2. Database > Database Settings > Security > Encryption Settings > Advanced
