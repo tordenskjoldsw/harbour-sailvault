@@ -71,8 +71,8 @@ Protected:
 Limits:
 
 - The protection is only as strong as the master password and the KDF
-  parameters. Databases created in the app use Argon2id with 256 MiB and 3
-  iterations and a master password of at least 8 characters; for files
+  parameters. Databases created in the app use Argon2id with at least 256 MiB
+  and 3 iterations and a master password of at least 15 characters; for files
   from KeePassXC the user chose the settings there, and the app opens weak
   settings without warning.
 - A key file stored next to the database in Documents adds no protection

@@ -528,10 +528,13 @@ Decided:
 
 - New databases (2026-10-03): created in the app before the first Harbour
   submission, like KeePassXC's wizard (KDBX 4.0, AES-256, its metadata and
-  root group) but with Argon2id, 256 MiB, 3 iterations and 4 lanes instead
-  of a benchmarked Argon2d: RFC 9106 recommends Argon2id, and the fixed
-  parameters take about 0.9 s on the Jolla Phone. Password only, at least
-  8 characters; key files stay in Phase 7.
+  root group) but with Argon2id instead of a benchmarked Argon2d, as RFC
+  9106 recommends. Three fixed levels with 4 lanes, measured on the Jolla
+  Phone: Standard (default) 256 MiB and 3 iterations, 0.96 s; High 512 MiB
+  and 4, 2.45 s; Maximum 1 GiB and 4, 4.92 s. Standard has four times the
+  memory of RFC 9106's 64 MiB option and of Bitwarden's default. Password
+  only, at least 15 characters (NIST SP 800-63B rev. 4 for a single
+  factor); key files stay in Phase 7.
   Device test on the Jolla Phone (2026-10-03): a database was created on
   the phone and a test export imported into it. The saved file was fetched;
   `keepassxc-cli` 2.7.12 opened it with its password and reported AES
