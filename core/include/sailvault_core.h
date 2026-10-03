@@ -91,9 +91,10 @@ int32_t sv_database_search(const SvDatabase *database, const uint8_t *query, siz
                            SvList **out);
 /* group_uuid NULL means the root group. Subgroups come before entries. */
 int32_t sv_database_group(const SvDatabase *database, const uint8_t *group_uuid, SvList **out);
-/* Every group outside the recycle bin, parents first, as move targets. The
- * group column holds the path of the parent groups. */
-int32_t sv_database_groups(const SvDatabase *database, SvList **out);
+/* Every group outside the recycle bin, parents first, as move targets; with
+ * exclude_uuid set, without that group and its subgroups. The group column
+ * holds the path of the parent groups. */
+int32_t sv_database_groups(const SvDatabase *database, const uint8_t *exclude_uuid, SvList **out);
 
 size_t sv_list_length(const SvList *list);
 int32_t sv_list_uuid(const SvList *list, size_t index, uint8_t *uuid_out);
@@ -101,8 +102,13 @@ bool sv_list_is_group(const SvList *list, size_t index);
 int32_t sv_list_text(const SvList *list, size_t index, uint32_t column, SvString *out);
 void sv_list_free(SvList *list);
 
-/* Field names and protection flags of an entry, without values. */
-int32_t sv_database_fields(const SvDatabase *database, const uint8_t *entry_uuid, SvFieldList **out);
+/* Entry versions: -1 is the current state, 0 and up index the history items,
+ * oldest first. */
+enum { SV_CURRENT_VERSION = -1 };
+
+/* Field names and protection flags of an entry version, without values. */
+int32_t sv_database_fields(const SvDatabase *database, const uint8_t *entry_uuid, int64_t version,
+                           SvFieldList **out);
 size_t sv_field_list_length(const SvFieldList *fields);
 int32_t sv_field_list_key(const SvFieldList *fields, size_t index, SvString *out);
 bool sv_field_list_is_protected(const SvFieldList *fields, size_t index);
@@ -110,7 +116,13 @@ void sv_field_list_free(SvFieldList *fields);
 
 /* One field value, for showing or copying it. Free it as soon as possible. */
 int32_t sv_database_field_value(const SvDatabase *database, const uint8_t *entry_uuid,
-                                const uint8_t *key, size_t key_length, SvString *out);
+                                int64_t version, const uint8_t *key, size_t key_length,
+                                SvString *out);
+int32_t sv_database_history_length(const SvDatabase *database, const uint8_t *entry_uuid,
+                                   size_t *out);
+/* Seconds since the Unix epoch. */
+int32_t sv_database_modification_time(const SvDatabase *database, const uint8_t *entry_uuid,
+                                      int64_t version, int64_t *out);
 
 void sv_string_free(SvString string);
 
@@ -148,6 +160,22 @@ int32_t sv_database_delete_item(SvDatabase *database, const uint8_t *uuid, int64
                                 bool *permanent_out);
 int32_t sv_database_delete_is_permanent(const SvDatabase *database, const uint8_t *uuid,
                                         bool *out);
+
+/* Groups: a rename updates the modification time; a move takes the content
+ * along and is refused for the root group and into the group itself. */
+int32_t sv_database_rename_group(SvDatabase *database, const uint8_t *group_uuid,
+                                 const uint8_t *name, size_t name_length, int64_t now,
+                                 bool *changed_out);
+int32_t sv_database_move_group(SvDatabase *database, const uint8_t *group_uuid,
+                               const uint8_t *parent_uuid, int64_t now, bool *moved_out);
+
+/* Recycle bin: restore moves an entry or group back to the group it was
+ * deleted from, or to the root group; emptying removes everything in the bin
+ * for good and records it as deleted. sv_database_recycle_bin gives
+ * SV_NOT_FOUND when there is no bin. */
+int32_t sv_database_restore(SvDatabase *database, const uint8_t *uuid, int64_t now);
+int32_t sv_database_empty_recycle_bin(SvDatabase *database, int64_t now, bool *changed_out);
+int32_t sv_database_recycle_bin(const SvDatabase *database, uint8_t *uuid_out);
 
 /* Serializes the database with fresh seeds and verifies it by decrypting it
  * again. Runs the KDF; call off the UI thread. Other threads may read the

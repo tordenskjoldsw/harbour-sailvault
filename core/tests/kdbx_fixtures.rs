@@ -989,3 +989,36 @@ fn a_second_import_merges_like_keepassxc_and_keeps_local_changes() {
     );
     assert_eq!(shown, "example-new-password\nkept\n");
 }
+
+#[test]
+fn renamed_moved_restored_groups_and_an_emptied_bin_survive_a_save() {
+    let mut database = open(AES_AESKDF, false);
+    let (root, banking, cards, login) = {
+        let root = database.root_group().unwrap();
+        let banking = subgroup(&root, "Banking");
+        (
+            root.uuid().unwrap(),
+            banking.uuid().unwrap(),
+            subgroup(&banking, "Cards").uuid().unwrap(),
+            entry(&root, "Example login").uuid().unwrap(),
+        )
+    };
+    assert_eq!(database.rename_group(&banking, "Finance", NOW), Ok(true));
+    assert_eq!(database.move_group(&cards, &root, NOW), Ok(true));
+    assert_eq!(database.delete_entry(&login, NOW), Ok(false));
+    assert_eq!(database.restore(&login, NOW), Ok(root));
+    assert_eq!(database.empty_recycle_bin(NOW), Ok(true));
+
+    let saved = database.save().unwrap();
+    let reopened = Database::open(&saved, key(false)).unwrap();
+    let root = reopened.root_group().unwrap();
+    assert_eq!(subgroup(&root, "Recycle Bin").entries().count(), 0);
+    assert_eq!(reopened.deleted_objects().len(), 2);
+
+    let file = TempFile::write("groups", &saved);
+    let listing = keepassxc_cli(&["ls", "-R", "-f"], &file, false, &[]);
+    assert!(listing.contains("Finance/\n"), "{listing}");
+    assert!(listing.contains("Cards/Example card\n"), "{listing}");
+    assert!(listing.contains("\nExample login\n") || listing.starts_with("Example login\n"));
+    assert!(!listing.contains("Recycled entry"), "{listing}");
+}

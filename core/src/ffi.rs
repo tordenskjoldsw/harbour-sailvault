@@ -120,9 +120,10 @@ fn status(error: KdbxError) -> i32 {
         | KdbxError::InvalidXml(_) => SV_CORRUPTED,
         KdbxError::CompressionFailed | KdbxError::WriteVerificationFailed => SV_WRITE_FAILED,
         KdbxError::RandomUnavailable => SV_RANDOM_UNAVAILABLE,
-        KdbxError::InvalidEntry(_) | KdbxError::InvalidGroup(_) | KdbxError::RootGroupProtected => {
-            SV_INVALID_ARGUMENT
-        }
+        KdbxError::InvalidEntry(_)
+        | KdbxError::InvalidGroup(_)
+        | KdbxError::RootGroupProtected
+        | KdbxError::NotInRecycleBin => SV_INVALID_ARGUMENT,
         KdbxError::UnknownGroup | KdbxError::UnknownEntry => SV_NOT_FOUND,
     }
 }
@@ -206,6 +207,20 @@ fn find_entry<'a>(database: &'a Database, uuid: &[u8; UUID_LENGTH]) -> Option<En
         .into_iter()
         .map(|listed| listed.entry)
         .find(|entry| entry.uuid().as_ref() == Some(uuid))
+}
+
+/// The current state of an entry for `version` -1, or its history item at
+/// index `version`, oldest first.
+fn find_version<'a>(
+    database: &'a Database,
+    uuid: &[u8; UUID_LENGTH],
+    version: i64,
+) -> Option<Entry<'a>> {
+    let entry = find_entry(database, uuid)?;
+    match usize::try_from(version) {
+        Ok(index) => entry.history().nth(index),
+        Err(_) => Some(entry),
+    }
 }
 
 fn find_group<'a>(database: &'a Database, uuid: &[u8; UUID_LENGTH]) -> Option<Group<'a>> {
@@ -386,27 +401,31 @@ pub unsafe extern "C" fn sv_database_group(
 }
 
 /// Every group outside the recycle bin, parents before children, for picking
-/// a target group. The group column holds the path of the parent groups.
+/// a target group; without the group `exclude_uuid` and its subgroups when
+/// it is not null, so a group is never offered as its own target. The group
+/// column holds the path of the parent groups.
 ///
 /// # Safety
 ///
-/// `database` must be a live handle and `out` valid for one write. Release
-/// the list with `sv_list_free`.
+/// `database` must be a live handle, `exclude_uuid` null or valid for reads
+/// of 16 bytes and `out` valid for one write. Release the list with
+/// `sv_list_free`.
 #[no_mangle]
 pub unsafe extern "C" fn sv_database_groups(
     database: *const SvDatabase,
+    exclude_uuid: *const u8,
     out: *mut *mut SvList,
 ) -> i32 {
     fn collect(
         group: Group<'_>,
         path: &str,
-        recycle_bin: Option<[u8; UUID_LENGTH]>,
+        skipped: [Option<[u8; UUID_LENGTH]>; 2],
         items: &mut Vec<ListItem>,
     ) {
         let Some(uuid) = group.uuid() else {
             return;
         };
-        if Some(uuid) == recycle_bin {
+        if skipped.contains(&Some(uuid)) {
             return;
         }
         let name = group.name();
@@ -423,7 +442,7 @@ pub unsafe extern "C" fn sv_database_groups(
             group: Zeroizing::new(path.to_owned()),
         });
         for child in group.groups() {
-            collect(child, &child_path, recycle_bin, items);
+            collect(child, &child_path, skipped, items);
         }
     }
 
@@ -437,7 +456,12 @@ pub unsafe extern "C" fn sv_database_groups(
         Err(error) => return status(error),
     };
     let mut items = Vec::new();
-    collect(root, "", database.recycle_bin(), &mut items);
+    collect(
+        root,
+        "",
+        [database.recycle_bin(), read_uuid(exclude_uuid)],
+        &mut items,
+    );
     *out = Box::into_raw(Box::new(SvList { items }));
     SV_OK
 }
@@ -521,7 +545,8 @@ pub unsafe extern "C" fn sv_list_free(list: *mut SvList) {
     }
 }
 
-/// Field names of an entry and whether each is protected; no values.
+/// Field names of an entry, or of its history item `version` (-1 for the
+/// current state), and whether each is protected; no values.
 ///
 /// # Safety
 ///
@@ -531,6 +556,7 @@ pub unsafe extern "C" fn sv_list_free(list: *mut SvList) {
 pub unsafe extern "C" fn sv_database_fields(
     database: *const SvDatabase,
     entry_uuid: *const u8,
+    version: i64,
     out: *mut *mut SvFieldList,
 ) -> i32 {
     let (Some(database), Some(out)) = (database.as_ref(), out.as_mut()) else {
@@ -540,7 +566,7 @@ pub unsafe extern "C" fn sv_database_fields(
     let Some(uuid) = read_uuid(entry_uuid) else {
         return SV_INVALID_ARGUMENT;
     };
-    let Some(entry) = find_entry(&database.database, &uuid) else {
+    let Some(entry) = find_version(&database.database, &uuid, version) else {
         return SV_NOT_FOUND;
     };
     let fields = entry
@@ -609,7 +635,8 @@ pub unsafe extern "C" fn sv_field_list_free(fields: *mut SvFieldList) {
     }
 }
 
-/// The value of one field, for showing or copying it.
+/// The value of one field of an entry, or of its history item `version` (-1
+/// for the current state), for showing or copying it.
 ///
 /// # Safety
 ///
@@ -620,6 +647,7 @@ pub unsafe extern "C" fn sv_field_list_free(fields: *mut SvFieldList) {
 pub unsafe extern "C" fn sv_database_field_value(
     database: *const SvDatabase,
     entry_uuid: *const u8,
+    version: i64,
     key: *const u8,
     key_length: usize,
     out: *mut SvString,
@@ -633,7 +661,7 @@ pub unsafe extern "C" fn sv_database_field_value(
     ) else {
         return SV_INVALID_ARGUMENT;
     };
-    let Some(entry) = find_entry(&database.database, &uuid) else {
+    let Some(entry) = find_version(&database.database, &uuid, version) else {
         return SV_NOT_FOUND;
     };
     match entry.field(key) {
@@ -878,6 +906,211 @@ pub unsafe extern "C" fn sv_database_delete_is_permanent(
             SV_OK
         }
         Err(error) => status(error),
+    }
+}
+
+/// The number of history items of an entry.
+///
+/// # Safety
+///
+/// `database` must be a live handle, `entry_uuid` valid for reads of 16
+/// bytes and `out` valid for one write.
+#[no_mangle]
+pub unsafe extern "C" fn sv_database_history_length(
+    database: *const SvDatabase,
+    entry_uuid: *const u8,
+    out: *mut usize,
+) -> i32 {
+    let (Some(database), Some(uuid), Some(out)) =
+        (database.as_ref(), read_uuid(entry_uuid), out.as_mut())
+    else {
+        return SV_INVALID_ARGUMENT;
+    };
+    *out = 0;
+    match find_entry(&database.database, &uuid) {
+        Some(entry) => {
+            *out = entry.history().count();
+            SV_OK
+        }
+        None => SV_NOT_FOUND,
+    }
+}
+
+/// The modification time of an entry's history item `version`, or of the
+/// entry for -1, in seconds since the Unix epoch.
+///
+/// # Safety
+///
+/// `database` must be a live handle, `entry_uuid` valid for reads of 16
+/// bytes and `out` valid for one write.
+#[no_mangle]
+pub unsafe extern "C" fn sv_database_modification_time(
+    database: *const SvDatabase,
+    entry_uuid: *const u8,
+    version: i64,
+    out: *mut i64,
+) -> i32 {
+    let (Some(database), Some(uuid), Some(out)) =
+        (database.as_ref(), read_uuid(entry_uuid), out.as_mut())
+    else {
+        return SV_INVALID_ARGUMENT;
+    };
+    *out = 0;
+    match find_version(&database.database, &uuid, version).and_then(|e| e.modification_time()) {
+        Some(time) => {
+            *out = time;
+            SV_OK
+        }
+        None => SV_NOT_FOUND,
+    }
+}
+
+/// Renames a group (see `Database::rename_group`); `changed_out` receives
+/// whether the name changed.
+///
+/// # Safety
+///
+/// `database` must be a live handle not in use by another thread;
+/// `group_uuid` valid for 16 bytes; `name` valid UTF-8 of `name_length`
+/// bytes; `changed_out` valid for one write.
+#[no_mangle]
+pub unsafe extern "C" fn sv_database_rename_group(
+    database: *mut SvDatabase,
+    group_uuid: *const u8,
+    name: *const u8,
+    name_length: usize,
+    now: i64,
+    changed_out: *mut bool,
+) -> i32 {
+    let (Some(database), Some(uuid), Some(name), Some(changed_out)) = (
+        database.as_mut(),
+        read_uuid(group_uuid),
+        bytes(name, name_length).and_then(|n| std::str::from_utf8(n).ok()),
+        changed_out.as_mut(),
+    ) else {
+        return SV_INVALID_ARGUMENT;
+    };
+    *changed_out = false;
+    match database.database.rename_group(&uuid, name, now) {
+        Ok(changed) => {
+            *changed_out = changed;
+            SV_OK
+        }
+        Err(error) => status(error),
+    }
+}
+
+/// Moves a group with its content into another group (see
+/// `Database::move_group`); `moved_out` receives whether it moved.
+///
+/// # Safety
+///
+/// `database` must be a live handle not in use by another thread;
+/// `group_uuid` and `parent_uuid` valid for 16 bytes; `moved_out` valid for
+/// one write.
+#[no_mangle]
+pub unsafe extern "C" fn sv_database_move_group(
+    database: *mut SvDatabase,
+    group_uuid: *const u8,
+    parent_uuid: *const u8,
+    now: i64,
+    moved_out: *mut bool,
+) -> i32 {
+    let (Some(database), Some(uuid), Some(parent), Some(moved_out)) = (
+        database.as_mut(),
+        read_uuid(group_uuid),
+        read_uuid(parent_uuid),
+        moved_out.as_mut(),
+    ) else {
+        return SV_INVALID_ARGUMENT;
+    };
+    *moved_out = false;
+    match database.database.move_group(&uuid, &parent, now) {
+        Ok(moved) => {
+            *moved_out = moved;
+            SV_OK
+        }
+        Err(error) => status(error),
+    }
+}
+
+/// Moves an entry or group out of the recycle bin (see
+/// `Database::restore`).
+///
+/// # Safety
+///
+/// `database` must be a live handle not in use by another thread; `uuid`
+/// valid for 16 bytes.
+#[no_mangle]
+pub unsafe extern "C" fn sv_database_restore(
+    database: *mut SvDatabase,
+    uuid: *const u8,
+    now: i64,
+) -> i32 {
+    let (Some(database), Some(uuid)) = (database.as_mut(), read_uuid(uuid)) else {
+        return SV_INVALID_ARGUMENT;
+    };
+    match database.database.restore(&uuid, now) {
+        Ok(_) => SV_OK,
+        Err(error) => status(error),
+    }
+}
+
+/// Removes everything in the recycle bin for good (see
+/// `Database::empty_recycle_bin`); `changed_out` receives whether anything
+/// was removed.
+///
+/// # Safety
+///
+/// `database` must be a live handle not in use by another thread;
+/// `changed_out` valid for one write.
+#[no_mangle]
+pub unsafe extern "C" fn sv_database_empty_recycle_bin(
+    database: *mut SvDatabase,
+    now: i64,
+    changed_out: *mut bool,
+) -> i32 {
+    let (Some(database), Some(changed_out)) = (database.as_mut(), changed_out.as_mut()) else {
+        return SV_INVALID_ARGUMENT;
+    };
+    *changed_out = false;
+    match database.database.empty_recycle_bin(now) {
+        Ok(changed) => {
+            *changed_out = changed;
+            SV_OK
+        }
+        Err(error) => status(error),
+    }
+}
+
+/// Writes the recycle bin's UUID to `uuid_out`; `SV_NOT_FOUND` when the
+/// database has none.
+///
+/// # Safety
+///
+/// `database` must be a live handle and `uuid_out` valid for writes of 16
+/// bytes.
+#[no_mangle]
+pub unsafe extern "C" fn sv_database_recycle_bin(
+    database: *const SvDatabase,
+    uuid_out: *mut u8,
+) -> i32 {
+    let Some(database) = database.as_ref() else {
+        return SV_INVALID_ARGUMENT;
+    };
+    if uuid_out.is_null() {
+        return SV_INVALID_ARGUMENT;
+    }
+    match database
+        .database
+        .recycle_bin()
+        .filter(|bin| find_group(&database.database, bin).is_some())
+    {
+        Some(bin) => {
+            slice::from_raw_parts_mut(uuid_out, UUID_LENGTH).copy_from_slice(&bin);
+            SV_OK
+        }
+        None => SV_NOT_FOUND,
     }
 }
 
@@ -1157,7 +1390,7 @@ mod tests {
 
             let mut fields = std::ptr::null_mut();
             assert_eq!(
-                sv_database_fields(database, uuid.as_ptr(), &mut fields),
+                sv_database_fields(database, uuid.as_ptr(), -1, &mut fields),
                 SV_OK
             );
             let mut keys = Vec::new();
@@ -1182,6 +1415,7 @@ mod tests {
                 sv_database_field_value(
                     database,
                     uuid.as_ptr(),
+                    -1,
                     key.as_ptr(),
                     key.len(),
                     &mut value
@@ -1318,6 +1552,7 @@ mod tests {
                 sv_database_field_value(
                     database,
                     uuid.as_ptr(),
+                    -1,
                     key.as_ptr(),
                     key.len(),
                     &mut shown
@@ -1381,7 +1616,10 @@ mod tests {
             let (status, database) = open(PASSWORD);
             assert_eq!(status, SV_OK);
             let mut groups = std::ptr::null_mut();
-            assert_eq!(sv_database_groups(database, &mut groups), SV_OK);
+            assert_eq!(
+                sv_database_groups(database, std::ptr::null(), &mut groups),
+                SV_OK
+            );
             let rows: Vec<(String, String)> = (0..sv_list_length(groups))
                 .map(|index| (list_text(groups, index, 0), list_text(groups, index, 2)))
                 .collect();
@@ -1443,7 +1681,10 @@ mod tests {
             );
             assert!(!inside);
             let mut groups = std::ptr::null_mut();
-            assert_eq!(sv_database_groups(database, &mut groups), SV_OK);
+            assert_eq!(
+                sv_database_groups(database, std::ptr::null(), &mut groups),
+                SV_OK
+            );
             assert_eq!(list_text(groups, sv_list_length(groups) - 1, 0), "Mail");
             sv_list_free(groups);
             assert_eq!(
@@ -1520,7 +1761,10 @@ mod tests {
             sv_import_free(import);
 
             let mut groups = std::ptr::null_mut();
-            assert_eq!(sv_database_groups(database, &mut groups), SV_OK);
+            assert_eq!(
+                sv_database_groups(database, std::ptr::null(), &mut groups),
+                SV_OK
+            );
             let names: Vec<String> = (0..sv_list_length(groups))
                 .map(|index| list_text(groups, index, 0))
                 .collect();
@@ -1532,6 +1776,88 @@ mod tests {
                 1
             );
             sv_list_free(groups);
+            sv_database_free(database);
+        }
+    }
+
+    #[test]
+    fn reads_history_items_and_manages_the_recycle_bin() {
+        unsafe {
+            let (status, database) = open(PASSWORD);
+            assert_eq!(status, SV_OK);
+            let mut list = std::ptr::null_mut();
+            let query = "alice";
+            assert_eq!(
+                sv_database_search(database, query.as_ptr(), query.len(), &mut list),
+                SV_OK
+            );
+            let mut entry = [0u8; UUID_LENGTH];
+            assert_eq!(sv_list_uuid(list, 0, entry.as_mut_ptr()), SV_OK);
+            sv_list_free(list);
+
+            let mut length = 0;
+            assert_eq!(
+                sv_database_history_length(database, entry.as_ptr(), &mut length),
+                SV_OK
+            );
+            assert_eq!(length, 2);
+            let key = "Password";
+            let mut value = SvString {
+                data: std::ptr::null_mut(),
+                length: 0,
+            };
+            assert_eq!(
+                sv_database_field_value(
+                    database,
+                    entry.as_ptr(),
+                    0,
+                    key.as_ptr(),
+                    key.len(),
+                    &mut value
+                ),
+                SV_OK
+            );
+            assert_eq!(take(value), "old-password-1");
+            let (mut oldest, mut current) = (0, 0);
+            assert_eq!(
+                sv_database_modification_time(database, entry.as_ptr(), 0, &mut oldest),
+                SV_OK
+            );
+            assert_eq!(
+                sv_database_modification_time(database, entry.as_ptr(), -1, &mut current),
+                SV_OK
+            );
+            assert!(oldest < current);
+            assert_eq!(
+                sv_database_modification_time(database, entry.as_ptr(), 2, &mut oldest),
+                SV_NOT_FOUND
+            );
+
+            let mut bin = [0u8; UUID_LENGTH];
+            assert_eq!(sv_database_recycle_bin(database, bin.as_mut_ptr()), SV_OK);
+            let mut permanent = true;
+            assert_eq!(
+                sv_database_delete_item(database, entry.as_ptr(), 0, &mut permanent),
+                SV_OK
+            );
+            assert_eq!(sv_database_restore(database, entry.as_ptr(), 0), SV_OK);
+            assert_eq!(
+                sv_database_restore(database, entry.as_ptr(), 0),
+                SV_INVALID_ARGUMENT
+            );
+            let mut changed = false;
+            assert_eq!(
+                sv_database_empty_recycle_bin(database, 0, &mut changed),
+                SV_OK
+            );
+            assert!(changed);
+            let mut content = std::ptr::null_mut();
+            assert_eq!(
+                sv_database_group(database, bin.as_ptr(), &mut content),
+                SV_OK
+            );
+            assert_eq!(sv_list_length(content), 0);
+            sv_list_free(content);
             sv_database_free(database);
         }
     }
@@ -1649,6 +1975,7 @@ mod tests {
                 sv_database_field_value(
                     reopened,
                     uuid.as_ptr(),
+                    -1,
                     key.as_ptr(),
                     key.len(),
                     &mut value

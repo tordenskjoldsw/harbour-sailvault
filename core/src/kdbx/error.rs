@@ -37,6 +37,7 @@ pub enum KdbxError {
     UnknownGroup,
     UnknownEntry,
     RootGroupProtected,
+    NotInRecycleBin,
 }
 
 impl fmt::Display for KdbxError {
@@ -72,7 +73,8 @@ impl fmt::Display for KdbxError {
             Self::InvalidGroup(reason) => write!(f, "invalid group: {reason}"),
             Self::UnknownGroup => f.write_str("group not found"),
             Self::UnknownEntry => f.write_str("entry not found"),
-            Self::RootGroupProtected => f.write_str("the root group cannot be deleted"),
+            Self::RootGroupProtected => f.write_str("the root group cannot be deleted or moved"),
+            Self::NotInRecycleBin => f.write_str("the item is not in the recycle bin"),
         }
     }
 }

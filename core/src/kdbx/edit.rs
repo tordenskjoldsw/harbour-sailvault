@@ -328,21 +328,150 @@ impl Database {
         }
 
         let bin = self.recycle_bin_or_create(now)?;
-        let groups = groups_on_path(self.document(), &path);
-        let previous_group = groups
+        self.move_group_at(&path, &bin, now)?;
+        Ok(false)
+    }
+
+    /// Renames the group with `uuid`; a rename updates the modification
+    /// time, as KeePassXC's `Group::setName` does. Returns whether the name
+    /// changed.
+    pub fn rename_group(&mut self, uuid: &[u8; UUID_LENGTH], name: &str, now: i64) -> Result<bool> {
+        if name.is_empty() {
+            return Err(KdbxError::InvalidGroup("empty name"));
+        }
+        let group = group_mut(self.document_mut(), uuid).ok_or(KdbxError::UnknownGroup)?;
+        if group
+            .child("Name")
+            .is_some_and(|current| *current.text() == *name)
+        {
+            return Ok(false);
+        }
+        set_child_text(group, "Name", name);
+        let time = kdbx_time(now);
+        set_time(group, "LastModificationTime", &time);
+        set_time(group, "LastAccessTime", &time);
+        Ok(true)
+    }
+
+    /// Moves the group with `uuid` and everything in it to the end of the
+    /// group with `parent_uuid`, as KeePassXC's `Group::setParent` does. The
+    /// root group cannot move, and no group can move into itself or below
+    /// itself. Returns whether the group moved.
+    pub fn move_group(
+        &mut self,
+        uuid: &[u8; UUID_LENGTH],
+        parent_uuid: &[u8; UUID_LENGTH],
+        now: i64,
+    ) -> Result<bool> {
+        let path = group_path(self.document(), uuid).ok_or(KdbxError::UnknownGroup)?;
+        if path.len() == ROOT_GROUP_PATH_LENGTH {
+            return Err(KdbxError::RootGroupProtected);
+        }
+        let parent_path =
+            group_path(self.document(), parent_uuid).ok_or(KdbxError::UnknownGroup)?;
+        if parent_path.starts_with(&path) {
+            return Err(KdbxError::InvalidGroup("cannot move into itself"));
+        }
+        if parent_path.len() + 1 == path.len() && path.starts_with(&parent_path) {
+            return Ok(false);
+        }
+        self.move_group_at(&path, parent_uuid, now)?;
+        Ok(true)
+    }
+
+    fn move_group_at(
+        &mut self,
+        path: &[usize],
+        parent_uuid: &[u8; UUID_LENGTH],
+        now: i64,
+    ) -> Result<()> {
+        let groups = groups_on_path(self.document(), path);
+        let previous_parent = groups
             .len()
             .checked_sub(2)
             .and_then(|parent| groups[parent].child("UUID"))
             .and_then(decode_uuid);
         let minor_version = self.header().minor_version;
-        let mut group = remove_at(self.document_mut(), &path).ok_or(KdbxError::UnknownGroup)?;
-        set_time(&mut group, "LocationChanged", &time);
-        if let (true, Some(previous_group)) = (minor_version >= 1, previous_group) {
-            set_group_previous_parent(&mut group, &previous_group);
+        let mut group = remove_at(self.document_mut(), path).ok_or(KdbxError::UnknownGroup)?;
+        set_time(&mut group, "LocationChanged", &kdbx_time(now));
+        if let (true, Some(previous_parent)) = (minor_version >= 1, previous_parent) {
+            set_group_previous_parent(&mut group, &previous_parent);
         }
+        let parent = group_mut(self.document_mut(), parent_uuid).ok_or(KdbxError::UnknownGroup)?;
+        parent.children.push(Node::Element(group));
+        Ok(())
+    }
+
+    /// Moves an entry or group out of the recycle bin to the group it was
+    /// deleted from, or to the root group when that group is unknown (KDBX
+    /// 4.0 keeps no previous group) or deleted too. KeePassXC restores only
+    /// entries with a known previous group. Returns the target group.
+    pub fn restore(&mut self, uuid: &[u8; UUID_LENGTH], now: i64) -> Result<[u8; UUID_LENGTH]> {
+        let bin = self.recycle_bin().ok_or(KdbxError::NotInRecycleBin)?;
+        if *uuid == bin || !self.in_recycle_bin(uuid)? {
+            return Err(KdbxError::NotInRecycleBin);
+        }
+        let entry = entry_path(self.document(), uuid);
+        let path = match &entry {
+            Some(path) => path.clone(),
+            None => group_path(self.document(), uuid).ok_or(KdbxError::UnknownGroup)?,
+        };
+        let element = descend(self.document(), &path).ok_or(KdbxError::UnknownGroup)?;
+        let previous = element
+            .child("PreviousParentGroup")
+            .and_then(decode_uuid)
+            .filter(|group| {
+                group_path(self.document(), group).is_some()
+                    && !self.in_recycle_bin(group).unwrap_or(true)
+            });
+        let target = match previous {
+            Some(group) => group,
+            None => self
+                .root_group()?
+                .uuid()
+                .ok_or(KdbxError::InvalidXml("root group without UUID"))?,
+        };
+        match entry {
+            Some(path) => self.move_entry_at(&path, &target, now)?,
+            None => self.move_group_at(&path, &target, now)?,
+        }
+        Ok(target)
+    }
+
+    /// Removes everything in the recycle bin for good and records it under
+    /// `DeletedObjects`, as KeePassXC's `Database::emptyRecycleBin` does:
+    /// the entries, then each subgroup with its content. The bin stays.
+    /// Returns whether anything was removed.
+    pub fn empty_recycle_bin(&mut self, now: i64) -> Result<bool> {
+        let Some(bin) = self
+            .recycle_bin()
+            .filter(|bin| group_path(self.document(), bin).is_some())
+        else {
+            return Ok(false);
+        };
         let bin_group = group_mut(self.document_mut(), &bin).ok_or(KdbxError::UnknownGroup)?;
-        bin_group.children.push(Node::Element(group));
-        Ok(false)
+        let (removed, kept): (Vec<Node>, Vec<Node>) = std::mem::take(&mut bin_group.children)
+            .into_iter()
+            .partition(|child| is_element(child, "Entry") || is_element(child, "Group"));
+        bin_group.children = kept;
+        if removed.is_empty() {
+            return Ok(false);
+        }
+        let mut emptied = element("Group", Vec::new());
+        emptied.children = removed;
+        let time = kdbx_time(now);
+        let deleted = self.deleted_objects_mut()?;
+        for entry in emptied.children_named("Entry") {
+            if let Some(uuid) = entry.child("UUID").and_then(decode_uuid) {
+                deleted
+                    .children
+                    .push(Node::Element(deleted_object(&uuid, &time)));
+            }
+        }
+        for group in emptied.children_named("Group") {
+            record_deleted(group, &time, deleted);
+        }
+        Ok(true)
     }
 
     /// Whether `delete_entry` or `delete_group` would remove the item with
@@ -1114,6 +1243,15 @@ fn find_group(group: &Element, uuid: &[u8; UUID_LENGTH], path: &mut Vec<usize>) 
     false
 }
 
+fn descend<'a>(element: &'a Element, path: &[usize]) -> Option<&'a Element> {
+    path.iter().try_fold(element, |current, &index| {
+        match current.children.get(index) {
+            Some(Node::Element(child)) => Some(child),
+            _ => None,
+        }
+    })
+}
+
 fn descend_mut<'a>(element: &'a mut Element, path: &[usize]) -> Option<&'a mut Element> {
     path.iter().try_fold(element, |current, &index| {
         match current.children.get_mut(index) {
@@ -1171,7 +1309,7 @@ fn new_uuid() -> Result<[u8; UUID_LENGTH]> {
 
 /// Seconds since the Unix epoch of a KDBX 4 time, or `None` if it is not
 /// one.
-fn parse_kdbx_time(text: &str) -> Option<i64> {
+pub(crate) fn parse_kdbx_time(text: &str) -> Option<i64> {
     let bytes: [u8; 8] = STANDARD.decode(text.trim()).ok()?.try_into().ok()?;
     i64::from_le_bytes(bytes).checked_sub(UNIX_EPOCH_SECONDS)
 }
@@ -1660,5 +1798,112 @@ mod tests {
             database.add_group(&CARDS, "x", NOW),
             Err(KdbxError::InvalidGroup("inside the recycle bin"))
         );
+    }
+
+    #[test]
+    fn renaming_a_group_updates_its_modification_time() {
+        let mut database = build("", &banking_xml());
+        assert_eq!(database.rename_group(&BANKING, "Finance", NOW), Ok(true));
+        assert_eq!(database.rename_group(&BANKING, "Finance", NOW), Ok(false));
+        assert_eq!(
+            database.rename_group(&BANKING, "", NOW),
+            Err(KdbxError::InvalidGroup("empty name"))
+        );
+        let root = database.root_group().unwrap();
+        let group = root.groups().next().unwrap();
+        assert_eq!(*group.name(), "Finance");
+        let times = group.element().child("Times").unwrap();
+        assert_eq!(
+            *times.child("LastModificationTime").unwrap().text(),
+            kdbx_time(NOW)
+        );
+        assert_eq!(*times.child("LocationChanged").unwrap().text(), "old");
+    }
+
+    #[test]
+    fn groups_move_with_their_content_but_never_into_themselves() {
+        let mut database = build("", &format!("{}{}", banking_xml(), bin_xml()));
+        assert_eq!(
+            database.move_group(&BANKING, &CARDS, NOW),
+            Err(KdbxError::InvalidGroup("cannot move into itself"))
+        );
+        assert_eq!(
+            database.move_group(&BANKING, &BANKING, NOW),
+            Err(KdbxError::InvalidGroup("cannot move into itself"))
+        );
+        assert_eq!(
+            database.move_group(&ROOT, &BANKING, NOW),
+            Err(KdbxError::RootGroupProtected)
+        );
+        assert_eq!(database.move_group(&BANKING, &ROOT, NOW), Ok(false));
+        assert_eq!(database.move_group(&CARDS, &ROOT, NOW), Ok(true));
+
+        let root = database.root_group().unwrap();
+        assert_eq!(group_names(&root), ["Banking", "Recycle Bin", "Cards"]);
+        let cards = root.groups().last().unwrap();
+        assert_eq!(cards.entries().count(), 1);
+        assert_eq!(
+            *cards.element().child("PreviousParentGroup").unwrap().text(),
+            encode_uuid(&BANKING)
+        );
+        assert_eq!(
+            *cards
+                .element()
+                .child("Times")
+                .unwrap()
+                .child("LocationChanged")
+                .unwrap()
+                .text(),
+            kdbx_time(NOW)
+        );
+    }
+
+    #[test]
+    fn restoring_returns_items_to_their_previous_group_or_the_root() {
+        let mut database = build(
+            &enabled_bin_meta(),
+            &format!("{}{}{}", entry_xml("secret", ""), banking_xml(), bin_xml()),
+        );
+        assert_eq!(
+            database.restore(&ENTRY, NOW),
+            Err(KdbxError::NotInRecycleBin)
+        );
+        assert_eq!(database.delete_entry(&CARD, NOW), Ok(false));
+        assert_eq!(database.restore(&CARD, NOW), Ok(CARDS));
+        assert!(!database.in_recycle_bin(&CARD).unwrap());
+
+        // The previous group is deleted too: the entry goes to the root.
+        assert_eq!(database.delete_entry(&CARD, NOW), Ok(false));
+        assert_eq!(database.delete_group(&BANKING, NOW), Ok(false));
+        assert_eq!(database.restore(&CARD, NOW), Ok(ROOT));
+        assert_eq!(database.restore(&BANKING, NOW), Ok(ROOT));
+        assert_eq!(database.restore(&BIN, NOW), Err(KdbxError::NotInRecycleBin));
+        let root = database.root_group().unwrap();
+        assert_eq!(group_names(&root), ["Recycle Bin", "Banking"]);
+        assert_eq!(root.entries().count(), 2);
+    }
+
+    #[test]
+    fn emptying_the_recycle_bin_records_everything_and_keeps_the_bin() {
+        let mut database = build(
+            &enabled_bin_meta(),
+            &format!("{}{}{}", entry_xml("secret", ""), banking_xml(), bin_xml()),
+        );
+        assert_eq!(database.empty_recycle_bin(NOW), Ok(false));
+        assert_eq!(database.delete_group(&BANKING, NOW), Ok(false));
+        assert_eq!(database.delete_entry(&ENTRY, NOW), Ok(false));
+        assert_eq!(database.empty_recycle_bin(NOW), Ok(true));
+
+        let root = database.root_group().unwrap();
+        let bin = root.groups().next().unwrap();
+        assert_eq!(bin.uuid(), Some(BIN));
+        assert_eq!(bin.entries().count() + bin.groups().count(), 0);
+        let deleted: Vec<[u8; 16]> = database
+            .deleted_objects()
+            .iter()
+            .map(|deleted| deleted.uuid)
+            .collect();
+        assert_eq!(deleted, [ENTRY, CARD, CARDS, BANKING]);
+        assert_eq!(database.recycle_bin(), Some(BIN));
     }
 }
