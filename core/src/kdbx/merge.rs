@@ -1,5 +1,7 @@
 //! Merging imported entries as KeePassXC's `Merger` does.
 
+use std::collections::{HashMap, HashSet};
+
 use zeroize::Zeroizing;
 
 use super::database::{decode_uuid, Database, UUID_LENGTH};
@@ -11,7 +13,7 @@ use super::layout::{
     GROUP_ICON, KNOWN_ORIGINS, ORIGIN_KEY, STANDARD_KEYS,
 };
 use super::time::{kdbx_time, parse_kdbx_time};
-use super::tree::{descend, descend_mut, entry_path, group_path, path_in_group, root_group_path};
+use super::tree::{descend, descend_mut, path_in_group, root_group_path};
 use super::xml::{Element, Node};
 
 /// A group with its content, merged in one step by
@@ -33,9 +35,69 @@ struct MergeContext {
     protected_keys: Vec<&'static str>,
     limits: HistoryLimits,
     attachment_sizes: Vec<usize>,
-    deleted: Vec<[u8; UUID_LENGTH]>,
+    deleted: HashSet<[u8; UUID_LENGTH]>,
     recycle_bin: Option<[u8; UUID_LENGTH]>,
     now: i64,
+}
+
+/// Where the document's entries are, and which groups it has, collected
+/// once so merging does not search the tree for every imported entry. The
+/// paths stay valid while merging: matched entries change in place, new
+/// groups are appended, and new entries wait in `Additions`.
+#[derive(Default)]
+struct UuidIndex {
+    entries: HashMap<[u8; UUID_LENGTH], Vec<usize>>,
+    groups: HashSet<[u8; UUID_LENGTH]>,
+}
+
+impl UuidIndex {
+    /// In document order, so the first of repeated UUIDs wins, as in
+    /// `entry_path`.
+    fn collect(&mut self, group: &Element, path: &mut Vec<usize>) {
+        if let Some(uuid) = group.child("UUID").and_then(decode_uuid) {
+            self.groups.insert(uuid);
+        }
+        for (position, child) in group.children.iter().enumerate() {
+            let Node::Element(child) = child else {
+                continue;
+            };
+            path.push(position);
+            match child.name.as_str() {
+                "Entry" => {
+                    if let Some(uuid) = child.child("UUID").and_then(decode_uuid) {
+                        self.entries.entry(uuid).or_insert_with(|| path.clone());
+                    }
+                }
+                "Group" => self.collect(child, path),
+                _ => {}
+            }
+            path.pop();
+        }
+    }
+}
+
+/// New entries with the path of their group, inserted after the merge.
+#[derive(Default)]
+struct Additions {
+    entries: Vec<(Vec<usize>, Element)>,
+    by_uuid: HashMap<[u8; UUID_LENGTH], usize>,
+}
+
+impl Additions {
+    /// Deepest groups first: an insertion shifts the paths below its group,
+    /// which by then are done with. The sort is stable, so the entries of a
+    /// group keep their order.
+    fn insert_into(mut self, document: &mut Element) -> Result<()> {
+        self.entries
+            .sort_by_key(|(path, _)| std::cmp::Reverse(path.len()));
+        for (path, entry) in self.entries {
+            insert_entry(
+                descend_mut(document, &path).ok_or(KdbxError::UnknownGroup)?,
+                entry,
+            );
+        }
+        Ok(())
+    }
 }
 
 impl Database {
@@ -68,11 +130,24 @@ impl Database {
             now,
         };
         let mut document = self.document().clone();
-        let (root_path, _) =
+        let (root_path, root) =
             root_group_path(&document).ok_or(KdbxError::InvalidXml("missing root group"))?;
-        let target = subgroup_or_create(&mut document, &root_path, &group.name, &context)?;
+        let mut index = UuidIndex::default();
+        index.collect(root, &mut root_path.clone());
+        let target =
+            subgroup_or_create(&mut document, &root_path, &group.name, &context, &mut index)?;
         let mut summary = MergeSummary::default();
-        merge_into(&mut document, &target, group, &context, &mut summary)?;
+        let mut additions = Additions::default();
+        merge_into(
+            &mut document,
+            &target,
+            group,
+            &context,
+            &mut index,
+            &mut additions,
+            &mut summary,
+        )?;
+        additions.insert_into(&mut document)?;
         if summary != MergeSummary::default() {
             *self.document_mut() = document;
             self.drop_unused_binaries();
@@ -86,49 +161,64 @@ fn merge_into(
     target_path: &[usize],
     group: &NewGroup,
     context: &MergeContext,
+    index: &mut UuidIndex,
+    additions: &mut Additions,
     summary: &mut MergeSummary,
 ) -> Result<()> {
     for entry in &group.entries {
-        let mut known = entry
-            .uuid
-            .filter(|uuid| group_path(document, uuid).is_none());
-        if let Some(uuid) = known {
+        let mut claimed = entry.uuid.filter(|uuid| !index.groups.contains(uuid));
+        if let Some(uuid) = claimed {
             if context.deleted.contains(&uuid) {
                 continue;
             }
-            if let Some(path) = entry_path(document, &uuid) {
-                let same_origin = descend(document, &path).is_some_and(|existing| {
+            // The same item twice in one export merges into its new entry.
+            if let Some(&pending) = additions.by_uuid.get(&uuid) {
+                if merge_entry(&mut additions.entries[pending].1, entry, &uuid, context)? {
+                    summary.updated += 1;
+                }
+                continue;
+            }
+            if let Some(path) = index.entries.get(&uuid) {
+                let same_origin = descend(document, path).is_some_and(|existing| {
                     entry.origin.is_some() && origin(existing) == entry.origin
                 });
                 if same_origin {
                     if context
                         .recycle_bin
-                        .is_some_and(|bin| path_in_group(document, &path, &bin))
+                        .is_some_and(|bin| path_in_group(document, path, &bin))
                     {
                         continue;
                     }
-                    let existing = descend_mut(document, &path).ok_or(KdbxError::UnknownEntry)?;
+                    let existing = descend_mut(document, path).ok_or(KdbxError::UnknownEntry)?;
                     if merge_entry(existing, entry, &uuid, context)? {
                         summary.updated += 1;
                     }
                     continue;
                 }
                 // The UUID belongs to an entry this origin did not create.
-                known = None;
+                claimed = None;
             }
         }
-        let uuid = match known {
+        let uuid = match claimed {
             Some(uuid) => uuid,
             None => new_uuid()?,
         };
         let element = build_entry(entry, &uuid, &context.protected_keys, context.now)?;
-        let target = descend_mut(document, target_path).ok_or(KdbxError::UnknownGroup)?;
-        insert_entry(target, element);
+        additions.by_uuid.insert(uuid, additions.entries.len());
+        additions.entries.push((target_path.to_vec(), element));
         summary.added += 1;
     }
     for child in &group.groups {
-        let child_path = subgroup_or_create(document, target_path, &child.name, context)?;
-        merge_into(document, &child_path, child, context, summary)?;
+        let child_path = subgroup_or_create(document, target_path, &child.name, context, index)?;
+        merge_into(
+            document,
+            &child_path,
+            child,
+            context,
+            index,
+            additions,
+            summary,
+        )?;
     }
     Ok(())
 }
@@ -140,6 +230,7 @@ fn subgroup_or_create(
     parent_path: &[usize],
     name: &str,
     context: &MergeContext,
+    index: &mut UuidIndex,
 ) -> Result<Vec<usize>> {
     if name.is_empty() {
         return Err(KdbxError::InvalidGroup("empty name"));
@@ -161,6 +252,7 @@ fn subgroup_or_create(
             parent.children.push(Node::Element(build_group(
                 &uuid, name, GROUP_ICON, "null", &time,
             )));
+            index.groups.insert(uuid);
             parent.children.len() - 1
         }
     };

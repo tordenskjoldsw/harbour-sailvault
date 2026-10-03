@@ -408,7 +408,16 @@ pub(crate) fn validate_fields(document: &Element) -> Result<()> {
 }
 
 pub(crate) fn decode_uuid(element: &Element) -> Option<[u8; UUID_LENGTH]> {
-    STANDARD.decode(element.text().trim()).ok()?.try_into().ok()
+    // Every tree search decodes UUIDs, so the usual single text node is
+    // decoded without allocating. The buffer leaves room for the decoder's
+    // length estimate of padded base64.
+    let mut decoded = [0u8; UUID_LENGTH + 8];
+    let length = match element.children.as_slice() {
+        [Node::Text(text)] => STANDARD.decode_slice(text.trim(), &mut decoded),
+        _ => STANDARD.decode_slice(element.text().trim(), &mut decoded),
+    }
+    .ok()?;
+    decoded[..length].try_into().ok()
 }
 
 pub(crate) fn encode_uuid(uuid: &[u8; UUID_LENGTH]) -> String {

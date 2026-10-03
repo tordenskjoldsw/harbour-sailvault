@@ -5,7 +5,11 @@
 
 use std::time::{Duration, Instant};
 
-use sailvault_core::kdbx::{Argon2Variant, CompositeKey, Database, KdfParameters, OuterHeader};
+use sailvault_core::kdbx::{
+    Argon2Variant, CompositeKey, Database, KdfParameters, NewEntry, NewField, NewGroup,
+    OuterHeader, ORIGIN_BITWARDEN,
+};
+use zeroize::Zeroizing;
 
 const FIXTURE: &[u8] = include_bytes!("../tests/fixtures/kdbx4-aes-argon2d.kdbx");
 const LARGE: &[u8] = include_bytes!("../tests/fixtures/kdbx4-1000-entries.kdbx");
@@ -43,6 +47,31 @@ fn argon2(
         parallelism,
         version: 0x13,
         salt: vec![0x5a; 32],
+    }
+}
+
+/// An import of `count` entries, like a Bitwarden export with that many
+/// items.
+fn import(count: u64) -> NewGroup {
+    NewGroup {
+        name: Zeroizing::new("Benchmark import".to_owned()),
+        entries: (0..count)
+            .map(|item| {
+                let mut uuid = [0x42u8; 16];
+                uuid[..8].copy_from_slice(&item.to_le_bytes());
+                NewEntry {
+                    uuid: Some(uuid),
+                    origin: Some(ORIGIN_BITWARDEN),
+                    fields: vec![
+                        NewField::new("Title", &format!("Imported {item}"), false),
+                        NewField::new("Password", "benchmark", false),
+                    ],
+                    modified: Some(1_700_000_000),
+                    ..NewEntry::default()
+                }
+            })
+            .collect(),
+        groups: Vec::new(),
     }
 }
 
@@ -160,5 +189,28 @@ fn main() {
             "large,search \"{query}\",{}",
             search.as_micros() as f64 / 1000.0
         );
+    }
+
+    // Merging runs on the UI thread: a first import, then the same import
+    // again, into the 1000-entry database.
+    for count in [1000, 2000] {
+        let group = import(count);
+        let mut first = Vec::new();
+        let mut again = Vec::new();
+        for _ in 0..RUNS {
+            let mut database = Database::open(LARGE, fixture_key()).expect("large fixture opens");
+            let start = Instant::now();
+            database
+                .merge_group_tree(&group, 1_800_000_000)
+                .expect("merge");
+            first.push(start.elapsed());
+            let start = Instant::now();
+            database
+                .merge_group_tree(&group, 1_800_000_000)
+                .expect("merge");
+            again.push(start.elapsed());
+        }
+        println!("import,first {count} items,{}", median(first).as_millis());
+        println!("import,again {count} items,{}", median(again).as_millis());
     }
 }
