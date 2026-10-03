@@ -160,6 +160,21 @@ Exit: all of the above works on the device; results written to `docs/spike-resul
 - Sync and data model
 - Test vectors against Vaultwarden and the official Bitwarden cloud
 
+Work order (verified protocol details: `docs/protocol.md`):
+
+1. Crypto: KDF (PBKDF2, Argon2id), stretching, EncString types 0 and 2, RSA
+   types 3 and 4; independently generated test vectors
+2. Data model and sync parsing: all cipher types, folders, favorites,
+   collections, organization and cipher keys; lazy field decryption
+3. Login logic as pure functions (request building, response parsing):
+   password, API key, TOTP 2FA, refresh; the C++ layer does the HTTP
+4. `tools/` script records an encrypted sync response of the test account
+   (emails and tokens removed); offline tests decrypt it
+5. Search index, tested with 1000+ items
+
+Out of scope for Phase 2: V2 accounts (COSE, EncString type 7) get a clear
+"not supported" error; email 2FA waits for a test mail server.
+
 Exit: host-side test suite decrypts a real synced test vault. Verify every
 protocol detail against the Bitwarden Security Whitepaper and the Vaultwarden
 source, not against this summary.
@@ -216,11 +231,24 @@ Exit: criterion 1 met.
 ## 12. Open decisions
 
 - License (must be compatible with any reference code that gets reused)
-- FFI style: hand-written C API or a binding generator
 - Convenience unlock after the MVP: none, PIN, or the Secrets Confirm dialog
 
 Decided:
 
+- Client identity (2026-10-03): `deviceType` 8 (LinuxDesktop), `client_id`
+  `desktop`, `Bitwarden-Client-Name: sailvault`. No claim to be Android, even
+  though Vaultwarden gives Android 90-day instead of 30-day refresh tokens.
+- Client version (2026-10-03): `Bitwarden-Client-Version` equals the newest
+  server API version the protocol was verified against (now 2026.6.0), kept
+  as one constant in the core. Every new Vaultwarden or Bitwarden release
+  triggers a re-check of `docs/protocol.md` and a version bump; SailVault
+  always targets the latest server version.
+- RSA (2026-10-03): `rsa` 0.9 is used despite RUSTSEC-2023-0071 (Marvin
+  timing attack, no fixed release). Decryption happens locally without an
+  attacker-controlled timing oracle. Documented in the threat model; checked
+  on every release.
+- FFI (2026-10-03): hand-written C API with opaque handles; key material
+  never crosses the boundary.
 - Cold start targets (2026-10-03): unlock page < 1 s, list < 0.5 s after key
   derivation with 1000 items offline, KDF time measured separately. Based on
   the 400 ms Phase 1 baseline.
