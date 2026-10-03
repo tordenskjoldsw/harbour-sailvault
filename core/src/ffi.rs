@@ -108,7 +108,7 @@ fn status(error: KdbxError) -> i32 {
         KdbxError::CompressionFailed | KdbxError::WriteVerificationFailed => SV_WRITE_FAILED,
         KdbxError::RandomUnavailable => SV_RANDOM_UNAVAILABLE,
         KdbxError::InvalidEntry(_) => SV_INVALID_ARGUMENT,
-        KdbxError::UnknownGroup => SV_NOT_FOUND,
+        KdbxError::UnknownGroup | KdbxError::UnknownEntry => SV_NOT_FOUND,
     }
 }
 

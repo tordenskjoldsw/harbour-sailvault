@@ -632,3 +632,68 @@ fn added_entry_in_a_subgroup_survives_a_save_and_keepassxc_reads_it() {
     );
     assert_eq!(shown, "s3cret äöü\n\nPhone card\n");
 }
+
+#[test]
+fn edited_and_deleted_entries_survive_a_save_and_keepassxc_reads_them() {
+    let mut database = open(AES_AESKDF, false);
+    let (login, card, recycled) = {
+        let root = database.root_group().unwrap();
+        (
+            entry(&root, "Example login").uuid().unwrap(),
+            entry(
+                &subgroup(&subgroup(&root, "Banking"), "Cards"),
+                "Example card",
+            )
+            .uuid()
+            .unwrap(),
+            entry(&subgroup(&root, "Recycle Bin"), "Recycled entry")
+                .uuid()
+                .unwrap(),
+        )
+    };
+    assert_eq!(
+        database.update_entry(&login, &[("Password", "rotated-password-4")], NOW),
+        Ok(true)
+    );
+    assert_eq!(database.delete_entry(&card, NOW), Ok(false));
+    assert_eq!(database.delete_entry(&recycled, NOW), Ok(true));
+
+    let saved = database.save().unwrap();
+    let reopened = Database::open(&saved, key(false)).unwrap();
+    let root = reopened.root_group().unwrap();
+    let login = entry(&root, "Example login");
+    assert_eq!(value(&login, "Password"), "rotated-password-4");
+    let history: Vec<String> = login.history().map(|h| value(&h, "Password")).collect();
+    assert_eq!(
+        history,
+        ["old-password-1", "old-password-2", "current-password-3"]
+    );
+    assert_eq!(
+        subgroup(&subgroup(&root, "Banking"), "Cards")
+            .entries()
+            .count(),
+        0
+    );
+    let bin = subgroup(&root, "Recycle Bin");
+    assert_eq!(bin.entries().count(), 1);
+    assert_eq!(
+        value(&entry(&bin, "Example card"), "card_number"),
+        "4111111111111111"
+    );
+    let deleted = reopened.deleted_objects();
+    assert_eq!(deleted.len(), 2);
+    assert_eq!(deleted[1].uuid, recycled);
+
+    let file = TempFile::write("edited", &saved);
+    let listing = keepassxc_cli(&["ls", "-R", "-f"], &file, false, &[]);
+    assert!(listing.contains("Recycle Bin/Example card\n"), "{listing}");
+    assert!(!listing.contains("Recycled entry"), "{listing}");
+    assert!(!listing.contains("Banking/Cards/Example card"), "{listing}");
+    let shown = keepassxc_cli(
+        &["show", "-a", "Password"],
+        &file,
+        false,
+        &["Example login"],
+    );
+    assert_eq!(shown, "rotated-password-4\n");
+}

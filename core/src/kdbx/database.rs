@@ -106,15 +106,20 @@ impl Database {
             .ok_or(KdbxError::InvalidXml("missing root group"))
     }
 
+    /// `Meta/RecycleBinEnabled`, true when missing, as in KeePassXC.
+    pub fn recycle_bin_enabled(&self) -> bool {
+        self.meta()
+            .and_then(|meta| meta.child("RecycleBinEnabled"))
+            .and_then(|enabled| xml::parse_bool(&enabled.text()))
+            != Some(false)
+    }
+
+    /// The recycle bin group, if enabled and present.
     pub fn recycle_bin(&self) -> Option<[u8; UUID_LENGTH]> {
-        let meta = self.meta()?;
-        if meta
-            .child("RecycleBinEnabled")
-            .is_some_and(|enabled| xml::parse_bool(&enabled.text()) == Some(false))
-        {
+        if !self.recycle_bin_enabled() {
             return None;
         }
-        decode_uuid(meta.child("RecycleBinUUID")?).filter(|uuid| *uuid != [0; UUID_LENGTH])
+        decode_uuid(self.meta()?.child("RecycleBinUUID")?).filter(|uuid| *uuid != [0; UUID_LENGTH])
     }
 
     pub fn deleted_objects(&self) -> Vec<DeletedObject> {
@@ -314,6 +319,35 @@ pub(crate) fn decode_uuid(element: &Element) -> Option<[u8; UUID_LENGTH]> {
 
 pub(crate) fn encode_uuid(uuid: &[u8; UUID_LENGTH]) -> String {
     STANDARD.encode(uuid)
+}
+
+#[cfg(test)]
+impl Database {
+    /// A database around a parsed document, for tests of tree edits.
+    pub(crate) fn from_document(document: Element) -> Self {
+        use super::header::{Cipher, Compression};
+        use super::kdf::KdfParameters;
+        Self {
+            header: OuterHeader {
+                minor_version: 1,
+                cipher: Cipher::Aes256,
+                compression: Compression::Gzip,
+                kdf: KdfParameters::AesKdf {
+                    rounds: 1,
+                    seed: [0; 32],
+                },
+                master_seed: [0; 32],
+                encryption_iv: vec![0; 16],
+                public_custom_data: None,
+                bytes: Vec::new(),
+            },
+            inner: InnerHeader {
+                binaries: Vec::new(),
+            },
+            document,
+            key: CompositeKey::new(Some(b"test"), None).expect("a password is set"),
+        }
+    }
 }
 
 #[cfg(test)]

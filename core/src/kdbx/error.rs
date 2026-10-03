@@ -34,6 +34,7 @@ pub enum KdbxError {
     WriteVerificationFailed,
     InvalidEntry(&'static str),
     UnknownGroup,
+    UnknownEntry,
 }
 
 impl fmt::Display for KdbxError {
@@ -67,6 +68,7 @@ impl fmt::Display for KdbxError {
             }
             Self::InvalidEntry(reason) => write!(f, "invalid entry: {reason}"),
             Self::UnknownGroup => f.write_str("group not found"),
+            Self::UnknownEntry => f.write_str("entry not found"),
         }
     }
 }
