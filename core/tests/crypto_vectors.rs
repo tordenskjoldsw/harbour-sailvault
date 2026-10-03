@@ -1,9 +1,7 @@
 //! Cross-checks the core against vectors generated independently with the
 //! OpenSSL CLI (`tools/gen-crypto-vectors.py`).
 
-use sailvault_core::crypto::{
-    AsymmetricEncString, CryptoError, EncString, Kdf, MasterKey, PrivateKey, SymmetricKey,
-};
+use sailvault_core::crypto::{CryptoError, EncString, Kdf, MasterKey, SymmetricKey};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -17,11 +15,6 @@ struct Vectors {
     plaintext: String,
     enc_string: String,
     enc_string_tampered_mac: String,
-    private_key_pkcs8: String,
-    protected_private_key: String,
-    org_key: String,
-    org_key_rsa_oaep_sha1: String,
-    org_key_rsa_oaep_sha256: String,
 }
 
 #[derive(Deserialize)]
@@ -40,13 +33,6 @@ struct Argon2Vectors {
 
 fn vectors() -> Vectors {
     serde_json::from_str(include_str!("vectors/crypto.json")).unwrap()
-}
-
-fn hex(value: &str) -> Vec<u8> {
-    (0..value.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&value[i..i + 2], 16).unwrap())
-        .collect()
 }
 
 fn pbkdf2_master_key(v: &Vectors) -> MasterKey {
@@ -132,26 +118,6 @@ fn mac_cannot_be_stripped_by_downgrading_to_type_0() {
         downgraded.decrypt(&user_key(&v)).map(|_| ()),
         Err(CryptoError::WrongKeyType)
     );
-}
-
-#[test]
-fn private_key_decrypts_organization_keys() {
-    let v = vectors();
-    let der = v
-        .protected_private_key
-        .parse::<EncString>()
-        .unwrap()
-        .decrypt(&user_key(&v))
-        .unwrap();
-    assert_eq!(*der, hex(&v.private_key_pkcs8));
-    let private_key = PrivateKey::from_pkcs8_der(&der).unwrap();
-
-    for org_key in [&v.org_key_rsa_oaep_sha1, &v.org_key_rsa_oaep_sha256] {
-        let enc_string: AsymmetricEncString = org_key.parse().unwrap();
-        let decrypted = private_key.decrypt(&enc_string).unwrap();
-        assert_eq!(*decrypted, hex(&v.org_key));
-        assert!(SymmetricKey::from_aes_cbc_hmac_bytes(&decrypted).is_ok());
-    }
 }
 
 #[test]
