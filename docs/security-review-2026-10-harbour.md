@@ -53,6 +53,14 @@ repeated field names in an export took cubic time (`25c559a`); C API
 string outputs are emptied on errors (`b57195c`); dialogs no longer drop
 input while a save runs (`7a50957`).
 
+Verified on the device (Jolla Phone, 2026-10-03, build `7e97b25`): an
+export with Windows line endings, a control character and unprotected OTP
+fields imports and saves, its notes keep their line breaks and the OTP
+fields stay hidden; the export is deleted only through the remorse timer;
+a password copied before editing it is cleared after 30 seconds; swiping
+back to the unlock page and a minute in the background lock the database;
+opening, searching, history, moving and the new-database name check work.
+
 ## Checked and found correct
 
 - Every first-review fix is in place.
