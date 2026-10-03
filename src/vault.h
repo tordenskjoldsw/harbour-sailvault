@@ -4,7 +4,6 @@
 #include <QByteArray>
 #include <QObject>
 #include <QString>
-#include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -12,16 +11,16 @@
 #include <functional>
 #include <memory>
 
+#include "autolock.h"
 #include "clipboardguard.h"
 #include "corebridge.h"
 
-// Owns the unlocked database handle and the lock state. QML sees titles
-// and the one value the user shows or copies; everything else stays in
-// the Rust core.
+// Owns the unlocked database handle and the lock state. QML gets list
+// titles and user names, and field values one at a time when a page shows,
+// copies or edits them; everything else stays in the Rust core.
 //
-// Lock and clipboard deadlines are measured on CLOCK_BOOTTIME and checked
-// before every access and by a watchdog, because Qt timers stop while the
-// phone sleeps.
+// AutoLock and ClipboardGuard keep their deadlines, which are checked again
+// before every access.
 //
 // An edit changes the database in memory and starts a save at once. While
 // the save runs on a pool thread the handle is read-only for everyone, and
@@ -161,17 +160,12 @@ signals:
     // that version is kept in the backups.
     void savedOverChangedFile();
 
-protected:
-    bool eventFilter(QObject *watched, QEvent *event) override;
-
 private slots:
     void onUnlockFinished(int attempt, int status, qulonglong handle, const QByteArray &digest);
     void onCreateFinished(int attempt, int status, qulonglong handle, const QByteArray &digest,
                           const QString &path);
     void onSaveFinished(int attempt, int status, const QByteArray &digest,
                         bool replacedChangedFile);
-    void onApplicationStateChanged(Qt::ApplicationState state);
-    void enforceDeadlines();
 
 private:
     // One edit of the database; sets changed when it changed anything.
@@ -188,8 +182,9 @@ private:
     // Marks the in-memory change and starts the save.
     void commitChange();
     void lockAutomatically();
+    // Clears the clipboard and locks when their deadlines have passed.
+    void enforceDeadlines();
     void cancelPendingUnlock();
-    void updateWatchdog();
     void setState(State state);
     void setError(Error error);
     void setSaving(bool saving);
@@ -209,10 +204,7 @@ private:
     QByteArray m_fileDigest;
     QString m_databasePath;
     QString m_keyFilePath;
-    long long m_lastActivityMs = 0;
-    long long m_backgroundSinceMs = 0;
-    QTimer m_idleTimer;
-    QTimer m_watchdog;
+    AutoLock m_autoLock;
     ClipboardGuard m_clipboard;
 };
 

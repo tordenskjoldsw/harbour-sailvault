@@ -3,6 +3,7 @@ TARGET = harbour-sailvault
 CONFIG += sailfishapp
 
 HEADERS += \
+    src/autolock.h \
     src/boottime.h \
     src/clipboardguard.h \
     src/corebridge.h \
@@ -13,6 +14,7 @@ HEADERS += \
     src/vaulttasks.h
 
 SOURCES += \
+    src/autolock.cpp \
     src/clipboardguard.cpp \
     src/databasefile.cpp \
     src/entrylistmodel.cpp \

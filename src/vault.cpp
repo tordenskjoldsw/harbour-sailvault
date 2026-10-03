@@ -3,25 +3,17 @@
 #include <QByteArray>
 #include <QCoreApplication>
 #include <QDateTime>
-#include <QEvent>
 #include <QFileInfo>
-#include <QGuiApplication>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QThreadPool>
 #include <QVector>
 
-#include "boottime.h"
 #include "corebridge.h"
 #include "databasefile.h"
 #include "vaulttasks.h"
 
 namespace {
-
-const long long IdleLockMs = 5 * 60 * 1000;
-const long long BackgroundLockMs = 60 * 1000;
-// Bounds how late a deadline is enforced after the phone wakes up.
-const int WatchdogIntervalMs = 5 * 1000;
 
 QString settingsPath()
 {
@@ -124,15 +116,8 @@ Vault::Vault(QObject *parent)
     m_databasePath = settings.value(QStringLiteral("databasePath")).toString();
     m_keyFilePath = settings.value(QStringLiteral("keyFilePath")).toString();
 
-    m_idleTimer.setSingleShot(true);
-    m_idleTimer.setInterval(static_cast<int>(IdleLockMs));
-    m_watchdog.setInterval(WatchdogIntervalMs);
-    connect(&m_idleTimer, &QTimer::timeout, this, &Vault::enforceDeadlines);
-    connect(&m_watchdog, &QTimer::timeout, this, &Vault::enforceDeadlines);
-    connect(qApp, &QGuiApplication::applicationStateChanged, this,
-            &Vault::onApplicationStateChanged);
+    connect(&m_autoLock, &AutoLock::expired, this, &Vault::lockAutomatically);
     connect(qApp, &QCoreApplication::aboutToQuit, this, &Vault::lock);
-    qApp->installEventFilter(this);
 }
 
 Vault::~Vault()
@@ -239,11 +224,8 @@ void Vault::finishUnlock(CoreDatabase database, const QByteArray &digest)
     m_database = std::move(database);
     m_fileDigest = digest;
     saveSettings();
-    m_lastActivityMs = bootTimeMs();
-    m_idleTimer.start();
     setState(Unlocked);
-    // The app may have left the foreground while the KDF ran.
-    onApplicationStateChanged(QGuiApplication::applicationState());
+    m_autoLock.start();
 }
 
 QString Vault::newDatabasePath(int location, const QString &name) const
@@ -292,10 +274,8 @@ void Vault::onCreateFinished(int attempt, int status, qulonglong handle,
 
 void Vault::lock()
 {
-    m_idleTimer.stop();
-    m_backgroundSinceMs = 0;
+    m_autoLock.stop();
     m_clipboard.clear();
-    updateWatchdog();
     if (m_saving) {
         // The save task still reads the handle; onSaveFinished locks.
         m_lockAfterSave = true;
@@ -344,25 +324,7 @@ void Vault::lockAutomatically()
 void Vault::enforceDeadlines()
 {
     m_clipboard.enforceDeadline();
-    if (m_state == Unlocked) {
-        const long long now = bootTimeMs();
-        const bool idle = now - m_lastActivityMs >= IdleLockMs;
-        const bool background = m_backgroundSinceMs != 0
-            && now - m_backgroundSinceMs >= BackgroundLockMs;
-        if (idle || background)
-            lockAutomatically();
-    }
-    updateWatchdog();
-}
-
-void Vault::updateWatchdog()
-{
-    const bool needed = m_clipboard.isPending()
-        || (m_state == Unlocked && m_backgroundSinceMs != 0);
-    if (needed && !m_watchdog.isActive())
-        m_watchdog.start();
-    else if (!needed)
-        m_watchdog.stop();
+    m_autoLock.check();
 }
 
 QVariantList Vault::fields(const QString &entryId, int version)
@@ -419,7 +381,6 @@ bool Vault::copyField(const QString &entryId, const QString &key, int version)
     m_clipboard.copy(value, [this, entryId, key, version] {
         return readField(entryId, key, version);
     });
-    updateWatchdog();
     return true;
 }
 
@@ -653,37 +614,6 @@ QString Vault::generatePassword(int length, bool lower, bool upper, bool digits,
         || sv_generate_password(static_cast<size_t>(length), classes, &password) != SV_OK)
         return QString();
     return takeCoreString(password);
-}
-
-bool Vault::eventFilter(QObject *watched, QEvent *event)
-{
-    switch (event->type()) {
-    case QEvent::TouchBegin:
-    case QEvent::MouseButtonPress:
-    case QEvent::KeyPress:
-    case QEvent::InputMethod:
-        if (m_state == Unlocked) {
-            m_lastActivityMs = bootTimeMs();
-            m_idleTimer.start();
-        }
-        break;
-    default:
-        break;
-    }
-    return QObject::eventFilter(watched, event);
-}
-
-void Vault::onApplicationStateChanged(Qt::ApplicationState state)
-{
-    if (state == Qt::ApplicationActive) {
-        // Check before clearing the background stamp, so time spent asleep
-        // in the background still counts.
-        enforceDeadlines();
-        m_backgroundSinceMs = 0;
-    } else if (m_state == Unlocked && m_backgroundSinceMs == 0) {
-        m_backgroundSinceMs = bootTimeMs();
-    }
-    updateWatchdog();
 }
 
 void Vault::setState(State state)

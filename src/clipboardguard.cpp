@@ -8,12 +8,22 @@
 namespace {
 
 const long long ClearAfterMs = 30 * 1000;
+// Qt timers stop while the phone sleeps; checking the deadline on
+// CLOCK_BOOTTIME this often bounds how late it is enforced after waking up.
+const int WatchdogIntervalMs = 5 * 1000;
 
 } // namespace
 
 ClipboardGuard::ClipboardGuard(QObject *parent)
     : QObject(parent)
 {
+    m_watchdog.setInterval(WatchdogIntervalMs);
+    connect(&m_watchdog, &QTimer::timeout, this, &ClipboardGuard::enforceDeadline);
+    connect(qApp, &QGuiApplication::applicationStateChanged, this,
+            [this](Qt::ApplicationState state) {
+                if (state == Qt::ApplicationActive)
+                    enforceDeadline();
+            });
 }
 
 void ClipboardGuard::copy(const QString &text, ValueSource source)
@@ -21,6 +31,7 @@ void ClipboardGuard::copy(const QString &text, ValueSource source)
     QGuiApplication::clipboard()->setText(text);
     m_source = std::move(source);
     m_deadlineMs = bootTimeMs() + ClearAfterMs;
+    m_watchdog.start();
 }
 
 void ClipboardGuard::clear()
@@ -37,6 +48,7 @@ void ClipboardGuard::clear()
     }
     m_source = nullptr;
     m_deadlineMs = 0;
+    m_watchdog.stop();
 }
 
 void ClipboardGuard::keepCopiedValue()
@@ -47,14 +59,10 @@ void ClipboardGuard::keepCopiedValue()
     if (current.isEmpty() || current != m_source()) {
         m_source = nullptr;
         m_deadlineMs = 0;
+        m_watchdog.stop();
         return;
     }
     m_source = [current] { return current; };
-}
-
-bool ClipboardGuard::isPending() const
-{
-    return static_cast<bool>(m_source);
 }
 
 void ClipboardGuard::enforceDeadline()
