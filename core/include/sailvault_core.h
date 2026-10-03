@@ -163,15 +163,17 @@ int32_t sv_generate_password(size_t length, uint32_t classes, SvString *out);
  * sv_bitwarden_read decrypts a password-protected export (a wrong password
  * gives SV_INVALID_CREDENTIALS) and maps it to a group named group_name; it
  * runs the export's KDF, so call it off the UI thread. sv_database_import
- * adds that group to the end of the root group in one step and writes its
- * UUID to uuid_out. sv_import_free zeroizes the import. */
+ * merges that group in one step into the root group's group of the same
+ * name, created when missing: entries are matched by the Bitwarden item ID,
+ * the newer side wins and the other becomes a history item, deleted entries
+ * stay deleted and nothing is removed. It writes how many entries were added
+ * and updated. sv_import_free zeroizes the import. */
 int32_t sv_bitwarden_export_kind(const uint8_t *data, size_t length, int32_t *kind_out);
 int32_t sv_bitwarden_read(const uint8_t *data, size_t length, const uint8_t *password,
                           size_t password_length, bool has_password, const uint8_t *group_name,
                           size_t group_name_length, SvImport **out);
-size_t sv_import_entry_count(const SvImport *import);
 int32_t sv_database_import(SvDatabase *database, const SvImport *import, int64_t now,
-                           uint8_t *uuid_out);
+                           size_t *added_out, size_t *updated_out);
 void sv_import_free(SvImport *import);
 
 #ifdef __cplusplus

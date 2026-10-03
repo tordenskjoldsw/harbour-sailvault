@@ -233,6 +233,8 @@ pub struct PasswordHistoryItem {
 #[serde(rename_all = "camelCase")]
 pub struct Item {
     #[serde(default)]
+    pub id: Text,
+    #[serde(default)]
     pub folder_id: Text,
     #[serde(default, deserialize_with = "list")]
     pub collection_ids: Vec<Text>,

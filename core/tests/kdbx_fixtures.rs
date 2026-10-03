@@ -826,8 +826,8 @@ fn a_bitwarden_import_survives_a_save_and_keepassxc_reads_it() {
     let vault = bitwarden::read_export(export, None).unwrap();
     let group = bitwarden::import_group(&vault, "Bitwarden import").unwrap();
     let mut database = open(AES_AESKDF, false);
-    let root = database.root_group().unwrap().uuid().unwrap();
-    database.add_group_tree(&root, &group, NOW).unwrap();
+    let summary = database.merge_group_tree(&group, NOW).unwrap();
+    assert_eq!((summary.added, summary.updated), (4, 0));
 
     let saved = database.save().unwrap();
     let reopened = Database::open(&saved, key(false)).unwrap();
@@ -889,4 +889,103 @@ fn a_bitwarden_import_survives_a_save_and_keepassxc_reads_it() {
         &["Bitwarden import/Example card"],
     );
     assert_eq!(card, "4111111111111111\n2030\n");
+}
+
+fn import_export(database: &mut Database, export: &serde_json::Value) -> (usize, usize) {
+    let json = serde_json::to_vec(export).unwrap();
+    let vault = bitwarden::read_export(&json, None).unwrap();
+    let group = bitwarden::import_group(&vault, "Bitwarden import").unwrap();
+    let summary = database.merge_group_tree(&group, NOW).unwrap();
+    (summary.added, summary.updated)
+}
+
+#[test]
+fn a_second_import_merges_like_keepassxc_and_keeps_local_changes() {
+    let mut export: serde_json::Value =
+        serde_json::from_str(include_str!("vectors/bitwarden_unencrypted.json")).unwrap();
+    let mut database = open(AES_AESKDF, false);
+    assert_eq!(import_export(&mut database, &export), (4, 0));
+    assert_eq!(import_export(&mut database, &export), (0, 0));
+
+    // On the phone: the mail entry moves to the root group, the card goes to
+    // the recycle bin and the SSH key gets a newer local edit.
+    let (root, mail, card, ssh_key) = {
+        let root = database.root_group().unwrap();
+        let import = subgroup(&root, "Bitwarden import");
+        let work = subgroup(&import, "Work");
+        (
+            root.uuid().unwrap(),
+            entry(&subgroup(&work, "Mail"), "Example mail")
+                .uuid()
+                .unwrap(),
+            entry(&import, "Example card").uuid().unwrap(),
+            entry(&work, "Example SSH key").uuid().unwrap(),
+        )
+    };
+    database.move_entry(&mail, &root, NOW).unwrap();
+    database.delete_entry(&card, NOW).unwrap();
+    database
+        .update_entry(&ssh_key, &[("Notes", "edited on the phone")], NOW)
+        .unwrap();
+    database
+        .update_entry(&mail, &[("phone-only", "kept")], NOW)
+        .unwrap();
+
+    // In Bitwarden: the mail password changes later, the SSH key changed
+    // earlier than the phone edit, and a new item appears.
+    let items = export["items"].as_array_mut().unwrap();
+    items[0]["login"]["password"] = "example-new-password".into();
+    items[0]["revisionDate"] = "2026-02-01T00:00:00.000Z".into();
+    items[1]["card"]["code"] = "999".into();
+    items[1]["revisionDate"] = "2026-02-01T00:00:00.000Z".into();
+    items[2]["notes"] = "edited in Bitwarden".into();
+    items[2]["revisionDate"] = "2025-12-01T00:00:00.000Z".into();
+    let mut added = items[3].clone();
+    added["id"] = "4f5a6b7c-8d9e-4f0a-9b1c-3d4e5f6a7b8c".into();
+    added["name"] = "Example new note".into();
+    items.push(added);
+    assert_eq!(import_export(&mut database, &export), (1, 2));
+
+    let saved = database.save().unwrap();
+    let reopened = Database::open(&saved, key(false)).unwrap();
+    let root = reopened.root_group().unwrap();
+    let mail = entry(&root, "Example mail");
+    assert_eq!(value(&mail, "Password"), "example-new-password");
+    assert_eq!(value(&mail, "phone-only"), "kept");
+    let history: Vec<String> = mail.history().map(|h| value(&h, "Password")).collect();
+    assert_eq!(
+        history,
+        [
+            "example-old-password",
+            "example-mail-password",
+            "example-mail-password"
+        ]
+    );
+    let import = subgroup(&root, "Bitwarden import");
+    assert!(import
+        .entries()
+        .all(|e| value(&e, "Title") != "Example card"));
+    let bin_card = entry(&subgroup(&root, "Recycle Bin"), "Example card");
+    assert_eq!(value(&bin_card, "card_code"), "123");
+    let ssh_key = entry(&subgroup(&import, "Work"), "Example SSH key");
+    assert_eq!(value(&ssh_key, "Notes"), "edited on the phone");
+    assert!(ssh_key
+        .history()
+        .any(|h| value(&h, "Notes") == "edited in Bitwarden"));
+    entry(&import, "Example new note");
+    assert_eq!(
+        root.groups()
+            .filter(|g| *g.name() == "Bitwarden import")
+            .count(),
+        1
+    );
+
+    let file = TempFile::write("merged-import", &saved);
+    let shown = keepassxc_cli(
+        &["show", "-a", "Password", "-a", "phone-only"],
+        &file,
+        false,
+        &["Example mail"],
+    );
+    assert_eq!(shown, "example-new-password\nkept\n");
 }

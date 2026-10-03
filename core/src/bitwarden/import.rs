@@ -225,6 +225,7 @@ fn map_item(item: &Item) -> NewEntry {
         })
         .collect();
     NewEntry {
+        uuid: parse_uuid(item.id.as_str()),
         fields: fields.0,
         tags,
         created,
@@ -431,6 +432,28 @@ fn private_key_pem(key_value: &str) -> Zeroizing<String> {
     }
 }
 
+/// The item ID as a UUID, so a later import of the same item merges into
+/// its entry. Bitwarden and Vaultwarden IDs are UUIDs; other IDs give none.
+fn parse_uuid(id: &str) -> Option<[u8; 16]> {
+    let bytes = id.as_bytes();
+    let dashes_at = [8, 13, 18, 23];
+    if bytes.len() != 36
+        || dashes_at.iter().any(|&index| bytes[index] != b'-')
+        || !bytes
+            .iter()
+            .enumerate()
+            .all(|(index, byte)| dashes_at.contains(&index) || byte.is_ascii_hexdigit())
+    {
+        return None;
+    }
+    let digits: Vec<u8> = bytes.iter().copied().filter(|&b| b != b'-').collect();
+    let mut uuid = [0u8; 16];
+    for (target, pair) in uuid.iter_mut().zip(digits.chunks_exact(2)) {
+        *target = u8::from_str_radix(std::str::from_utf8(pair).ok()?, 16).ok()?;
+    }
+    Some(uuid)
+}
+
 /// Seconds since the Unix epoch for an ISO 8601 date-time such as
 /// `2024-01-15T10:20:30.123Z`. A time without offset counts as UTC.
 fn parse_time(text: &str) -> Option<i64> {
@@ -523,6 +546,25 @@ mod tests {
             .iter()
             .find(|field| field.key == key)
             .map(|field| (field.value.as_str(), field.protected))
+    }
+
+    #[test]
+    fn uses_item_ids_as_uuids() {
+        assert_eq!(
+            parse_uuid("6f0e1d2c-3b4a-4958-8776-655443322110"),
+            Some([
+                0x6f, 0x0e, 0x1d, 0x2c, 0x3b, 0x4a, 0x49, 0x58, 0x87, 0x76, 0x65, 0x54, 0x43, 0x32,
+                0x21, 0x10
+            ])
+        );
+        for invalid in [
+            "",
+            "6f0e1d2c3b4a49588776655443322110",
+            "6f0e1d2c-3b4a-4958-8776-65544332211g",
+            "6f0e1d2c-3b4a-4958-8776-6554433221100",
+        ] {
+            assert_eq!(parse_uuid(invalid), None, "{invalid}");
+        }
     }
 
     #[test]

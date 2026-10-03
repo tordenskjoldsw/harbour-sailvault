@@ -146,10 +146,6 @@ fn import_status(error: ImportError) -> i32 {
     }
 }
 
-fn entry_count(group: &NewGroup) -> usize {
-    group.entries.len() + group.groups.iter().map(entry_count).sum::<usize>()
-}
-
 /// # Safety
 ///
 /// `data` must be null or valid for reads of `length` bytes.
@@ -1034,46 +1030,38 @@ pub unsafe extern "C" fn sv_bitwarden_read(
     }
 }
 
-/// The number of entries an import adds.
-///
-/// # Safety
-///
-/// `import` must be null or a live handle from `sv_bitwarden_read`.
-#[no_mangle]
-pub unsafe extern "C" fn sv_import_entry_count(import: *const SvImport) -> usize {
-    import
-        .as_ref()
-        .map_or(0, |import| entry_count(&import.group))
-}
-
-/// Adds an import as a new group at the end of the root group, in one step,
-/// and writes the group's UUID to `uuid_out`. In memory only until
+/// Merges an import into the root group's group of the same name, created
+/// when missing, in one step (see `Database::merge_group_tree`), and writes
+/// how many entries were added and updated. In memory only until
 /// `sv_database_save`.
 ///
 /// # Safety
 ///
 /// `database` must be a live handle not in use by another thread; `import`
-/// a live handle from `sv_bitwarden_read`; `uuid_out` valid for writes of 16
-/// bytes.
+/// a live handle from `sv_bitwarden_read`; `added_out` and `updated_out`
+/// valid for one write each.
 #[no_mangle]
 pub unsafe extern "C" fn sv_database_import(
     database: *mut SvDatabase,
     import: *const SvImport,
     now: i64,
-    uuid_out: *mut u8,
+    added_out: *mut usize,
+    updated_out: *mut usize,
 ) -> i32 {
-    let (Some(database), Some(import)) = (database.as_mut(), import.as_ref()) else {
+    let (Some(database), Some(import), Some(added_out), Some(updated_out)) = (
+        database.as_mut(),
+        import.as_ref(),
+        added_out.as_mut(),
+        updated_out.as_mut(),
+    ) else {
         return SV_INVALID_ARGUMENT;
     };
-    if uuid_out.is_null() {
-        return SV_INVALID_ARGUMENT;
-    }
-    let Some(root) = group_or_root(&database.database, std::ptr::null()) else {
-        return SV_NOT_FOUND;
-    };
-    match database.database.add_group_tree(&root, &import.group, now) {
-        Ok(uuid) => {
-            slice::from_raw_parts_mut(uuid_out, UUID_LENGTH).copy_from_slice(&uuid);
+    *added_out = 0;
+    *updated_out = 0;
+    match database.database.merge_group_tree(&import.group, now) {
+        Ok(summary) => {
+            *added_out = summary.added;
+            *updated_out = summary.updated;
             SV_OK
         }
         Err(error) => status(error),
@@ -1515,23 +1503,35 @@ mod tests {
                 ),
                 SV_OK
             );
-            assert_eq!(sv_import_entry_count(import), 4);
 
             let (status, database) = open(PASSWORD);
             assert_eq!(status, SV_OK);
-            let mut group = [0u8; UUID_LENGTH];
+            let (mut added, mut updated) = (0, 0);
             assert_eq!(
-                sv_database_import(database, import, 0, group.as_mut_ptr()),
+                sv_database_import(database, import, 0, &mut added, &mut updated),
                 SV_OK
             );
+            assert_eq!((added, updated), (4, 0));
+            assert_eq!(
+                sv_database_import(database, import, 0, &mut added, &mut updated),
+                SV_OK
+            );
+            assert_eq!((added, updated), (0, 0));
             sv_import_free(import);
-            let mut content = std::ptr::null_mut();
+
+            let mut groups = std::ptr::null_mut();
+            assert_eq!(sv_database_groups(database, &mut groups), SV_OK);
+            let names: Vec<String> = (0..sv_list_length(groups))
+                .map(|index| list_text(groups, index, 0))
+                .collect();
             assert_eq!(
-                sv_database_group(database, group.as_ptr(), &mut content),
-                SV_OK
+                names
+                    .iter()
+                    .filter(|name| *name == "Bitwarden import")
+                    .count(),
+                1
             );
-            assert_eq!(list_text(content, 0, 0), "Work");
-            sv_list_free(content);
+            sv_list_free(groups);
             sv_database_free(database);
         }
     }
