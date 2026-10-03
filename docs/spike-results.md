@@ -160,3 +160,32 @@ Limits of this measurement:
 - [x] Secret stored in Sailfish Secrets and read back behind system authentication (Confirm dialog only)
 - [x] Fingerprint accepted by the system dialog on the Jolla Phone: no, gate failed; fingerprint dropped (PLAN.md section 6)
 - [x] Cold start baseline of the empty app (about 400 ms, direct launch)
+
+## KDF and unlock timings (Phase 2)
+
+Measured on the Jolla Phone (Sailfish OS 5.2.0.18) on 2026-10-03 with
+`tools/run-kdf-benchmark.sh` (`core/examples/kdf_benchmark.rs`, release
+build with the target's Rust 1.75, median of 3 runs). Host: development PC
+for comparison.
+
+| KDF | Phone | Host |
+|-----|-------|------|
+| Argon2id, 2 iterations, 64 MiB | 141 ms | 41 ms |
+| Argon2id, 10 iterations, 64 MiB | 616 ms | 187 ms |
+| Argon2id, 2 iterations, 256 MiB | 586 ms | 189 ms |
+| AES-KDF without `aes_armv8` | 1.0 million rounds/s | - |
+| AES-KDF with `aes_armv8` | 62 million rounds/s | 67 million rounds/s |
+| Opening a fixture without the KDF | 2 ms | < 1 ms |
+
+- Argon2 cost grows linearly with iterations times memory, about 60 ms per
+  iteration per 64 MiB on the phone. The `argon2` crate runs lanes
+  sequentially, so parallelism does not speed it up.
+- The `aes` crate uses the ARMv8 AES instructions only with
+  `--cfg aes_armv8`, set for aarch64 in `.cargo/config.toml`. It detects
+  them at runtime and falls back to software. Without the flag, an AES-KDF
+  database set to one second in KeePassXC would take about a minute.
+- Argon2d timings of the second run varied between 130 and 1600 ms in the
+  first rows, likely from other load on the phone; Argon2id matched the
+  first run within a few percent.
+- The SDK build environment sets no `RUSTFLAGS`, so the app build picks up
+  the flag from `.cargo/config.toml`.

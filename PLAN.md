@@ -4,9 +4,9 @@ Status: 2026-10-03 - direction changed from a Bitwarden client to a KeePass
 (KDBX4) password manager with Bitwarden import. Phase 1 (device spike) is
 complete and carries over. The cleanup of the Bitwarden server client is
 done and Phase 2 (KDBX4 read core) has started.
-The KDBX4 reader is written and opens every KeePassXC-made fixture
-(2026-10-03). Next step: measure the KDFs on the Jolla Phone, then close
-Phase 2. The KDBX 3.1 decision (section 14) is still open; 3.1 files are
+Phase 2 is complete (2026-10-03): the KDBX4 reader opens every
+KeePassXC-made fixture, and the KDFs are measured on the Jolla Phone.
+Next step: Phase 3 (read-only MVP). The KDBX 3.1 decision (section 14) is still open; 3.1 files are
 detected and reported until then.
 
 ## 1. Goal
@@ -200,7 +200,7 @@ passes, fingerprint not available to Harbour apps, cold start baseline about
 - Verified after the cleanup: all tests pass, the target build with Rust 1.75
   works, the Harbour validator passes
 
-### Phase 2 - KDBX4 read core (reader done, device KDF measurement open)
+### Phase 2 - KDBX4 read core (complete)
 
 Scope:
 
@@ -259,7 +259,12 @@ Result (2026-10-03, host only):
   instructions and indentation between elements, none of which carry data
 - KeePassXC adds its own `_LAST_MODIFIED` custom data item on import; the
   reader keeps it like any other item
-- Builds with the target's Rust 1.75; not yet run on the device
+- Builds with the target's Rust 1.75
+- On the Jolla Phone: Argon2id with 64 MiB takes about 140 ms for 2
+  iterations and 600 ms for 10; AES-KDF reaches 62 million rounds/s with
+  the ARMv8 AES instructions (`aes_armv8` in `.cargo/config.toml`), 1
+  million without; opening without the KDF takes 2 ms. Details in
+  `docs/spike-results.md`
 
 ### Phase 3 - Read-only MVP
 
@@ -313,7 +318,7 @@ Exit: usable as a daily read-only KeePass app on the Jolla Phone; criteria 2,
 | Merge loses edits | Mirror KeePassXC's Merger; tests with conflicting edits; recycle bin default |
 | KDBX format details misread | Verify against KeePassXC source; fixtures created with KeePassXC (`keepassxc-cli` and the GUI) |
 | KDBX4 fixtures are made by hand and can drift from the documented settings | Steps and parameters fixed in `core/tests/fixtures/README.md`; tests assert format, KDF and cipher of each fixture |
-| Argon2 with high memory too slow on the device | Measure on the Jolla Phone in Phase 2; worker thread with progress |
+| Argon2 with high memory too slow on the device | Measured in Phase 2: about 60 ms per iteration per 64 MiB; worker thread with progress |
 | Rust 1.75 in the target too old for a needed crate | Pin compatible versions; fallback: build the static library on the host with a current Rust |
 | Project goes stale after release | Keep scope small enough to maintain alone |
 
