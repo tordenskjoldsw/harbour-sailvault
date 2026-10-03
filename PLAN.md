@@ -34,6 +34,10 @@ The list target is first checked against real data in Phase 2. Measure with
 | BitSailor | Open source, rewritten on a native Go core (v1.0.0, July 2026), listed in Harbour news (Sept 2026), fingerprint via polkit, only in the OpenRepos build (not allowed in Harbour), very frequent releases | Unknown from first-hand testing - to be found by daily use |
 | SailWarden | Broad feature set (organizations, Send, SSO, device login, biometrics) | Closed source, OpenRepos only, Android-like UI, low community trust |
 
+Guiding principle: security is never traded for features. A convenience
+feature that weakens the security model is not built, or only as an explicit,
+documented opt-in.
+
 SailVault does not compete on feature breadth in the first year. It competes on:
 
 - **Trust**: open source from day one, documented threat model, reproducible CI builds
