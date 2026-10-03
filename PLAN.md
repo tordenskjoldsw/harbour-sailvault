@@ -385,12 +385,16 @@ every text node and the attachments, about a hundred bytes more). Deleting
 moves an entry to the recycle bin, which is created like KeePassXC's
 `Database::createRecycleBin` when missing; an entry already in the bin, or
 any entry while the bin is disabled, is removed and recorded under
-`DeletedObjects`. The entry dialog edits existing entries; the entry page
-and the list offer "Edit" and "Delete" with a remorse timer whose text says
-whether the entry is recycled or removed for good. `keepassxc-cli` reads a
-saved file with all three edits. Not in Part B: editing groups, restoring
-from or emptying the recycle bin, a history viewer, and deleting backups on
-a credential change (there is no credential change yet).
+`DeletedObjects`. Deleting a group moves it with everything in it to the
+bin; a group inside the bin, the bin itself, a group holding the bin, or any
+group while the bin is disabled is removed for good, recording its entries,
+subgroups and itself like KeePassXC's `Group::~Group`; the root group is
+refused. The entry dialog edits existing entries; the entry page and the
+list offer "Edit" and "Delete" (groups: "Delete") with a remorse timer whose
+text says whether the item is recycled or removed for good. `keepassxc-cli`
+reads saved files with all these edits. Not in Part B: creating or renaming
+groups, restoring from or emptying the recycle bin, a history viewer, and
+deleting backups on a credential change (there is no credential change yet).
 
 Part C - Bitwarden/Vaultwarden import into a new or existing database.
 
