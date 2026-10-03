@@ -17,21 +17,21 @@ EntryListModel::EntryListModel(QObject *parent)
 {
 }
 
-Vault *EntryListModel::vault() const
+Vault *EntryListModel::source() const
 {
     return m_vault;
 }
 
-void EntryListModel::setVault(Vault *vault)
+void EntryListModel::setSource(Vault *source)
 {
-    if (m_vault == vault)
+    if (m_vault == source)
         return;
     if (m_vault)
         disconnect(m_vault, nullptr, this, nullptr);
-    m_vault = vault;
+    m_vault = source;
     if (m_vault)
         connect(m_vault, &Vault::stateChanged, this, &EntryListModel::reload);
-    emit vaultChanged();
+    emit sourceChanged();
     reload();
 }
 

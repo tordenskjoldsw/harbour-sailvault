@@ -18,7 +18,7 @@ Page {
 
         model: EntryListModel {
             id: entries
-            vault: vault
+            source: vault
             groupId: page.groupId
             query: listView.headerItem ? listView.headerItem.query : ""
         }

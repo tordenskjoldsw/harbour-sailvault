@@ -14,7 +14,9 @@
 class EntryListModel : public QAbstractListModel
 {
     Q_OBJECT
-    Q_PROPERTY(Vault *vault READ vault WRITE setVault NOTIFY vaultChanged)
+    // Named source, not vault: inside the model a binding "vault: vault" would
+    // resolve to the model's own property instead of the context property.
+    Q_PROPERTY(Vault *source READ source WRITE setSource NOTIFY sourceChanged)
     Q_PROPERTY(QString groupId READ groupId WRITE setGroupId NOTIFY groupIdChanged)
     Q_PROPERTY(QString query READ query WRITE setQuery NOTIFY queryChanged)
     Q_PROPERTY(int count READ count NOTIFY countChanged)
@@ -30,8 +32,8 @@ public:
 
     explicit EntryListModel(QObject *parent = nullptr);
 
-    Vault *vault() const;
-    void setVault(Vault *vault);
+    Vault *source() const;
+    void setSource(Vault *source);
     QString groupId() const;
     void setGroupId(const QString &groupId);
     QString query() const;
@@ -43,7 +45,7 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
 signals:
-    void vaultChanged();
+    void sourceChanged();
     void groupIdChanged();
     void queryChanged();
     void countChanged();
