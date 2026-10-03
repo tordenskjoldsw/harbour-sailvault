@@ -105,7 +105,7 @@ impl fmt::Debug for Element {
         f.debug_struct("Element")
             .field("name", &self.name)
             .field("children", &self.elements().count())
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 

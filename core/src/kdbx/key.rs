@@ -105,7 +105,7 @@ fn xml_key_file(content: &[u8]) -> Result<Option<Zeroizing<[u8; KEY_LENGTH]>>> {
                         .flatten()
                         .find(|attribute| attribute.key.local_name().as_ref() == b"Hash")
                         .and_then(|attribute| attribute.unescape_value().ok())
-                        .map(|value| value.into_owned());
+                        .map(std::borrow::Cow::into_owned);
                 }
                 path.push(name);
             }

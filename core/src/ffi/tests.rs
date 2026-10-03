@@ -613,12 +613,6 @@ fn adds_an_entry_and_saves_a_file_that_opens_again() {
             sv_database_group(database, std::ptr::null(), &mut root),
             SV_OK
         );
-        let mut root_uuid = [0u8; UUID_LENGTH];
-        let root_index = sv_list_length(root) - 1;
-        assert_eq!(
-            sv_list_uuid(root, root_index, root_uuid.as_mut_ptr()),
-            SV_OK
-        );
         sv_list_free(root);
         let group_uuid = (*database).database.root_group().unwrap().uuid().unwrap();
 

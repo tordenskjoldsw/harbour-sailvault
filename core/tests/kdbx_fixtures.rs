@@ -1,7 +1,13 @@
 //! Reads databases written by KeePassXC (`core/tests/fixtures/README.md`).
 
+use std::io::Write as _;
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
+
+use sailvault_core::bitwarden;
 use sailvault_core::kdbx::{
-    Argon2Variant, Cipher, Compression, KdbxError, KdfParameters, OuterHeader,
+    Argon2Variant, Cipher, CompositeKey, Compression, Database, Entry, Group, KdbxError, KdfLevel,
+    KdfParameters, OuterHeader,
 };
 
 const KDBX31: &[u8] = include_bytes!("fixtures/kdbx31-aeskdf.kdbx");
@@ -115,9 +121,6 @@ fn newer_major_version_is_rejected() {
 
 const PASSWORD: &[u8] = b"sailvault-fixture";
 const KEY_FILE: &[u8] = include_bytes!("fixtures/fixture.keyx");
-
-use sailvault_core::bitwarden;
-use sailvault_core::kdbx::{CompositeKey, Database, Entry, Group, KdfLevel};
 
 fn key(key_file: bool) -> CompositeKey {
     CompositeKey::new(Some(PASSWORD), key_file.then_some(KEY_FILE)).unwrap()
@@ -371,10 +374,6 @@ fn large_fixture_lists_and_searches_1000_entries() {
 
 // Writer: every fixture must survive a save unchanged, and KeePassXC must
 // read what SailVault writes.
-
-use std::io::Write as _;
-use std::path::PathBuf;
-use std::process::{Command, Stdio};
 
 struct TempFile(PathBuf);
 

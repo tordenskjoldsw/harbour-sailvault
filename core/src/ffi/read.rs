@@ -20,14 +20,14 @@ fn find_version<'a>(
     }
 }
 
-fn field_text(entry: &Entry<'_>, key: &str) -> Zeroizing<String> {
+fn field_text(entry: Entry<'_>, key: &str) -> Zeroizing<String> {
     entry
         .field(key)
         .map(|field| field.value())
         .unwrap_or_default()
 }
 
-fn entry_item(entry: &Entry<'_>, group: &Group<'_>) -> Option<ListItem> {
+fn entry_item(entry: Entry<'_>, group: Group<'_>) -> Option<ListItem> {
     Some(ListItem {
         uuid: entry.uuid()?,
         is_group: false,
@@ -64,7 +64,7 @@ pub unsafe extern "C" fn sv_database_search(
     };
     let items = results
         .iter()
-        .filter_map(|ListedEntry { entry, group, .. }| entry_item(entry, group))
+        .filter_map(|ListedEntry { entry, group, .. }| entry_item(*entry, *group))
         .collect();
     *out = Box::into_raw(Box::new(SvList { items }));
     SV_OK
@@ -108,11 +108,7 @@ pub unsafe extern "C" fn sv_database_group(
             })
         })
         .collect();
-    items.extend(
-        group
-            .entries()
-            .filter_map(|entry| entry_item(&entry, &group)),
-    );
+    items.extend(group.entries().filter_map(|entry| entry_item(entry, group)));
     *out = Box::into_raw(Box::new(SvList { items }));
     SV_OK
 }

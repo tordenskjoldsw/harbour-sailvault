@@ -637,7 +637,7 @@ mod tests {
         )
     }
 
-    fn entry(database: &Database) -> super::super::Entry<'_> {
+    fn entry(database: &Database) -> crate::kdbx::Entry<'_> {
         database
             .entries()
             .unwrap()
@@ -647,7 +647,7 @@ mod tests {
             .expect("entry exists")
     }
 
-    fn group_names(group: &super::super::Group<'_>) -> Vec<String> {
+    fn group_names(group: crate::kdbx::Group<'_>) -> Vec<String> {
         group.groups().map(|g| g.name().to_string()).collect()
     }
 
@@ -849,11 +849,11 @@ mod tests {
         assert_eq!(database.delete_group(&BANKING, NOW), Ok(false));
 
         let root = database.root_group().unwrap();
-        assert_eq!(group_names(&root), ["Recycle Bin"]);
+        assert_eq!(group_names(root), ["Recycle Bin"]);
         let bin = root.groups().next().unwrap();
-        assert_eq!(group_names(&bin), ["Banking"]);
+        assert_eq!(group_names(bin), ["Banking"]);
         let banking = bin.groups().next().unwrap();
-        assert_eq!(group_names(&banking), ["Cards"]);
+        assert_eq!(group_names(banking), ["Cards"]);
         assert_eq!(banking.groups().next().unwrap().entries().count(), 1);
         assert_eq!(
             *banking
@@ -976,7 +976,7 @@ mod tests {
         let mail = database.add_group(&ROOT, "Mail", NOW).unwrap();
 
         let root = database.root_group().unwrap();
-        assert_eq!(group_names(&root), ["Banking", "Recycle Bin", "Mail"]);
+        assert_eq!(group_names(root), ["Banking", "Recycle Bin", "Mail"]);
         let group = root.groups().last().unwrap();
         assert_eq!(group.uuid(), Some(mail));
         let names: Vec<&str> = group
@@ -1082,7 +1082,7 @@ mod tests {
         assert_eq!(database.move_group(&CARDS, &ROOT, NOW), Ok(true));
 
         let root = database.root_group().unwrap();
-        assert_eq!(group_names(&root), ["Banking", "Recycle Bin", "Cards"]);
+        assert_eq!(group_names(root), ["Banking", "Recycle Bin", "Cards"]);
         let cards = root.groups().last().unwrap();
         assert_eq!(cards.entries().count(), 1);
         assert_eq!(
@@ -1122,7 +1122,7 @@ mod tests {
         assert_eq!(database.restore(&BANKING, NOW), Ok(ROOT));
         assert_eq!(database.restore(&BIN, NOW), Err(KdbxError::NotInRecycleBin));
         let root = database.root_group().unwrap();
-        assert_eq!(group_names(&root), ["Recycle Bin", "Banking"]);
+        assert_eq!(group_names(root), ["Recycle Bin", "Banking"]);
         assert_eq!(root.entries().count(), 2);
     }
 

@@ -297,7 +297,7 @@ fn merge_entry(
             }
             let current_tags = existing
                 .child("Tags")
-                .map(|tags| tags.text())
+                .map(super::xml::Element::text)
                 .unwrap_or_default();
             let tags = tags_text(
                 current_tags

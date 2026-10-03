@@ -35,7 +35,7 @@ impl Database {
         Ok(self
             .entries()?
             .into_iter()
-            .filter(|listed| listed.searchable && matches(&listed.entry, &terms))
+            .filter(|listed| listed.searchable && matches(listed.entry, &terms))
             .collect())
     }
 }
@@ -44,7 +44,7 @@ fn collect<'a>(group: Group<'a>, parent_searchable: bool, entries: &mut Vec<List
     let searchable = match group
         .element()
         .child("EnableSearching")
-        .map(|setting| setting.text())
+        .map(super::xml::Element::text)
     {
         Some(setting) => parse_bool(&setting).unwrap_or(parent_searchable),
         None => parent_searchable,
@@ -59,7 +59,7 @@ fn collect<'a>(group: Group<'a>, parent_searchable: bool, entries: &mut Vec<List
     }
 }
 
-fn matches(entry: &Entry<'_>, terms: &[Zeroizing<String>]) -> bool {
+fn matches(entry: Entry<'_>, terms: &[Zeroizing<String>]) -> bool {
     if terms.is_empty() {
         return true;
     }
