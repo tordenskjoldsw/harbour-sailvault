@@ -1,6 +1,8 @@
 * Sat Oct 03 2026 Tobias Kaminski <instance_maintainer@protonmail.com> - 0.2.0-1
 - Create, edit, move and delete entries; history and recycle bin as in KeePassXC
-- Create groups
+- Create, rename and move groups
+- Restore entries and groups from the recycle bin, and empty it
+- View earlier versions of an entry
 - Atomic, verified saves with the last three versions kept as backups
 - Password generator
 - Import Bitwarden and Vaultwarden JSON exports, unencrypted or password-protected;
