@@ -1,10 +1,12 @@
 # SailVault threat model
 
-Status: 2026-10-03, Phase 3 (read-only app), updated after the security
-review fixes (`docs/security-review-2026-10.md`). Covers the code in this
-repository at that state. Phases 4 (write, Bitwarden import) and 5 (Nextcloud
-sync) change the model; see "Changes in later phases". Points marked
-**unverified** have not been checked on Sailfish OS or the device yet.
+Status: 2026-10-03, Phase 4 Part A (the app creates entries and writes the
+database), after the security review fixes
+(`docs/security-review-2026-10.md`). Covers the code in this repository at
+that state. Phase 4 Parts B and C (edit, delete, Bitwarden import) and
+Phase 5 (Nextcloud sync) change the model; see "Changes in later phases".
+Points marked **unverified** have not been checked on Sailfish OS or the
+device yet.
 
 ## Assets
 
@@ -14,6 +16,7 @@ sync) change the model; see "Changes in later phases". Points marked
 | Master password | Typed into the unlock page; never stored |
 | Key file | A file the user picks; read into RAM during unlock |
 | Clipboard content | The system clipboard, for up to 30 seconds after a copy |
+| Backups | `~/.local/share/de.tordenskjold/sailvault/backups/`: the three newest versions the app replaced, encrypted like the database |
 | Last database and key file path | `~/.config/de.tordenskjold/sailvault/settings.ini` (paths only, no secrets) |
 
 ## Architecture and trust boundaries
@@ -21,9 +24,9 @@ sync) change the model; see "Changes in later phases". Points marked
 ```
 QML / JavaScript engine   titles, user names, the one field being shown
         |
-C++ bridge (Qt 5.6)       file reading, clipboard, lock state, timers
+C++ bridge (Qt 5.6)       file reading and writing, backups, clipboard, lock state, timers
         |  C API (core/include/sailvault_core.h)
-Rust core                 KDBX4 parsing, KDF, decryption, search
+Rust core                 KDBX4 parsing and writing, KDF, encryption, search
 ```
 
 - The Rust core holds the decrypted database. It parses untrusted input with
@@ -35,9 +38,15 @@ Rust core                 KDBX4 parsing, KDF, decryption, search
   Twofish) and the Argon2 working memory are zeroized when dropped; the
   keystream for protected values is dropped right after parsing; errors
   carry no content.
+- The core writes the same tree it parsed. Each save draws a fresh master
+  seed, encryption IV, KDF seed and inner stream key from `getrandom(2)`,
+  the core's only system call, so the KDF runs again and the composite key
+  stays in the core while the database is unlocked. The serialized file is
+  decrypted and compared with the model before it leaves the core.
 - The C API returns lists with ids, titles, user names and group names. A
   field value crosses the boundary only when the user shows or copies it.
-  Every string from the core is zeroized by `sv_string_free`.
+  New entries cross it once, on the way in. Every string from the core is
+  zeroized by `sv_string_free`.
 - QML never holds the database. It receives what is on screen.
 - The app runs in the Sailjail sandbox with the permissions `Documents` and
   `Downloads` and no network permission.
@@ -52,6 +61,9 @@ Protected:
   used) through the KDF stored in the file. Nothing that unlocks it is
   stored on the device.
 - No decrypted data is written to disk. Settings contain only file paths.
+  A save writes the encrypted file to a temporary file next to the
+  database and renames it over the original; the previous file goes to the
+  backups, encrypted as it was.
 - `/home` is LUKS-encrypted on the Jolla Phone (checked on 5.2.0.18), which
   protects the files while the phone is off.
 
@@ -62,6 +74,9 @@ Limits:
   settings without warning.
 - A key file stored next to the database in Documents adds no protection
   against someone who has the phone's files.
+- Backups are protected by the credentials in effect when they were
+  written. A later credential change does not re-protect them; deleting
+  them on a credential change is planned (`PLAN.md`, section 7).
 
 ### 2. Unlocked phone in someone else's hands
 
@@ -153,6 +168,9 @@ network requests.
 - **HMAC and SHA-2 states are not wiped.** The `hmac` and `sha2` crates
   offer no zeroize support; their internal states, derived from key
   material, are freed without zeroing.
+- **Compression buffers are not wiped.** `flate2` keeps the decompressed
+  and, on save, the compressed plaintext in internal buffers that are
+  freed without zeroing; the buffers the core owns are zeroized.
 - **Memory paging.** The phone swaps to zram (compressed RAM, checked on
   5.2.0.18), not to flash, so swapped pages stay in RAM. The app does not
   lock its memory.
@@ -178,10 +196,11 @@ network requests.
 
 ## Changes in later phases
 
-- **Phase 4 (write, import):** the app writes the KDBX file (atomic save,
-  verification, backups) and needs a random source for seeds, IVs and keys.
-  Unencrypted Bitwarden exports are plaintext files on the device until the
-  user deletes them.
+- **Phase 4 Parts B and C (edit, delete, import):** edits add history
+  entries and the recycle bin keeps deleted entries until emptied, so a
+  changed or removed password stays in the file until then, as in
+  KeePassXC. Unencrypted Bitwarden exports are plaintext files on the
+  device until the user deletes them.
 - **Phase 5 (Nextcloud sync):** adds the `Internet` permission, a network
   attacker (TLS through Qt and the system CA store) and the Nextcloud app
   password, stored in Sailfish Secrets with device-lock protection only

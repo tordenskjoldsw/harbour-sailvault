@@ -118,10 +118,11 @@ Reading KDBX 3.1 is an open decision, see section 14.
 | Lossless XML model | Unknown elements and attributes are kept and written back; required for criterion 3 |
 | KDBX file as the only storage | Standard format, readable by KeePassXC, the file is the backup |
 
-State of the core after the cleanup (2026-10-03): 39 crates (was 41). The
-only Bitwarden code left decrypts password-protected exports. The
-random-number interface and the `getrandom` crate are removed; they only
-served the Bitwarden device ID.
+State of the core (2026-10-03, Phase 4 Part A): 47 crates including dev
+dependencies. The only Bitwarden code left decrypts password-protected
+exports. `getrandom` (0.2 line) is the only system call the core makes; it
+serves the seeds, IVs and inner stream key of every save, UUIDs and the
+password generator.
 
 ## 6. Unlock design
 
@@ -351,6 +352,20 @@ Part A - create entries:
    password, URL, notes) and a password generator
 7. Device test: create entries on the phone, open the file in KeePassXC
 
+Status (2026-10-03): steps 1 to 6 are done, step 7 is pending.
+`Kdbx4Writer.cpp` confirmed that KeePassXC draws a new master seed,
+encryption IV, inner stream key and KDF seed on every save
+(`Database::setKey` with `updateTransformSalt`); SailVault does the same, so
+the KDF runs once per save and the core keeps the composite key while
+unlocked. Every fixture, including the 1000-entry one, reopens with an
+identical tree and binary pool after a save, and the `keepassxc-cli` export
+of the saved file equals the export of the original (apart from KeePassXC's
+export-time `_LAST_MODIFIED` stamps). `keepassxc-cli show` reads an entry
+that SailVault added to a subgroup. The core verifies each save by
+decrypting the serialized file before handing it out. Saving in C++ follows
+section 7; the backups live in `~/.local/share/de.tordenskjold/sailvault/
+backups/`. The RPM builds without warnings and passes the validator.
+
 Part B - edit and delete: history, recycle bin with remorse, hard delete
 writes `DeletedObjects`.
 
@@ -434,7 +449,13 @@ Decided:
 - Phase 4 order (2026-10-03): create entries, then edit and delete, then
   the Bitwarden import.
 - Random source (2026-10-03): `getrandom` in the core, documented exception
-  to the no-I/O rule.
+  to the no-I/O rule. The 0.2 line, because the 0.3 line's wasm
+  dependencies have manifests that the SDK's cargo 1.75 cannot parse,
+  although they are never built for the target.
+- Changed file on save (2026-10-03): until Phase 5 brings merging, a file
+  that another program changed while the database was unlocked is replaced;
+  the backup keeps that version and the UI says so. Refusing would leave
+  the new entry only in RAM.
 - Saving (2026-10-03): immediately after the user accepts a change, like
   KeePassXC's autosave; no separate save button.
 - Backups (2026-10-03): last 3 versions in the private data directory;
