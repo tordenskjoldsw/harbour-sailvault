@@ -1,4 +1,5 @@
 pub mod bitwarden;
+pub mod ffi;
 pub mod kdbx;
 
 use std::os::raw::c_char;
