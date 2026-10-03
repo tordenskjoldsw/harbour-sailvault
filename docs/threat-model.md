@@ -64,7 +64,8 @@ Protected:
   A save writes the encrypted file to a new temporary file next to the
   database (created exclusively, never through a symlink, and read back
   through the same descriptor) and renames it over the original; the
-  previous file goes to the backups, encrypted as it was.
+  previous file goes to the backups, encrypted as it was. A version another
+  program had written is kept as a separate backup outside the rotation.
 - `/home` is LUKS-encrypted on the Jolla Phone (checked on 5.2.0.18), which
   protects the files while the phone is off.
 
@@ -94,7 +95,11 @@ Protected:
   up the lock happens within 5 seconds. Qt timers alone stop during
   suspend; the Jolla Phone was asleep 48 of 75 hours since boot when this
   was measured.
-- Protected fields stay masked until the user chooses "Show".
+- Protected fields stay masked until the user chooses "Show". One-time
+  password secrets (`otp`, `TOTP Seed`, `TimeOtp-Secret*`,
+  `HmacOtp-Secret*`) are masked even when a file stores them unprotected.
+- Swiping back to the unlock page locks the database, and open dialogs and
+  lists empty on lock.
 
 Limits:
 
@@ -116,7 +121,9 @@ Protected:
 - The clipboard is cleared 30 seconds after a copy (counting sleep time),
   on lock and on exit, but only if it still holds the copied value, so the
   app never clears what another app put there. To compare, the app asks the
-  core for the value again; it keeps no copy or hash of it.
+  core for the value again and keeps no copy or hash of it. Only before an
+  edit, which could change that value, does it keep a copy while the
+  clipboard holds the same value, until the clipboard is cleared.
 
 Limits:
 
@@ -161,8 +168,10 @@ Protected:
 - The export is read with bounds (32 MiB, nesting limited by the fixed
   structure, at most 32 folder levels) and treated as untrusted input.
   Values are kept in zeroized memory and the import is added in one step.
-- After importing an unencrypted export the app offers to delete it; it
-  can delete only that file.
+- After importing an unencrypted export the app offers to delete it once
+  the imported entries are saved; it can delete only that file. The import
+  checks that the file is still the kind of export the user confirmed, so
+  a plain export swapped in for a protected one is refused.
 - A later import merges only into entries an import created (UUID and a
   CustomData record), so a crafted export cannot change other entries;
   dates in the future count as the import time.
@@ -191,16 +200,23 @@ network requests.
   freed without zeroing. The input method (keyboard) also sees the typed
   password; Silica's `PasswordField` disables prediction and automatic
   capitalization (`Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase`).
-- **C++ buffers are wiped on a best-effort basis.** Password and key file
-  bytes are read into one exact allocation and overwritten with
-  `explicit_bzero` after use, but Qt's implicit sharing can leave copies
-  that are freed without zeroing.
+- **C++ buffers are wiped on a best-effort basis.** Key files and exports
+  are read with POSIX calls into one exact allocation, without Qt's read
+  buffer, and the password bytes have a single owner, the task that uses
+  them; both are overwritten with `explicit_bzero` after use. Qt's
+  implicit sharing elsewhere can leave copies that are freed without
+  zeroing.
 - **HMAC and SHA-2 states are not wiped.** The `hmac` and `sha2` crates
   offer no zeroize support; their internal states, derived from key
   material, are freed without zeroing.
-- **Compression buffers are not wiped.** `flate2` keeps the decompressed
-  and, on save, the compressed plaintext in internal buffers that are
-  freed without zeroing; the buffers the core owns are zeroized.
+- **Compression buffers are not wiped.** `flate2` keeps part of the
+  plaintext in internal buffers (its window on unlock, staged output on
+  save) that are freed without zeroing. The buffers the core owns are
+  zeroized, also when they grow: a growing buffer moves into a larger
+  allocation and the old one is wiped.
+- **Copies by the compiler.** Keys are derived straight into zeroized
+  buffers, but the compiler may still leave copies in registers or stack
+  slots that are not wiped.
 - **JSON parser buffers are not wiped.** When reading a Bitwarden export,
   `serde_json` copies strings with escape sequences through an internal
   buffer that is freed without zeroing; every value the core keeps is
@@ -223,7 +239,9 @@ network requests.
   previous state as a history item (up to `Meta/HistoryMaxItems`, default
   10), and a deleted entry sits in the recycle bin until it is deleted
   there. A changed password therefore remains in the database, encrypted,
-  until the history is trimmed or the entry is removed for good.
+  until the history is trimmed or the entry is removed for good. An
+  attachment leaves the file once no entry or history item refers to it.
+  Backups keep earlier versions until they rotate out.
 
 ## Out of scope
 
