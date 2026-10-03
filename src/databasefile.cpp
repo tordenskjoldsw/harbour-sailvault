@@ -87,20 +87,39 @@ bool backUp(const QString &databasePath, const QByteArray &current, const QStrin
 
 } // namespace
 
+// POSIX calls instead of QFile, whose read buffer keeps an unwiped copy of
+// small files such as key files. Only regular files are read: a FIFO
+// planted under a picked name would block, and O_NONBLOCK keeps the open
+// itself from blocking on one.
 int readDatabaseFile(const QString &path, qint64 maxBytes, QByteArray &out)
 {
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly))
+    const int fd = ::open(QFile::encodeName(path).constData(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0)
         return StatusFileUnreadable;
-    const qint64 size = file.size();
-    if (size > maxBytes)
-        return StatusTooLarge;
-    out = QByteArray(static_cast<int>(size), Qt::Uninitialized);
-    if (size > 0 && file.read(out.data(), size) != size) {
-        secureWipe(out);
-        return StatusFileUnreadable;
+    struct stat info;
+    int status = SV_OK;
+    if (::fstat(fd, &info) != 0 || !S_ISREG(info.st_mode)) {
+        status = StatusFileUnreadable;
+    } else if (info.st_size > maxBytes) {
+        status = StatusTooLarge;
+    } else {
+        out = QByteArray(static_cast<int>(info.st_size), Qt::Uninitialized);
+        qint64 done = 0;
+        while (done < info.st_size) {
+            const ssize_t length = ::read(fd, out.data() + done,
+                                          static_cast<size_t>(info.st_size - done));
+            if (length < 0 && errno == EINTR)
+                continue;
+            if (length <= 0) {
+                secureWipe(out);
+                status = StatusFileUnreadable;
+                break;
+            }
+            done += length;
+        }
     }
-    return SV_OK;
+    ::close(fd);
+    return status;
 }
 
 QByteArray fileDigest(const QByteArray &data)
