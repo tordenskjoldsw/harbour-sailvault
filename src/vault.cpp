@@ -68,7 +68,7 @@ public:
         const bool delivered = vault
             && QMetaObject::invokeMethod(vault, "onUnlockFinished", Qt::QueuedConnection,
                                          Q_ARG(int, m_attempt), Q_ARG(int, status),
-                                         Q_ARG(quintptr, reinterpret_cast<quintptr>(database)));
+                                         Q_ARG(qulonglong, reinterpret_cast<qulonglong>(database)));
         if (!delivered)
             sv_database_free(database);
     }
@@ -213,7 +213,7 @@ void Vault::unlock(const QString &password)
     secureWipe(passwordBytes);
 }
 
-void Vault::onUnlockFinished(int attempt, int status, quintptr handle)
+void Vault::onUnlockFinished(int attempt, int status, qulonglong handle)
 {
     SvDatabase *database = reinterpret_cast<SvDatabase *>(handle);
     if (m_state != Unlocking || attempt != m_attempt) {

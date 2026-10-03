@@ -70,7 +70,7 @@ protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private slots:
-    void onUnlockFinished(int attempt, int status, quintptr handle);
+    void onUnlockFinished(int attempt, int status, qulonglong handle);
     void onApplicationStateChanged(Qt::ApplicationState state);
     void lockAutomatically();
 
