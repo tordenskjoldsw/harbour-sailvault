@@ -427,6 +427,8 @@ a failure leaves the database unchanged. `keepassxc-cli` reads an imported
 and saved database, finds every entry in its folder and computes TOTP
 codes from the stored `otp` values. The KDF of a protected export runs on
 a pool thread; a lock discards the import.
+Device test on the Jolla Phone, 2026-10-03: an unencrypted export was
+imported; the password-protected import is still to be tested.
 
 Not in Part C: creating a new database for the import, the zip export with
 attachments.
