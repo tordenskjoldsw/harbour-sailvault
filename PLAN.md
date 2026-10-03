@@ -400,7 +400,24 @@ Device test on the Jolla Phone (Sailfish OS 5.2.0.18), 2026-10-03: entries
 were edited and deleted, and a group was deleted from the list with the
 remorse popup.
 
-Part C - Bitwarden/Vaultwarden import into a new or existing database.
+Part C - Bitwarden/Vaultwarden import:
+
+1. Moving entries between groups (KeePassXC's `Entry::setGroup`), so
+   imported entries can be sorted on the phone; moving out of the recycle
+   bin restores an entry
+2. JSON parsing in the core with bounds on size, item count and depth
+3. Mapping to KDBX as in KeePassXC's `BitwardenReader.cpp` (section 9);
+   item types KeePassXC does not map (SSH key, bank account, driver's
+   license, passport) keep every field as a custom attribute, secret values
+   protected
+4. Import into the open database under a new group; folders become
+   subgroups
+5. UI: file picker, export password, warning for unencrypted exports with
+   an offer to delete the file afterwards
+6. Device test
+
+Not in Part C: creating a new database for the import, the zip export with
+attachments.
 
 Exit: criterion 3 (lossless KeePassXC round trip) met for every fixture and
 for files changed on the phone.
@@ -479,6 +496,12 @@ Decided:
   submits later.
 - Phase 4 order (2026-10-03): create entries, then edit and delete, then
   the Bitwarden import.
+- Import target (2026-10-03): the open database, under a new group.
+  Creating a database is a separate feature (KDF settings, credentials,
+  file location). Entries can be moved between groups to sort the import.
+- Import scope (2026-10-03): JSON exports, unencrypted and
+  password-protected; the zip export with attachments comes later. Item
+  types without a KeePassXC mapping keep all fields as custom attributes.
 - Random source (2026-10-03): `getrandom` in the core, documented exception
   to the no-I/O rule. The 0.2 line, because the 0.3 line's wasm
   dependencies have manifests that the SDK's cargo 1.75 cannot parse,
