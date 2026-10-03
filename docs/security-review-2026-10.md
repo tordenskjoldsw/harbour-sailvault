@@ -61,6 +61,8 @@ installing the fixed build:
 - Copy a password, switch to another app, paste after 35 seconds: empty, so
   a sandboxed app in the background can clear the selection (M1, L10).
 - Copy a password, close the app, paste in another app: empty (I1).
+- After the I3 and I7 fixes: unlocking, wrong password error, list, entry
+  and copy work as before (regression test).
 
 ## Medium
 
