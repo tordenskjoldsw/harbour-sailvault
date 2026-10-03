@@ -123,21 +123,28 @@ fn metadata(name: &str, time: &str) -> Element {
 mod tests {
     use super::*;
 
+    /// The levels without running Argon2 at up to 1 GiB; saving and opening
+    /// a new database is tested with the C API and against keepassxc-cli.
     #[test]
-    fn every_level_saves_a_file_that_opens_again() {
-        let key = || CompositeKey::new(Some(b"level test passphrase"), None).unwrap();
-        for (level, memory_bytes) in [
-            (KdfLevel::Standard, 256 * MIB),
-            (KdfLevel::High, 512 * MIB),
-            (KdfLevel::Maximum, 1024 * MIB),
+    fn every_level_is_argon2id_within_the_reader_limits() {
+        for (level, iterations, memory_mib) in [
+            (KdfLevel::Standard, 3, 256),
+            (KdfLevel::High, 4, 512),
+            (KdfLevel::Maximum, 4, 1024),
         ] {
-            let database = Database::create(key(), "Passwords", level, 0).unwrap();
-            let saved = database.save().unwrap();
-            let reopened = Database::open(&saved, key()).unwrap();
+            let header =
+                OuterHeader::new(Cipher::Aes256, Compression::Gzip, level.parameters()).unwrap();
+            let (parsed, _) = OuterHeader::parse(&header.bytes).unwrap();
             assert!(
                 matches!(
-                    reopened.header().kdf,
-                    KdfParameters::Argon2 { memory_bytes: m, .. } if m == memory_bytes
+                    parsed.kdf,
+                    KdfParameters::Argon2 {
+                        variant: Argon2Variant::Argon2id,
+                        iterations: i,
+                        memory_bytes: m,
+                        parallelism: ARGON2_PARALLELISM,
+                        ..
+                    } if i == iterations && m == memory_mib * MIB
                 ),
                 "{level:?}"
             );
