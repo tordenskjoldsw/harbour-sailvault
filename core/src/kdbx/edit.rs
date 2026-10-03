@@ -4,8 +4,8 @@
 use super::database::{decode_uuid, encode_uuid, Database, UUID_LENGTH};
 use super::error::{KdbxError, Result};
 use super::layout::{
-    build_entry, build_group, child_or_append, deleted_object, element, field_value, insert_entry,
-    is_element, new_uuid, set_child_text, set_entry_previous_parent, set_field,
+    build_entry, build_group, child_or_append, deleted_object, element, field_value, history_item,
+    insert_entry, is_element, new_uuid, set_child_text, set_entry_previous_parent, set_field,
     set_group_previous_parent, set_time, validate_keys, NewEntry, NewField,
     DEFAULT_HISTORY_MAX_ITEMS, DEFAULT_HISTORY_MAX_SIZE, GROUP_ICON, NO_UUID, RECYCLE_BIN_ICON,
     STANDARD_KEYS,
@@ -13,7 +13,8 @@ use super::layout::{
 use super::time::kdbx_time;
 use super::tree::{
     contains_group, descend, descend_mut, entry_path, group_height, group_mut, group_path,
-    groups_on_path, parent_uuid, remove_at, root_group_mut, root_mut, ROOT_GROUP_PATH_LENGTH,
+    groups_on_path, parent_uuid, path_in_group, remove_at, root_group_mut, root_mut,
+    ROOT_GROUP_PATH_LENGTH,
 };
 use super::xml::{self, Element, Node};
 
@@ -83,11 +84,9 @@ impl Database {
         let path = entry_path(self.document(), uuid)
             .or_else(|| group_path(self.document(), uuid))
             .ok_or(KdbxError::UnknownGroup)?;
-        Ok(self.recycle_bin().is_some_and(|bin| {
-            groups_on_path(self.document(), &path)
-                .iter()
-                .any(|group| group.child("UUID").and_then(decode_uuid) == Some(bin))
-        }))
+        Ok(self
+            .recycle_bin()
+            .is_some_and(|bin| path_in_group(self.document(), &path, &bin)))
     }
 
     /// KeePassXC offers no new entries or groups in the recycle bin.
@@ -125,10 +124,7 @@ impl Database {
         if unchanged {
             return Ok(false);
         }
-        let mut previous = entry.clone();
-        previous
-            .children
-            .retain(|child| !is_element(child, "History"));
+        let previous = history_item(entry);
         for (key, value) in fields {
             set_field(entry, key, value, protected_keys.contains(key));
         }
@@ -360,10 +356,7 @@ impl Database {
     /// the entries, then each subgroup with its content. The bin stays.
     /// Returns whether anything was removed.
     pub fn empty_recycle_bin(&mut self, now: i64) -> Result<bool> {
-        let Some(bin) = self
-            .recycle_bin()
-            .filter(|bin| group_path(self.document(), bin).is_some())
-        else {
+        let Some(bin) = self.existing_recycle_bin() else {
             return Ok(false);
         };
         let bin_group = group_mut(self.document_mut(), &bin).ok_or(KdbxError::UnknownGroup)?;
@@ -408,9 +401,7 @@ impl Database {
     fn deletes_permanently_at(&self, path: &[usize]) -> bool {
         match self.recycle_bin() {
             None => !self.recycle_bin_enabled(),
-            Some(bin) => groups_on_path(self.document(), path)
-                .iter()
-                .any(|group| group.child("UUID").and_then(decode_uuid) == Some(bin)),
+            Some(bin) => path_in_group(self.document(), path, &bin),
         }
     }
 
@@ -429,10 +420,7 @@ impl Database {
     /// The recycle bin, created like KeePassXC's `Database::createRecycleBin`
     /// when the metadata names none or names a group that does not exist.
     fn recycle_bin_or_create(&mut self, now: i64) -> Result<[u8; UUID_LENGTH]> {
-        if let Some(bin) = self
-            .recycle_bin()
-            .filter(|bin| group_path(self.document(), bin).is_some())
-        {
+        if let Some(bin) = self.existing_recycle_bin() {
             return Ok(bin);
         }
         let uuid = new_uuid()?;

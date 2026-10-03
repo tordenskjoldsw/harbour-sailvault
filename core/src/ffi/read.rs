@@ -504,11 +504,7 @@ pub unsafe extern "C" fn sv_database_recycle_bin(
     if uuid_out.is_null() {
         return SV_INVALID_ARGUMENT;
     }
-    match database
-        .database
-        .recycle_bin()
-        .filter(|bin| database.database.group(bin).is_some())
-    {
+    match database.database.existing_recycle_bin() {
         Some(bin) => {
             write_uuid(uuid_out, &bin);
             SV_OK

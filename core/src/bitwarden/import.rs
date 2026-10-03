@@ -11,11 +11,10 @@ use zeroize::Zeroizing;
 
 use super::error::{ImportError, Result};
 use super::export::{Item, Login, Section, Vault};
-use crate::kdbx::{NewEntry, NewField, NewGroup, ORIGIN_BITWARDEN};
+use crate::kdbx::{NewEntry, NewField, NewGroup, ORIGIN_BITWARDEN, STANDARD_KEYS};
 
 /// Deeper folder paths are refused: the KDBX reader bounds XML nesting.
 const MAX_FOLDER_DEPTH: usize = 32;
-const STANDARD_KEYS: [&str; 5] = ["Title", "UserName", "Password", "URL", "Notes"];
 const CUSTOM_FIELD_HIDDEN: &str = "1";
 const OTP_KEY: &str = "otp";
 const ADDITIONAL_URL_PREFIX: &str = "KP2A_URL";

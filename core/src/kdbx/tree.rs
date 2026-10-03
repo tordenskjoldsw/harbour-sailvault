@@ -137,6 +137,17 @@ pub(super) fn descend_mut<'a>(element: &'a mut Element, path: &[usize]) -> Optio
 }
 
 /// The groups along a path, outermost first.
+/// Whether the item at `path` is the group with `group_uuid` or inside it.
+pub(super) fn path_in_group(
+    document: &Element,
+    path: &[usize],
+    group_uuid: &[u8; UUID_LENGTH],
+) -> bool {
+    groups_on_path(document, path)
+        .iter()
+        .any(|group| group.child("UUID").and_then(decode_uuid).as_ref() == Some(group_uuid))
+}
+
 pub(super) fn groups_on_path<'a>(document: &'a Element, path: &[usize]) -> Vec<&'a Element> {
     let mut groups = Vec::new();
     let mut current = document;

@@ -156,6 +156,11 @@ impl Database {
         decode_uuid(self.meta()?.child("RecycleBinUUID")?).filter(|uuid| *uuid != [0; UUID_LENGTH])
     }
 
+    /// The recycle bin, if enabled, set and present as a group.
+    pub fn existing_recycle_bin(&self) -> Option<[u8; UUID_LENGTH]> {
+        self.recycle_bin().filter(|bin| self.group(bin).is_some())
+    }
+
     pub fn deleted_objects(&self) -> Vec<DeletedObject> {
         self.document
             .child("Root")
@@ -313,8 +318,8 @@ impl<'a> Entry<'a> {
 
     /// `LastModificationTime` in seconds since the Unix epoch.
     pub fn modification_time(&self) -> Option<i64> {
-        let time = self.0.child("Times")?.child("LastModificationTime")?;
-        super::time::parse_kdbx_time(&time.text())
+        let time = super::layout::time_text(self.0, "LastModificationTime")?;
+        super::time::parse_kdbx_time(&time)
     }
 
     pub fn tags(&self) -> Zeroizing<String> {

@@ -10,7 +10,7 @@ use super::time::kdbx_time;
 use super::xml::{self, Element, Node};
 use crate::random;
 
-pub(super) const STANDARD_KEYS: [&str; 5] = ["Title", "UserName", "Password", "URL", "Notes"];
+pub const STANDARD_KEYS: [&str; 5] = ["Title", "UserName", "Password", "URL", "Notes"];
 // KeePassXC's defaults for Meta/HistoryMaxItems and Meta/HistoryMaxSize.
 pub(super) const DEFAULT_HISTORY_MAX_ITEMS: i64 = 10;
 pub(super) const DEFAULT_HISTORY_MAX_SIZE: i64 = 6 * 1024 * 1024;
@@ -102,13 +102,41 @@ pub(super) fn history_elements(
         .history
         .iter()
         .map(|item| {
-            let mut element = entry_element(uuid, item, protected_keys, now)?;
-            element
-                .children
-                .retain(|child| !is_element(child, "History"));
-            Ok(element)
+            Ok(history_item(&entry_element(
+                uuid,
+                item,
+                protected_keys,
+                now,
+            )?))
         })
         .collect()
+}
+
+/// A copy of an entry without its history, as history items are stored.
+pub(super) fn history_item(entry: &Element) -> Element {
+    Element {
+        name: entry.name.clone(),
+        attributes: entry.attributes.clone(),
+        children: entry
+            .children
+            .iter()
+            .filter(|child| !is_element(child, "History"))
+            .cloned()
+            .collect(),
+    }
+}
+
+/// Tags as KeePassXC stores them: sorted, without repeats, comma-separated.
+pub(super) fn tags_text<'a>(tags: impl Iterator<Item = &'a str>) -> String {
+    let mut tags: Vec<&str> = tags.collect();
+    tags.sort_unstable();
+    tags.dedup();
+    tags.join(",")
+}
+
+/// The text of a time under `Times`, such as `LastModificationTime`.
+pub(super) fn time_text(item: &Element, name: &str) -> Option<Zeroizing<String>> {
+    item.child("Times")?.child(name).map(Element::text)
 }
 
 pub(super) fn entry_element(
@@ -129,16 +157,13 @@ pub(super) fn entry_element(
     // KeePassXC; it counts as now.
     let created = kdbx_time(entry.created.map_or(now, |time| time.min(now)));
     let modified = kdbx_time(entry.modified.map_or(now, |time| time.min(now)));
-    let mut tags: Vec<&str> = entry.tags.iter().map(String::as_str).collect();
-    tags.sort_unstable();
-    tags.dedup();
     let mut children = vec![
         text("UUID", &encode_uuid(uuid)),
         text("IconID", "0"),
         text("ForegroundColor", ""),
         text("BackgroundColor", ""),
         text("OverrideURL", ""),
-        text("Tags", &tags.join(",")),
+        text("Tags", &tags_text(entry.tags.iter().map(String::as_str))),
         times(&modified, &created, &now_time),
     ];
     let field = |key: &str| entry.fields.iter().find(|field| field.key == key);

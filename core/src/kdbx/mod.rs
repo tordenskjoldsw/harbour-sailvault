@@ -27,7 +27,7 @@ pub use header::{Cipher, Compression, OuterHeader};
 pub use inner_header::Binary;
 pub use kdf::{Argon2Variant, KdfParameters};
 pub use key::CompositeKey;
-pub use layout::{NewEntry, NewField, ORIGIN_BITWARDEN};
+pub use layout::{NewEntry, NewField, ORIGIN_BITWARDEN, STANDARD_KEYS};
 pub use merge::{MergeSummary, NewGroup};
 pub use search::ListedEntry;
 pub use xml::{Element, Node};

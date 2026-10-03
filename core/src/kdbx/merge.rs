@@ -6,12 +6,12 @@ use super::database::{decode_uuid, Database, UUID_LENGTH};
 use super::edit::{require_group_depth, truncate_history, HistoryLimits};
 use super::error::{KdbxError, Result};
 use super::layout::{
-    build_entry, build_group, child_or_append, entry_element, history_elements, insert_entry,
-    is_element, new_uuid, set_child_text, set_field, set_time, NewEntry, GROUP_ICON, KNOWN_ORIGINS,
-    ORIGIN_KEY, STANDARD_KEYS,
+    build_entry, build_group, child_or_append, entry_element, history_elements, history_item,
+    insert_entry, new_uuid, set_child_text, set_field, set_time, tags_text, time_text, NewEntry,
+    GROUP_ICON, KNOWN_ORIGINS, ORIGIN_KEY, STANDARD_KEYS,
 };
 use super::time::{kdbx_time, parse_kdbx_time};
-use super::tree::{descend, descend_mut, entry_path, group_path, groups_on_path, root_group_path};
+use super::tree::{descend, descend_mut, entry_path, group_path, path_in_group, root_group_path};
 use super::xml::{Element, Node};
 
 /// A group with its content, merged in one step by
@@ -101,12 +101,10 @@ fn merge_into(
                     entry.origin.is_some() && origin(existing) == entry.origin
                 });
                 if same_origin {
-                    let in_recycle_bin = context.recycle_bin.is_some_and(|bin| {
-                        groups_on_path(document, &path)
-                            .iter()
-                            .any(|group| group.child("UUID").and_then(decode_uuid) == Some(bin))
-                    });
-                    if in_recycle_bin {
+                    if context
+                        .recycle_bin
+                        .is_some_and(|bin| path_in_group(document, &path, &bin))
+                    {
                         continue;
                     }
                     let existing = descend_mut(document, &path).ok_or(KdbxError::UnknownEntry)?;
@@ -182,10 +180,8 @@ fn merge_entry(
     uuid: &[u8; UUID_LENGTH],
     context: &MergeContext,
 ) -> Result<bool> {
-    let local_time = existing
-        .child("Times")
-        .and_then(|times| times.child("LastModificationTime"))
-        .and_then(|time| parse_kdbx_time(&time.text()));
+    let local_time =
+        time_text(existing, "LastModificationTime").and_then(|time| parse_kdbx_time(&time));
     let imported_time = imported
         .modified
         .map_or(context.now, |time| time.min(context.now));
@@ -194,18 +190,11 @@ fn merge_entry(
     match local_time {
         Some(local_time) if local_time == imported_time => {}
         Some(local_time) if local_time > imported_time => {
-            let mut snapshot = entry_element(uuid, imported, &context.protected_keys, context.now)?;
-            snapshot
-                .children
-                .retain(|child| !is_element(child, "History"));
-            candidates.push(snapshot);
+            let snapshot = entry_element(uuid, imported, &context.protected_keys, context.now)?;
+            candidates.push(history_item(&snapshot));
         }
         _ => {
-            let mut previous = existing.clone();
-            previous
-                .children
-                .retain(|child| !is_element(child, "History"));
-            candidates.push(previous);
+            candidates.push(history_item(existing));
             for field in &imported.fields {
                 let protected = if STANDARD_KEYS.contains(&field.key.as_str()) {
                     context.protected_keys.contains(&field.key.as_str())
@@ -218,15 +207,13 @@ fn merge_entry(
                 .child("Tags")
                 .map(|tags| tags.text())
                 .unwrap_or_default();
-            let mut tags: Vec<&str> = current_tags
-                .split([',', ';'])
-                .map(str::trim)
-                .filter(|tag| !tag.is_empty())
-                .chain(imported.tags.iter().map(String::as_str))
-                .collect();
-            tags.sort_unstable();
-            tags.dedup();
-            let tags = tags.join(",");
+            let tags = tags_text(
+                current_tags
+                    .split([',', ';'])
+                    .map(str::trim)
+                    .filter(|tag| !tag.is_empty())
+                    .chain(imported.tags.iter().map(String::as_str)),
+            );
             set_child_text(existing, "Tags", &tags);
             let time = kdbx_time(imported_time);
             set_time(existing, "LastModificationTime", &time);
@@ -246,11 +233,8 @@ fn merge_entry(
 /// Adds the items whose modification time the history lacks and sorts the
 /// history by that time, oldest first. Returns whether any were added.
 fn add_history_items(entry: &mut Element, items: Vec<Element>) -> bool {
-    let modification_time = |item: &Element| {
-        item.child("Times")
-            .and_then(|times| times.child("LastModificationTime"))
-            .map(|time| time.text().to_string())
-    };
+    let modification_time =
+        |item: &Element| time_text(item, "LastModificationTime").map(|time| time.to_string());
     let history = child_or_append(entry, "History");
     let mut known: Vec<String> = history
         .children
