@@ -28,6 +28,43 @@ const AFTER_STRINGS: [&str; 4] = ["Binary", "AutoType", "CustomData", "History"]
 // A path of this length (Root, Group) is the root group itself.
 const ROOT_GROUP_PATH_LENGTH: usize = 2;
 
+/// A field of an entry built in the core. The standard keys are protected
+/// as `Meta/MemoryProtection` says; `protected` applies to the others.
+pub struct NewField {
+    pub key: String,
+    pub value: Zeroizing<String>,
+    pub protected: bool,
+}
+
+impl NewField {
+    pub fn new(key: impl Into<String>, value: &str, protected: bool) -> Self {
+        Self {
+            key: key.into(),
+            value: Zeroizing::new(value.to_owned()),
+            protected,
+        }
+    }
+}
+
+/// An entry built in the core, such as an imported one. Times are seconds
+/// since the Unix epoch; missing times are the time of the change.
+#[derive(Default)]
+pub struct NewEntry {
+    pub fields: Vec<NewField>,
+    pub tags: Vec<String>,
+    pub created: Option<i64>,
+    pub modified: Option<i64>,
+    /// Oldest first. History items keep only their fields and times.
+    pub history: Vec<NewEntry>,
+}
+
+/// A group with its content, added in one step by `Database::add_group_tree`.
+pub struct NewGroup {
+    pub name: Zeroizing<String>,
+    pub entries: Vec<NewEntry>,
+    pub groups: Vec<NewGroup>,
+}
+
 /// `None` means unlimited (-1 in the file).
 struct HistoryLimits {
     max_items: Option<usize>,
@@ -45,13 +82,35 @@ impl Database {
         fields: &[(&str, &str)],
         now: i64,
     ) -> Result<[u8; UUID_LENGTH]> {
-        validate_keys(fields)?;
+        let entry = NewEntry {
+            fields: fields
+                .iter()
+                .map(|(key, value)| NewField::new(*key, value, false))
+                .collect(),
+            ..NewEntry::default()
+        };
         self.require_outside_recycle_bin(group_uuid)?;
         let protected_keys = self.protected_standard_keys();
-        let uuid = new_uuid()?;
-        let entry = build_entry(&uuid, fields, &protected_keys, now);
+        let (uuid, entry) = build_entry(&entry, &protected_keys, now)?;
         let group = group_mut(self.document_mut(), group_uuid).ok_or(KdbxError::UnknownGroup)?;
         insert_entry(group, entry);
+        Ok(uuid)
+    }
+
+    /// Adds `group` with all its entries and subgroups at the end of the
+    /// group with `parent_uuid`, in one step: on an error nothing changes.
+    /// Returns the new group's UUID.
+    pub fn add_group_tree(
+        &mut self,
+        parent_uuid: &[u8; UUID_LENGTH],
+        group: &NewGroup,
+        now: i64,
+    ) -> Result<[u8; UUID_LENGTH]> {
+        self.require_outside_recycle_bin(parent_uuid)?;
+        let protected_keys = self.protected_standard_keys();
+        let (uuid, element) = build_group_tree(group, &protected_keys, now)?;
+        let parent = group_mut(self.document_mut(), parent_uuid).ok_or(KdbxError::UnknownGroup)?;
+        parent.children.push(Node::Element(element));
         Ok(uuid)
     }
 
@@ -106,7 +165,7 @@ impl Database {
         fields: &[(&str, &str)],
         now: i64,
     ) -> Result<bool> {
-        validate_keys(fields)?;
+        validate_keys(&fields.iter().map(|(key, _)| *key).collect::<Vec<_>>())?;
         let protected_keys = self.protected_standard_keys();
         let limits = self.history_limits();
         let attachment_sizes: Vec<usize> = self
@@ -341,52 +400,82 @@ impl Database {
     }
 }
 
-fn validate_keys(fields: &[(&str, &str)]) -> Result<()> {
-    for (index, (key, _)) in fields.iter().enumerate() {
+fn validate_keys(keys: &[&str]) -> Result<()> {
+    for (index, key) in keys.iter().enumerate() {
         if key.is_empty() {
             return Err(KdbxError::InvalidEntry("empty field name"));
         }
-        if fields[..index].iter().any(|(earlier, _)| earlier == key) {
+        if keys[..index].contains(key) {
             return Err(KdbxError::InvalidEntry("duplicate field"));
         }
     }
     Ok(())
 }
 
+/// An entry as KeePassXC's `KdbxXmlWriter::writeEntry` writes it, with a new
+/// UUID that its history items share.
 fn build_entry(
-    uuid: &[u8; UUID_LENGTH],
-    fields: &[(&str, &str)],
+    entry: &NewEntry,
     protected_keys: &[&str],
     now: i64,
-) -> Element {
-    let time = kdbx_time(now);
+) -> Result<([u8; UUID_LENGTH], Element)> {
+    let uuid = new_uuid()?;
+    let mut element = entry_element(&uuid, entry, protected_keys, now)?;
+    let mut history = Vec::with_capacity(entry.history.len());
+    for item in &entry.history {
+        let mut item_element = entry_element(&uuid, item, protected_keys, now)?;
+        item_element
+            .children
+            .retain(|child| !is_element(child, "History"));
+        history.push(item_element);
+    }
+    if let Some(history_element) = element.child_mut("History") {
+        history_element
+            .children
+            .extend(history.into_iter().map(Node::Element));
+    }
+    Ok((uuid, element))
+}
+
+fn entry_element(
+    uuid: &[u8; UUID_LENGTH],
+    entry: &NewEntry,
+    protected_keys: &[&str],
+    now: i64,
+) -> Result<Element> {
+    validate_keys(
+        &entry
+            .fields
+            .iter()
+            .map(|field| field.key.as_str())
+            .collect::<Vec<_>>(),
+    )?;
+    let now_time = kdbx_time(now);
+    let created = entry.created.map_or_else(|| now_time.clone(), kdbx_time);
+    let modified = entry.modified.map_or_else(|| now_time.clone(), kdbx_time);
+    let mut tags: Vec<&str> = entry.tags.iter().map(String::as_str).collect();
+    tags.sort_unstable();
+    tags.dedup();
     let mut children = vec![
         text("UUID", &encode_uuid(uuid)),
         text("IconID", "0"),
         text("ForegroundColor", ""),
         text("BackgroundColor", ""),
         text("OverrideURL", ""),
-        text("Tags", ""),
-        times(&time),
+        text("Tags", &tags.join(",")),
+        times(&modified, &created, &now_time),
     ];
-    let value_of = |key: &str| {
-        fields
-            .iter()
-            .find(|(candidate, _)| *candidate == key)
-            .map_or("", |(_, value)| *value)
-    };
+    let field = |key: &str| entry.fields.iter().find(|field| field.key == key);
     for key in STANDARD_KEYS {
-        children.push(string_field(
-            key,
-            value_of(key),
-            protected_keys.contains(&key),
-        ));
+        let value = field(key).map_or("", |field| field.value.as_str());
+        children.push(string_field(key, value, protected_keys.contains(&key)));
     }
-    for (key, value) in fields
+    for field in entry
+        .fields
         .iter()
-        .filter(|(key, _)| !STANDARD_KEYS.contains(key))
+        .filter(|field| !STANDARD_KEYS.contains(&field.key.as_str()))
     {
-        children.push(string_field(key, value, false));
+        children.push(string_field(&field.key, &field.value, field.protected));
     }
     children.push(element(
         "AutoType",
@@ -397,7 +486,30 @@ fn build_entry(
         ],
     ));
     children.push(element("History", Vec::new()));
-    element("Entry", children)
+    Ok(element("Entry", children))
+}
+
+fn build_group_tree(
+    group: &NewGroup,
+    protected_keys: &[&str],
+    now: i64,
+) -> Result<([u8; UUID_LENGTH], Element)> {
+    if group.name.is_empty() {
+        return Err(KdbxError::InvalidGroup("empty name"));
+    }
+    let uuid = new_uuid()?;
+    let mut element = build_group(&uuid, &group.name, GROUP_ICON, "null", &kdbx_time(now));
+    for entry in &group.entries {
+        element
+            .children
+            .push(Node::Element(build_entry(entry, protected_keys, now)?.1));
+    }
+    for child in &group.groups {
+        element.children.push(Node::Element(
+            build_group_tree(child, protected_keys, now)?.1,
+        ));
+    }
+    Ok((uuid, element))
 }
 
 /// A group as KeePassXC's `KdbxXmlWriter::writeGroup` writes it;
@@ -416,7 +528,7 @@ fn build_group(
             text("Name", name),
             text("Notes", ""),
             text("IconID", icon),
-            times(time),
+            times(time, time, time),
             text("IsExpanded", "True"),
             text("DefaultAutoTypeSequence", ""),
             text("EnableAutoType", enabled),
@@ -426,17 +538,18 @@ fn build_group(
     )
 }
 
-fn times(time: &str) -> Element {
+/// Access counts as modification, as in KeePassXC's importers.
+fn times(modified: &str, created: &str, now: &str) -> Element {
     element(
         "Times",
         vec![
-            text("LastModificationTime", time),
-            text("CreationTime", time),
-            text("LastAccessTime", time),
-            text("ExpiryTime", time),
+            text("LastModificationTime", modified),
+            text("CreationTime", created),
+            text("LastAccessTime", modified),
+            text("ExpiryTime", now),
             text("Expires", "False"),
             text("UsageCount", "0"),
-            text("LocationChanged", time),
+            text("LocationChanged", now),
         ],
     )
 }
@@ -928,14 +1041,14 @@ mod tests {
     #[test]
     fn rejects_empty_and_repeated_keys() {
         assert_eq!(
-            validate_keys(&[("Title", "a"), ("", "b")]),
+            validate_keys(&["Title", ""]),
             Err(KdbxError::InvalidEntry("empty field name"))
         );
         assert_eq!(
-            validate_keys(&[("Title", "a"), ("URL", "u"), ("Title", "b")]),
+            validate_keys(&["Title", "URL", "Title"]),
             Err(KdbxError::InvalidEntry("duplicate field"))
         );
-        assert_eq!(validate_keys(&[("Title", "a"), ("PIN", "1")]), Ok(()));
+        assert_eq!(validate_keys(&["Title", "PIN"]), Ok(()));
     }
 
     #[test]

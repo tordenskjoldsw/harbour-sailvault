@@ -16,6 +16,7 @@ mod variant_dictionary;
 mod xml;
 
 pub use database::{Attachment, Database, DeletedObject, Entry, Field, Group};
+pub use edit::{NewEntry, NewField, NewGroup};
 pub use error::{KdbxError, Result};
 pub use header::{Cipher, Compression, OuterHeader};
 pub use inner_header::Binary;
