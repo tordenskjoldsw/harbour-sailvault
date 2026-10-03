@@ -34,6 +34,7 @@ class Vault : public QObject
     Q_PROPERTY(bool dirty READ dirty NOTIFY dirtyChanged)
     Q_PROPERTY(QString databasePath READ databasePath WRITE setDatabasePath NOTIFY databasePathChanged)
     Q_PROPERTY(QString keyFilePath READ keyFilePath WRITE setKeyFilePath NOTIFY keyFilePathChanged)
+    Q_PROPERTY(int clipboardClearSeconds READ clipboardClearSeconds CONSTANT)
 
 public:
     // Where a new database file is created.
@@ -68,6 +69,14 @@ public:
     };
     Q_ENUM(Error)
 
+    // Results of moveEntry and moveGroup.
+    enum MoveResult {
+        MoveRefused,
+        Moved,
+        AlreadyThere
+    };
+    Q_ENUM(MoveResult)
+
     explicit Vault(QObject *parent = nullptr);
     ~Vault() override;
 
@@ -80,6 +89,7 @@ public:
     void setDatabasePath(const QString &path);
     QString keyFilePath() const;
     void setKeyFilePath(const QString &path);
+    int clipboardClearSeconds() const;
 
     // Null when locked, when a lock deadline has passed or while a requested
     // lock waits for a save.
@@ -116,6 +126,7 @@ public:
     // History items newest first, each with version, modified, title and
     // userName.
     Q_INVOKABLE QVariantList history(const QString &entryId);
+    Q_INVOKABLE int historyLength(const QString &entryId);
     // fields maps field names to values; an empty groupId means the root
     // group. Each change starts a save.
     Q_INVOKABLE bool addEntry(const QString &groupId, const QVariantMap &fields);
@@ -127,9 +138,9 @@ public:
     Q_INVOKABLE bool inRecycleBin(const QString &itemId);
     // Moves an entry into another group; moving out of the recycle bin
     // restores it.
-    Q_INVOKABLE bool moveEntry(const QString &entryId, const QString &groupId);
+    Q_INVOKABLE MoveResult moveEntry(const QString &entryId, const QString &groupId);
     Q_INVOKABLE bool renameGroup(const QString &groupId, const QString &name);
-    Q_INVOKABLE bool moveGroup(const QString &groupId, const QString &parentId);
+    Q_INVOKABLE MoveResult moveGroup(const QString &groupId, const QString &parentId);
     // Moves an entry or group out of the recycle bin to where it was deleted
     // from, or to the root group.
     Q_INVOKABLE bool restore(const QString &itemId);
@@ -174,6 +185,7 @@ private:
     // Runs an edit and saves when it changed anything; refused while a save
     // runs or when locked.
     bool change(const Edit &edit);
+    MoveResult move(const Edit &edit);
     QString readField(const QString &entryId, const QString &key, int version) const;
     // Whether the result of an unlock or create attempt is still wanted and
     // succeeded; a failure is reported and locks.

@@ -181,6 +181,11 @@ void Vault::setKeyFilePath(const QString &path)
     emit keyFilePathChanged();
 }
 
+int Vault::clipboardClearSeconds() const
+{
+    return ClipboardGuard::ClearAfterSeconds;
+}
+
 const SvDatabase *Vault::database()
 {
     enforceDeadlines();
@@ -384,6 +389,17 @@ bool Vault::copyField(const QString &entryId, const QString &key, int version)
     return true;
 }
 
+int Vault::historyLength(const QString &entryId)
+{
+    const QByteArray uuid = itemUuid(entryId);
+    const SvDatabase *handle = database();
+    size_t length = 0;
+    if (!handle || uuid.isEmpty()
+        || sv_database_history_length(handle, bytePointer(uuid), &length) != SV_OK)
+        return 0;
+    return static_cast<int>(length);
+}
+
 QVariantList Vault::history(const QString &entryId)
 {
     QVariantList result;
@@ -468,15 +484,16 @@ bool Vault::inRecycleBin(const QString &itemId)
         && sv_database_in_recycle_bin(m_database.get(), bytePointer(uuid), &inside) == SV_OK && inside;
 }
 
-bool Vault::moveEntry(const QString &entryId, const QString &groupId)
+Vault::MoveResult Vault::moveEntry(const QString &entryId, const QString &groupId)
 {
     const QByteArray uuid = itemUuid(entryId);
     const QByteArray group = itemUuid(groupId);
-    return !uuid.isEmpty() && !group.isEmpty()
-        && change([&](SvDatabase *database, int64_t now, bool &changed) {
-               return sv_database_move_entry(database, bytePointer(uuid), bytePointer(group), now,
-                                             &changed);
-           });
+    if (uuid.isEmpty() || group.isEmpty())
+        return MoveRefused;
+    return move([&](SvDatabase *database, int64_t now, bool &changed) {
+        return sv_database_move_entry(database, bytePointer(uuid), bytePointer(group), now,
+                                      &changed);
+    });
 }
 
 bool Vault::renameGroup(const QString &groupId, const QString &name)
@@ -489,15 +506,27 @@ bool Vault::renameGroup(const QString &groupId, const QString &name)
     });
 }
 
-bool Vault::moveGroup(const QString &groupId, const QString &parentId)
+Vault::MoveResult Vault::moveGroup(const QString &groupId, const QString &parentId)
 {
     const QByteArray uuid = itemUuid(groupId);
     const QByteArray parent = itemUuid(parentId);
-    return !uuid.isEmpty() && !parent.isEmpty()
-        && change([&](SvDatabase *database, int64_t now, bool &changed) {
-               return sv_database_move_group(database, bytePointer(uuid), bytePointer(parent), now,
-                                             &changed);
-           });
+    if (uuid.isEmpty() || parent.isEmpty())
+        return MoveRefused;
+    return move([&](SvDatabase *database, int64_t now, bool &changed) {
+        return sv_database_move_group(database, bytePointer(uuid), bytePointer(parent), now,
+                                      &changed);
+    });
+}
+
+Vault::MoveResult Vault::move(const Edit &edit)
+{
+    bool moved = false;
+    const bool done = change([&](SvDatabase *database, int64_t now, bool &changed) {
+        const int status = edit(database, now, changed);
+        moved = changed;
+        return status;
+    });
+    return !done ? MoveRefused : moved ? Moved : AlreadyThere;
 }
 
 bool Vault::restore(const QString &itemId)

@@ -7,7 +7,7 @@
 
 namespace {
 
-const long long ClearAfterMs = 30 * 1000;
+const long long ClearAfterMs = ClipboardGuard::ClearAfterSeconds * 1000LL;
 // Qt timers stop while the phone sleeps; checking the deadline on
 // CLOCK_BOOTTIME this often bounds how late it is enforced after waking up.
 const int WatchdogIntervalMs = 5 * 1000;

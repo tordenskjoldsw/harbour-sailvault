@@ -276,9 +276,10 @@ Page {
                     MenuItem {
                         text: qsTr("Copy password")
                         onClicked: {
-                            if (vault.copyField(model.id, "Password"))
-                                Notices.show(qsTr("Password copied, cleared in 30 seconds"),
-                                             Notice.Short)
+                            if (vault.copyField(model.id, "Password")) {
+                                Notices.show(qsTr("Password copied, cleared in %1 seconds")
+                                             .arg(vault.clipboardClearSeconds), Notice.Short)
+                            }
                         }
                     }
                 }

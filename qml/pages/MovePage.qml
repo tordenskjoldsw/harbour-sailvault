@@ -13,13 +13,14 @@ Page {
     // The move reloads the list, which destroys the tapped delegate, so the
     // page finishes the action instead of the delegate's handler.
     function moveTo(groupId, groupName) {
-        var moved = isGroup ? vault.moveGroup(itemId, groupId) : vault.moveEntry(itemId, groupId)
-        if (moved) {
-            Notices.show(qsTr("Moved to %1").arg(groupName), Notice.Short)
-            pageStack.pop()
-        } else {
+        var result = isGroup ? vault.moveGroup(itemId, groupId) : vault.moveEntry(itemId, groupId)
+        if (result === Vault.MoveRefused) {
             Notices.show(qsTr("Cannot move to %1").arg(groupName), Notice.Short)
+            return
         }
+        Notices.show(result === Vault.Moved ? qsTr("Moved to %1").arg(groupName)
+                                            : qsTr("Already in %1").arg(groupName), Notice.Short)
+        pageStack.pop()
     }
 
     allowedOrientations: Orientation.All

@@ -20,6 +20,7 @@ class ClipboardGuard : public QObject
 
 public:
     using ValueSource = std::function<QString()>;
+    static const int ClearAfterSeconds = 30;
 
     explicit ClipboardGuard(QObject *parent = nullptr);
 

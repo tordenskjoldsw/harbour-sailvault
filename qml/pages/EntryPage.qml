@@ -12,7 +12,7 @@ Page {
     property string versionTime
     readonly property bool isHistory: version >= 0
     property bool inRecycleBin: vault.inRecycleBin(entryId)
-    property int historyLength: isHistory ? 0 : vault.history(entryId).length
+    property int historyLength: isHistory ? 0 : vault.historyLength(entryId)
 
     readonly property var standardKeys: ["UserName", "Password", "URL", "Notes"]
     // Every value on this page depends on this, so a lock empties the page
@@ -26,6 +26,13 @@ Page {
         case "URL": return qsTr("Website")
         case "Notes": return qsTr("Notes")
         default: return key
+        }
+    }
+
+    function copyField(key) {
+        if (vault.copyField(entryId, key, version)) {
+            Notices.show(qsTr("Copied, cleared in %1 seconds").arg(vault.clipboardClearSeconds),
+                         Notice.Short)
         }
     }
 
@@ -52,7 +59,7 @@ Page {
             if (page.unlocked && !page.isHistory) {
                 page.entryTitle = vault.fieldValue(page.entryId, "Title")
                 page.inRecycleBin = vault.inRecycleBin(page.entryId)
-                page.historyLength = vault.history(page.entryId).length
+                page.historyLength = vault.historyLength(page.entryId)
                 fieldsRepeater.model = page.orderedFields()
             }
         }
@@ -158,10 +165,7 @@ Page {
                     visible: isProtected || plainValue.length > 0
                     menu: fieldMenu
 
-                    onClicked: {
-                        if (vault.copyField(page.entryId, modelData.key, page.version))
-                            Notices.show(qsTr("Copied, cleared in 30 seconds"), Notice.Short)
-                    }
+                    onClicked: page.copyField(modelData.key)
 
                     Column {
                         id: fieldColumn
@@ -210,12 +214,7 @@ Page {
                             }
                             MenuItem {
                                 text: qsTr("Copy")
-                                onClicked: {
-                                    if (vault.copyField(page.entryId, modelData.key,
-                                                        page.version))
-                                        Notices.show(qsTr("Copied, cleared in 30 seconds"),
-                                                     Notice.Short)
-                                }
+                                onClicked: page.copyField(modelData.key)
                             }
                         }
                     }
