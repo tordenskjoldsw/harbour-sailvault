@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use sailvault_core::kdbx::{Argon2Variant, CompositeKey, Database, KdfParameters, OuterHeader};
 
 const FIXTURE: &[u8] = include_bytes!("../tests/fixtures/kdbx4-aes-argon2d.kdbx");
+const LARGE: &[u8] = include_bytes!("../tests/fixtures/kdbx4-1000-entries.kdbx");
 const RUNS: u32 = 3;
 
 fn median(mut samples: Vec<Duration>) -> Duration {
@@ -95,4 +96,56 @@ fn main() {
         "open,fixture without KDF,{}",
         open.saturating_sub(fixture_kdf).as_millis()
     );
+
+    let large_open = median(
+        (0..RUNS)
+            .map(|_| {
+                let start = Instant::now();
+                Database::open(LARGE, &fixture_key).expect("large fixture opens");
+                start.elapsed()
+            })
+            .collect(),
+    );
+    let large_kdf = time_kdf(
+        &OuterHeader::parse(LARGE).expect("large header").0.kdf,
+        &fixture_key,
+    );
+    println!("large,open total (1000 entries),{}", large_open.as_millis());
+    println!(
+        "large,open without KDF,{}",
+        large_open.saturating_sub(large_kdf).as_millis()
+    );
+
+    let database = Database::open(LARGE, &fixture_key).expect("large fixture opens");
+    let list_root = median(
+        (0..RUNS)
+            .map(|_| {
+                let start = Instant::now();
+                let root = database.root_group().expect("root group");
+                let rows =
+                    root.groups().map(|g| g.name().len()).sum::<usize>() + root.entries().count();
+                std::hint::black_box(rows);
+                start.elapsed()
+            })
+            .collect(),
+    );
+    println!(
+        "large,list root group,{}",
+        list_root.as_micros() as f64 / 1000.0
+    );
+    for query in ["user0500", "example"] {
+        let search = median(
+            (0..RUNS)
+                .map(|_| {
+                    let start = Instant::now();
+                    std::hint::black_box(database.search(query).expect("search").len());
+                    start.elapsed()
+                })
+                .collect(),
+        );
+        println!(
+            "large,search \"{query}\",{}",
+            search.as_micros() as f64 / 1000.0
+        );
+    }
 }

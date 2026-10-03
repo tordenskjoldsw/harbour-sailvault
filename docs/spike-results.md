@@ -189,3 +189,27 @@ for comparison.
   first run within a few percent.
 - The SDK build environment sets no `RUSTFLAGS`, so the app build picks up
   the flag from `.cargo/config.toml`.
+
+## Phase 3 measurements
+
+Jolla Phone (Sailfish OS 5.2.0.18), 2026-10-03.
+
+Cold start of the app with the real unlock page (`tools/measure-startup.sh`,
+direct launch, same limits as the Phase 1 baseline): first run 548 ms, runs
+2-11 median 557 ms (531-581 ms). Target: unlock page < 1 s. The empty app
+took about 400 ms, so the unlock page, Silica pickers import and the C++
+bridge add about 150 ms.
+
+1000 entries (`kdbx4-1000-entries.kdbx`, `tools/run-kdf-benchmark.sh`,
+median of 3):
+
+| Step | Phone | Host |
+|------|-------|------|
+| Open without the KDF (decrypt, gunzip, parse) | 33 ms | 9 ms |
+| Open including AES-KDF with 6.8 million rounds | 136 ms | 114 ms |
+| List the root group | < 0.01 ms | < 0.01 ms |
+| Search all 1000 entries | about 2 ms | under 1 ms |
+
+Target: list < 0.5 s after key derivation. The core needs 33 ms; QML
+creates only the visible delegates, which is not part of this measurement.
+
