@@ -41,6 +41,24 @@ impl Database {
         Ok(database)
     }
 
+    /// A database from its parts, checked like an opened one.
+    pub(super) fn from_parts(
+        header: OuterHeader,
+        inner: InnerHeader,
+        document: Element,
+        key: CompositeKey,
+    ) -> Result<Self> {
+        let database = Self {
+            header,
+            inner,
+            document,
+            key,
+        };
+        database.root_group()?;
+        validate_fields(&database.document)?;
+        Ok(database)
+    }
+
     /// Serializes the database as a KDBX 4 file with a fresh master seed,
     /// IV, KDF seed and inner stream key, then decrypts the result again and
     /// compares it with the model before returning it. Runs the KDF, so it

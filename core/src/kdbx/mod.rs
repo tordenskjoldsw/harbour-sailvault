@@ -2,6 +2,7 @@
 //! (`src/format/Kdbx4Reader.cpp`, `Kdbx4Writer.cpp`, `KdbxXmlReader.cpp`,
 //! `KdbxXmlWriter.cpp`, `keys/`).
 
+mod create;
 mod database;
 mod edit;
 mod error;

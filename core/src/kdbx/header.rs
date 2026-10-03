@@ -163,6 +163,26 @@ impl OuterHeader {
     /// The header for the next save: same settings, fresh master seed,
     /// encryption IV and KDF seed, as KeePassXC draws them on every write
     /// (`Kdbx4Writer.cpp`, `Database::setKey` with `updateTransformSalt`).
+    /// The header of a new KDBX 4.0 database, the version KeePassXC writes
+    /// while no KDBX 4.1 feature is used, with fresh seeds.
+    pub(crate) fn new(
+        cipher: Cipher,
+        compression: Compression,
+        kdf: KdfParameters,
+    ) -> Result<Self> {
+        Self {
+            minor_version: 0,
+            cipher,
+            compression,
+            kdf,
+            master_seed: [0; 32],
+            encryption_iv: Vec::new(),
+            public_custom_data: None,
+            bytes: Vec::new(),
+        }
+        .renewed()
+    }
+
     pub(crate) fn renewed(&self) -> Result<Self> {
         let mut encryption_iv = vec![0u8; self.cipher.iv_length()];
         random::fill(&mut encryption_iv)?;

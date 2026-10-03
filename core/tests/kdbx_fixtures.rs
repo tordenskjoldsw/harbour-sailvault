@@ -1091,3 +1091,47 @@ fn sailvault_core_kdbx_time(unix_seconds: i64) -> String {
     use base64::Engine as _;
     base64::engine::general_purpose::STANDARD.encode((unix_seconds + 62_135_596_800).to_le_bytes())
 }
+
+#[test]
+fn a_new_database_opens_in_keepassxc_with_its_settings() {
+    let mut database = Database::create(key(false), "Passwords", NOW).unwrap();
+    let root = database.root_group().unwrap();
+    assert_eq!(*root.name(), "Root");
+    assert_eq!(root.entries().count() + root.groups().count(), 0);
+    let root = root.uuid().unwrap();
+    database
+        .add_entry(
+            &root,
+            &[("Title", "First"), ("Password", "first-secret")],
+            NOW,
+        )
+        .unwrap();
+
+    let saved = database.save().unwrap();
+    let reopened = Database::open(&saved, key(false)).unwrap();
+    let header = reopened.header();
+    assert_eq!(header.minor_version, 0);
+    assert_eq!(header.cipher, Cipher::Aes256);
+    assert_eq!(header.compression, Compression::Gzip);
+    assert!(matches!(
+        header.kdf,
+        KdfParameters::Argon2 {
+            variant: Argon2Variant::Argon2id,
+            iterations: 3,
+            memory_bytes: 268_435_456,
+            parallelism: 4,
+            ..
+        }
+    ));
+    assert!(reopened.recycle_bin_enabled());
+    let meta = reopened.meta().unwrap();
+    assert_eq!(*meta.child("DatabaseName").unwrap().text(), "Passwords");
+
+    let file = TempFile::write("created", &saved);
+    let info = keepassxc_cli(&["db-info"], &file, false, &[]);
+    assert!(info.contains("Name: Passwords"), "{info}");
+    assert!(info.contains("Argon2id"), "{info}");
+    assert!(info.contains("AES 256"), "{info}");
+    let shown = keepassxc_cli(&["show", "-a", "Password"], &file, false, &["First"]);
+    assert_eq!(shown, "first-secret\n");
+}

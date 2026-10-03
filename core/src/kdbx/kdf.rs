@@ -31,7 +31,7 @@ const ARGON2_MAX_WORK_BYTES: u64 = 64 << 30;
 const ARGON2_PARALLELISM: RangeInclusive<u32> = 1..=64;
 const ARGON2_SALT_LENGTH: RangeInclusive<usize> = 8..=64;
 const ARGON2_VERSION_10: u32 = 0x10;
-const ARGON2_VERSION_13: u32 = 0x13;
+pub(super) const ARGON2_VERSION_13: u32 = 0x13;
 // KeePassXC's `Kdf::randomizeSeed` draws 32 bytes for both KDFs.
 const SEED_LENGTH: usize = 32;
 

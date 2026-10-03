@@ -84,6 +84,11 @@ int32_t sv_database_open(const uint8_t *data, size_t data_length,
                          const uint8_t *password, size_t password_length, bool has_password,
                          const uint8_t *key_file, size_t key_file_length,
                          SvDatabase **out);
+/* Creates a new, empty database (KDBX 4.0, AES-256, Argon2id) protected by
+ * a non-empty password and serializes it. Runs the KDF; call off the UI
+ * thread. *out receives the unlocked handle, *file_out the file to write. */
+int32_t sv_database_create(const uint8_t *password, size_t password_length, const uint8_t *name,
+                           size_t name_length, int64_t now, SvDatabase **out, SvBytes *file_out);
 /* Locks: drops and zeroizes all decrypted data. */
 void sv_database_free(SvDatabase *database);
 

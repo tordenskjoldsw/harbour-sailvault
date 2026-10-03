@@ -17,12 +17,12 @@ const STANDARD_KEYS: [&str; 5] = ["Title", "UserName", "Password", "URL", "Notes
 /// 0001-01-01T00:00:00Z. This is where the Unix epoch falls on that scale.
 const UNIX_EPOCH_SECONDS: i64 = 62_135_596_800;
 // KeePassXC's defaults for Meta/HistoryMaxItems and Meta/HistoryMaxSize.
-const DEFAULT_HISTORY_MAX_ITEMS: i64 = 10;
-const DEFAULT_HISTORY_MAX_SIZE: i64 = 6 * 1024 * 1024;
+pub(super) const DEFAULT_HISTORY_MAX_ITEMS: i64 = 10;
+pub(super) const DEFAULT_HISTORY_MAX_SIZE: i64 = 6 * 1024 * 1024;
 // KeePassXC's Group::DefaultIconNumber and Group::RecycleBinIconNumber.
-const GROUP_ICON: &str = "48";
+pub(super) const GROUP_ICON: &str = "48";
 const RECYCLE_BIN_ICON: &str = "43";
-const NO_UUID: [u8; UUID_LENGTH] = [0; UUID_LENGTH];
+pub(super) const NO_UUID: [u8; UUID_LENGTH] = [0; UUID_LENGTH];
 /// The entry CustomData key that records `NewEntry::origin`.
 const ORIGIN_KEY: &str = "SailVault/ImportedFrom";
 pub const ORIGIN_BITWARDEN: &str = "Bitwarden";
@@ -896,7 +896,7 @@ fn add_history_items(entry: &mut Element, items: Vec<Element>) -> bool {
 
 /// A group as KeePassXC's `KdbxXmlWriter::writeGroup` writes it;
 /// `enabled` is the tri-state for auto-type and searching.
-fn build_group(
+pub(super) fn build_group(
     uuid: &[u8; UUID_LENGTH],
     name: &str,
     icon: &str,
@@ -1132,7 +1132,7 @@ fn insert_entry(group: &mut Element, entry: Element) {
     group.children.insert(position, Node::Element(entry));
 }
 
-fn element(name: &str, children: Vec<Element>) -> Element {
+pub(super) fn element(name: &str, children: Vec<Element>) -> Element {
     Element {
         name: name.to_owned(),
         attributes: Vec::new(),
@@ -1142,7 +1142,7 @@ fn element(name: &str, children: Vec<Element>) -> Element {
 
 /// A leaf element; an empty value gives an empty element, as KeePassXC
 /// writes it.
-fn text(name: &str, value: &str) -> Element {
+pub(super) fn text(name: &str, value: &str) -> Element {
     let mut leaf = element(name, Vec::new());
     replace_text(&mut leaf, value);
     leaf
@@ -1345,7 +1345,7 @@ fn remove_at(document: &mut Element, path: &[usize]) -> Option<Element> {
 }
 
 /// A random (version 4) UUID, as KeePassXC's `QUuid::createUuid` makes them.
-fn new_uuid() -> Result<[u8; UUID_LENGTH]> {
+pub(super) fn new_uuid() -> Result<[u8; UUID_LENGTH]> {
     let mut uuid = random::array::<UUID_LENGTH>()?;
     uuid[6] = (uuid[6] & 0x0f) | 0x40;
     uuid[8] = (uuid[8] & 0x3f) | 0x80;

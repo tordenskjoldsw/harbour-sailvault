@@ -35,6 +35,7 @@ impl fmt::Debug for Binary {
     }
 }
 
+#[derive(Default)]
 pub(crate) struct InnerHeader {
     pub(crate) binaries: Vec<Binary>,
 }

@@ -307,6 +307,55 @@ pub unsafe extern "C" fn sv_database_open(
     }
 }
 
+/// Creates a new, empty database named `name` and protected by `password`
+/// (see `Database::create`), and serializes it as the file to write. Runs the
+/// KDF: call it off the UI thread. On success `*out` receives the unlocked
+/// handle and `*file_out` the file; release them with `sv_database_free` and
+/// `sv_bytes_free`.
+///
+/// # Safety
+///
+/// `password` and `name` must be valid UTF-8 of their lengths; `out` and
+/// `file_out` valid for one write each.
+#[no_mangle]
+pub unsafe extern "C" fn sv_database_create(
+    password: *const u8,
+    password_length: usize,
+    name: *const u8,
+    name_length: usize,
+    now: i64,
+    out: *mut *mut SvDatabase,
+    file_out: *mut SvBytes,
+) -> i32 {
+    let (Some(out), Some(file_out)) = (out.as_mut(), file_out.as_mut()) else {
+        return SV_INVALID_ARGUMENT;
+    };
+    *out = std::ptr::null_mut();
+    *file_out = SvBytes {
+        data: std::ptr::null_mut(),
+        length: 0,
+    };
+    let (Some(password), Some(name)) = (
+        bytes(password, password_length).filter(|password| !password.is_empty()),
+        bytes(name, name_length).and_then(|name| std::str::from_utf8(name).ok()),
+    ) else {
+        return SV_INVALID_ARGUMENT;
+    };
+    let created = CompositeKey::new(Some(password), None)
+        .and_then(|key| Database::create(key, name, now))
+        .and_then(|database| Ok((database.save()?, database)));
+    match created {
+        Ok((file, database)) => {
+            let boxed = file.into_boxed_slice();
+            file_out.length = boxed.len();
+            file_out.data = Box::into_raw(boxed).cast();
+            *out = Box::into_raw(Box::new(SvDatabase { database }));
+            SV_OK
+        }
+        Err(error) => status(error),
+    }
+}
+
 /// Locks the database: drops and zeroizes all decrypted data.
 ///
 /// # Safety
@@ -1858,6 +1907,66 @@ mod tests {
             );
             assert_eq!(sv_list_length(content), 0);
             sv_list_free(content);
+            sv_database_free(database);
+        }
+    }
+
+    #[test]
+    fn creates_a_database_that_opens_with_its_password() {
+        unsafe {
+            let name = "Passwords";
+            let mut database = std::ptr::null_mut();
+            let mut file = SvBytes {
+                data: std::ptr::null_mut(),
+                length: 0,
+            };
+            assert_eq!(
+                sv_database_create(
+                    PASSWORD.as_ptr(),
+                    0,
+                    name.as_ptr(),
+                    name.len(),
+                    0,
+                    &mut database,
+                    &mut file
+                ),
+                SV_INVALID_ARGUMENT
+            );
+            assert_eq!(
+                sv_database_create(
+                    PASSWORD.as_ptr(),
+                    PASSWORD.len(),
+                    name.as_ptr(),
+                    name.len(),
+                    0,
+                    &mut database,
+                    &mut file
+                ),
+                SV_OK
+            );
+            let mut reopened = std::ptr::null_mut();
+            assert_eq!(
+                sv_database_open(
+                    file.data,
+                    file.length,
+                    PASSWORD.as_ptr(),
+                    PASSWORD.len(),
+                    true,
+                    std::ptr::null(),
+                    0,
+                    &mut reopened
+                ),
+                SV_OK
+            );
+            let mut root = std::ptr::null_mut();
+            assert_eq!(
+                sv_database_group(database, std::ptr::null(), &mut root),
+                SV_OK
+            );
+            assert_eq!(sv_list_length(root), 0);
+            sv_list_free(root);
+            sv_bytes_free(file);
+            sv_database_free(reopened);
             sv_database_free(database);
         }
     }
