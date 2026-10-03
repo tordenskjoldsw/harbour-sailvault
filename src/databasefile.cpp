@@ -7,8 +7,10 @@
 #include <QFileInfo>
 #include <QStringList>
 
+#include <cerrno>
 #include <cstdio>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "sailvault_core.h"
@@ -35,6 +37,31 @@ bool syncDirectory(const QString &path)
     const bool synced = ::fsync(fd) == 0;
     ::close(fd);
     return synced;
+}
+
+// Writes data to a new temporary file and reads it back through the same
+// descriptor. A leftover file or a symlink another app planted at tempPath is
+// removed first, and O_EXCL | O_NOFOLLOW refuses anything that appears there
+// in between, so the write never follows a link.
+bool writeTemporary(const QString &tempPath, mode_t mode, const QByteArray &data)
+{
+    const QByteArray name = QFile::encodeName(tempPath);
+    if (::unlink(name.constData()) != 0 && errno != ENOENT)
+        return false;
+    const int fd = ::open(name.constData(), O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+                          mode);
+    if (fd < 0)
+        return false;
+    QFile file;
+    if (!file.open(fd, QIODevice::ReadWrite, QFileDevice::AutoCloseHandle)) {
+        ::close(fd);
+        return false;
+    }
+    const bool written = ::fchmod(fd, mode) == 0 && file.write(data) == data.size()
+        && file.flush() && ::fsync(fd) == 0 && file.seek(0)
+        && file.read(static_cast<qint64>(data.size()) + 1) == data;
+    file.close();
+    return written && file.error() == QFile::NoError;
 }
 
 // Backups are named after the database with a UTC timestamp, so sorting by
@@ -92,15 +119,12 @@ int writeDatabaseFile(const QString &path, const QByteArray &data, const QString
     if (!backUp(path, current, backupDir))
         return StatusFileUnwritable;
 
+    // The replacement keeps the database file's permissions.
+    struct stat info;
+    if (::stat(QFile::encodeName(path).constData(), &info) != 0)
+        return StatusFileUnwritable;
     const QString tempPath = path + QStringLiteral(".sailvault-tmp");
-    QFile temp(tempPath);
-    QByteArray readBack;
-    const bool written = temp.open(QIODevice::WriteOnly | QIODevice::Truncate)
-        && writeAndSync(temp, data)
-        && temp.setPermissions(QFile(path).permissions())
-        && readDatabaseFile(tempPath, MaxDatabaseBytes, readBack) == SV_OK
-        && readBack == data;
-    if (!written
+    if (!writeTemporary(tempPath, info.st_mode & 0777, data)
         || ::rename(QFile::encodeName(tempPath).constData(),
                     QFile::encodeName(path).constData()) != 0) {
         QFile::remove(tempPath);
