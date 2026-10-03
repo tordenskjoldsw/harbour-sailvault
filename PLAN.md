@@ -291,6 +291,16 @@ Work order:
 5. Device test and measurements (criteria 2, 5, 6)
 6. `docs/threat-model.md`
 
+Status (2026-10-03): steps 1 to 4 are done. First device test on the Jolla
+Phone (Sailfish OS 5.2.0.18) with the fixture `kdbx4-aes-argon2d.kdbx` copied
+to Documents worked: picking the file, unlocking, group navigation, search,
+entry page, copy and lock. Two bugs found on the
+device and fixed before that: the unlock result was dropped (quintptr is no
+Qt 5.6 metatype) and the entry list bound its model to itself in QML.
+Not yet verified on the device: clipboard clearing after 30 seconds,
+auto-lock after 1 minute in the background and 5 minutes idle, cover
+action, landscape, a database with 1000 entries.
+
 Auto-lock defaults: 5 minutes idle in the foreground, 1 minute in the
 background (another app or display off), manual lock from the pulley menu
 and the cover. Locking on device lock would need a system D-Bus service,
