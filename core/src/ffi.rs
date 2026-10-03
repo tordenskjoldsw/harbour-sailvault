@@ -516,9 +516,9 @@ pub unsafe extern "C" fn sv_database_field_value(
     }
 }
 
-/// Adds an entry to the group with `group_uuid` and writes the entry's UUID
-/// to `uuid_out`. `now` is in seconds since the Unix epoch. The change is in
-/// memory only until `sv_database_save`.
+/// Adds an entry to the group with `group_uuid` (null for the root group) and
+/// writes the entry's UUID to `uuid_out`. `now` is in seconds since the Unix
+/// epoch. The change is in memory only until `sv_database_save`.
 ///
 /// # Safety
 ///
@@ -535,12 +535,24 @@ pub unsafe extern "C" fn sv_database_add_entry(
     now: i64,
     uuid_out: *mut u8,
 ) -> i32 {
-    let (Some(database), Some(group_uuid)) = (database.as_mut(), read_uuid(group_uuid)) else {
+    let Some(database) = database.as_mut() else {
         return SV_INVALID_ARGUMENT;
     };
     if uuid_out.is_null() || (fields.is_null() && field_count > 0) {
         return SV_INVALID_ARGUMENT;
     }
+    let group_uuid = if group_uuid.is_null() {
+        database
+            .database
+            .root_group()
+            .ok()
+            .and_then(|root| root.uuid())
+    } else {
+        read_uuid(group_uuid)
+    };
+    let Some(group_uuid) = group_uuid else {
+        return SV_NOT_FOUND;
+    };
     let fields = if fields.is_null() {
         &[][..]
     } else {

@@ -91,9 +91,10 @@ int32_t sv_database_field_value(const SvDatabase *database, const uint8_t *entry
 
 void sv_string_free(SvString string);
 
-/* Adds an entry to a group, in memory only until sv_database_save. The five
- * standard fields (Title, UserName, Password, URL, Notes) are always written;
- * now is in seconds since the Unix epoch. Writes the entry's UUID to uuid_out. */
+/* Adds an entry to a group (group_uuid NULL means the root group), in memory
+ * only until sv_database_save. The five standard fields (Title, UserName,
+ * Password, URL, Notes) are always written; now is in seconds since the Unix
+ * epoch. Writes the entry's UUID to uuid_out. */
 int32_t sv_database_add_entry(SvDatabase *database, const uint8_t *group_uuid,
                               const SvField *fields, size_t field_count, int64_t now,
                               uint8_t *uuid_out);
