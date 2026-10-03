@@ -8,6 +8,10 @@ Page {
 
     readonly property bool isUnlockPage: true
     readonly property bool unlocking: vault.state === Vault.Unlocking
+    readonly property bool passwordError: vault.error === Vault.WrongCredentials
+    readonly property bool keyFileError: vault.error === Vault.InvalidKeyFile
+    readonly property bool databaseError: vault.error !== Vault.NoError && !passwordError
+                                          && !keyFileError
 
     function fileName(path) {
         return path.substring(path.lastIndexOf("/") + 1)
@@ -88,6 +92,8 @@ Page {
                 label: qsTr("Database")
                 value: vault.databasePath.length > 0 ? page.fileName(vault.databasePath)
                                                      : qsTr("Select")
+                descriptionColor: Theme.errorColor
+                description: page.databaseError ? page.errorText(vault.error) : ""
                 onClicked: pageStack.push(databasePicker)
             }
 
@@ -95,6 +101,8 @@ Page {
                 label: qsTr("Key file")
                 value: vault.keyFilePath.length > 0 ? page.fileName(vault.keyFilePath)
                                                     : qsTr("None")
+                descriptionColor: Theme.errorColor
+                description: page.keyFileError ? page.errorText(vault.error) : ""
                 onClicked: pageStack.push(keyFilePicker)
             }
 
@@ -103,9 +111,15 @@ Page {
 
                 width: parent.width
                 label: qsTr("Master password")
+                errorHighlight: page.passwordError
+                description: page.passwordError ? page.errorText(vault.error) : ""
                 EnterKey.enabled: vault.databasePath.length > 0
                 EnterKey.iconSource: "image://theme/icon-m-enter-accept"
                 EnterKey.onClicked: page.unlock()
+                onTextChanged: {
+                    if (text.length > 0)
+                        vault.clearError()
+                }
             }
 
             Button {
@@ -113,15 +127,6 @@ Page {
                 text: qsTr("Unlock")
                 enabled: vault.databasePath.length > 0
                 onClicked: page.unlock()
-            }
-
-            Label {
-                x: Theme.horizontalPageMargin
-                width: parent.width - 2 * Theme.horizontalPageMargin
-                visible: text.length > 0
-                wrapMode: Text.Wrap
-                color: Theme.errorColor
-                text: page.errorText(vault.error)
             }
         }
     }

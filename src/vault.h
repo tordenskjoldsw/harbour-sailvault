@@ -55,6 +55,7 @@ public:
 
     Q_INVOKABLE void unlock(const QString &password);
     Q_INVOKABLE void lock();
+    Q_INVOKABLE void clearError();
     Q_INVOKABLE QVariantList fields(const QString &entryId) const;
     Q_INVOKABLE QString fieldValue(const QString &entryId, const QString &key) const;
     Q_INVOKABLE bool copyField(const QString &entryId, const QString &key);

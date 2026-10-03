@@ -180,6 +180,7 @@ void Vault::setDatabasePath(const QString &path)
     if (m_databasePath == path)
         return;
     m_databasePath = path;
+    setError(NoError);
     emit databasePathChanged();
 }
 
@@ -193,6 +194,7 @@ void Vault::setKeyFilePath(const QString &path)
     if (m_keyFilePath == path)
         return;
     m_keyFilePath = path;
+    setError(NoError);
     emit keyFilePathChanged();
 }
 
@@ -247,6 +249,11 @@ void Vault::lock()
     sv_database_free(m_database);
     m_database = nullptr;
     setState(Locked);
+}
+
+void Vault::clearError()
+{
+    setError(NoError);
 }
 
 void Vault::lockAutomatically()
