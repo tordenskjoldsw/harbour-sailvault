@@ -1,8 +1,8 @@
 # SailVault - Project Plan
 
-Status: 2026-10-03 - Phase 1 (device spike) in progress. Fingerprint unlock
+Status: 2026-10-03 - Phase 1 (device spike) complete. Fingerprint unlock
 dropped (see section 6); the vault unlocks with the master password.
-Next step: finish Phase 1 (OS version, cold start baseline).
+Next step: Phase 2 (core).
 
 ## 1. Goal
 
@@ -22,8 +22,10 @@ published in the Jolla Harbour store.
 | 3 | Fast cold start | Unlock page visible < 1 s after tap; item list visible < 0.5 s after the master key is derived; KDF duration measured and reported separately; measured with 1000 items, offline |
 | 4 | Native UI | Silica components only; passes the Sailfish UI "Definition of Done" checklist |
 
-The cold start numbers are proposed targets, not measured values. Re-baseline
-them with real numbers after Phase 1.
+Baseline (Phase 1): the empty app reaches its first frame about 400 ms after
+a direct launch on the Jolla Phone, leaving about 600 ms for the unlock page.
+The list target is first checked against real data in Phase 2. Measure with
+`tools/measure-startup.sh`.
 
 ## 3. Positioning (as of 2026-10)
 
@@ -212,10 +214,12 @@ Exit: criterion 1 met.
 - License (must be compatible with any reference code that gets reused)
 - FFI style: hand-written C API or a binding generator
 - Convenience unlock after the MVP: none, PIN, or the Secrets Confirm dialog
-- Final cold start targets after Phase 1 measurements
 
 Decided:
 
+- Cold start targets (2026-10-03): unlock page < 1 s, list < 0.5 s after key
+  derivation with 1000 items offline, KDF time measured separately. Based on
+  the 400 ms Phase 1 baseline.
 - Session tokens (2026-10-03): refresh token stored encrypted with the user
   key, access token in RAM only; see section 6.
 - Build system: qmake (2026-10-02). Sailfish default, matches the SDK
