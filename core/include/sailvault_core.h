@@ -24,9 +24,18 @@ enum {
     SV_CORRUPTED = 7,
     SV_LIMIT_EXCEEDED = 8,
     SV_NOT_FOUND = 9,
-    /* Saving failed before anything was handed out: no random bytes, or the
-     * serialized file did not decrypt back to the same content. */
-    SV_WRITE_FAILED = 10
+    /* The serialized file did not decrypt back to the same content; nothing
+     * was handed out. */
+    SV_WRITE_FAILED = 10,
+    SV_RANDOM_UNAVAILABLE = 11
+};
+
+/* Character classes for sv_generate_password, combined with bitwise or. */
+enum {
+    SV_CLASS_LOWER = 1,
+    SV_CLASS_UPPER = 2,
+    SV_CLASS_DIGITS = 4,
+    SV_CLASS_SYMBOLS = 8
 };
 
 enum { SV_UUID_LENGTH = 16 };
@@ -104,6 +113,10 @@ int32_t sv_database_add_entry(SvDatabase *database, const uint8_t *group_uuid,
  * database meanwhile but must not modify or free it. */
 int32_t sv_database_save(const SvDatabase *database, SvBytes *out);
 void sv_bytes_free(SvBytes bytes);
+
+/* A random password of length characters (4 to 128) drawn from the selected
+ * SV_CLASS_* classes, each used at least once. Free it with sv_string_free. */
+int32_t sv_generate_password(size_t length, uint32_t classes, SvString *out);
 
 #ifdef __cplusplus
 }

@@ -10,6 +10,7 @@ use std::slice;
 use zeroize::Zeroizing;
 
 use crate::kdbx::{CompositeKey, Database, Entry, Group, KdbxError, ListedEntry};
+use crate::password::{self, CharacterClasses, PasswordError};
 
 pub const SV_OK: i32 = 0;
 pub const SV_INVALID_ARGUMENT: i32 = 1;
@@ -22,6 +23,12 @@ pub const SV_CORRUPTED: i32 = 7;
 pub const SV_LIMIT_EXCEEDED: i32 = 8;
 pub const SV_NOT_FOUND: i32 = 9;
 pub const SV_WRITE_FAILED: i32 = 10;
+pub const SV_RANDOM_UNAVAILABLE: i32 = 11;
+
+pub const SV_CLASS_LOWER: u32 = 1;
+pub const SV_CLASS_UPPER: u32 = 2;
+pub const SV_CLASS_DIGITS: u32 = 4;
+pub const SV_CLASS_SYMBOLS: u32 = 8;
 
 const UUID_LENGTH: usize = 16;
 
@@ -98,9 +105,8 @@ fn status(error: KdbxError) -> i32 {
         | KdbxError::DecompressionFailed
         | KdbxError::InvalidInnerHeader(_)
         | KdbxError::InvalidXml(_) => SV_CORRUPTED,
-        KdbxError::CompressionFailed
-        | KdbxError::RandomUnavailable
-        | KdbxError::WriteVerificationFailed => SV_WRITE_FAILED,
+        KdbxError::CompressionFailed | KdbxError::WriteVerificationFailed => SV_WRITE_FAILED,
+        KdbxError::RandomUnavailable => SV_RANDOM_UNAVAILABLE,
         KdbxError::InvalidEntry(_) => SV_INVALID_ARGUMENT,
         KdbxError::UnknownGroup => SV_NOT_FOUND,
     }
@@ -620,6 +626,42 @@ pub unsafe extern "C" fn sv_bytes_free(bytes: SvBytes) {
     }
 }
 
+/// A random password of `length` characters from the `SV_CLASS_*` classes in
+/// `classes`, each class used at least once.
+///
+/// # Safety
+///
+/// `out` must be valid for one write. Release the string with
+/// `sv_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn sv_generate_password(
+    length: usize,
+    classes: u32,
+    out: *mut SvString,
+) -> i32 {
+    let Some(out) = out.as_mut() else {
+        return SV_INVALID_ARGUMENT;
+    };
+    *out = SvString {
+        data: std::ptr::null_mut(),
+        length: 0,
+    };
+    let classes = CharacterClasses {
+        lower: classes & SV_CLASS_LOWER != 0,
+        upper: classes & SV_CLASS_UPPER != 0,
+        digits: classes & SV_CLASS_DIGITS != 0,
+        symbols: classes & SV_CLASS_SYMBOLS != 0,
+    };
+    match password::generate(length, classes) {
+        Ok(password) => {
+            *out = into_sv_string(&password);
+            SV_OK
+        }
+        Err(PasswordError::InvalidParameters) => SV_INVALID_ARGUMENT,
+        Err(PasswordError::RandomUnavailable) => SV_RANDOM_UNAVAILABLE,
+    }
+}
+
 /// Zeroizes and releases a string from this API.
 ///
 /// # Safety
@@ -811,6 +853,37 @@ mod tests {
                 data: std::ptr::null_mut(),
                 length: 0,
             });
+        }
+    }
+
+    #[test]
+    fn generates_passwords_from_the_requested_classes() {
+        unsafe {
+            let mut password = SvString {
+                data: std::ptr::null_mut(),
+                length: 0,
+            };
+            assert_eq!(
+                sv_generate_password(16, SV_CLASS_UPPER | SV_CLASS_DIGITS, &mut password),
+                SV_OK
+            );
+            let text = take(password);
+            assert_eq!(text.len(), 16);
+            assert!(text
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()));
+            let mut rejected = SvString {
+                data: std::ptr::null_mut(),
+                length: 0,
+            };
+            assert_eq!(
+                sv_generate_password(16, 0, &mut rejected),
+                SV_INVALID_ARGUMENT
+            );
+            assert_eq!(
+                sv_generate_password(16, SV_CLASS_LOWER, std::ptr::null_mut()),
+                SV_INVALID_ARGUMENT
+            );
         }
     }
 
