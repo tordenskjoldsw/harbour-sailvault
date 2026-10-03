@@ -40,14 +40,49 @@ Page {
 
     allowedOrientations: Orientation.All
 
+    Connections {
+        target: vault
+        onContentChanged: {
+            if (page.unlocked) {
+                page.entryTitle = vault.fieldValue(page.entryId, "Title")
+                fieldsRepeater.model = page.orderedFields()
+            }
+        }
+    }
+
+    RemorsePopup {
+        id: remorse
+    }
+
     SilicaFlickable {
         anchors.fill: parent
         contentHeight: column.height + Theme.paddingLarge
 
         PullDownMenu {
+            busy: vault.saving
+
             MenuItem {
                 text: qsTr("Lock")
                 onClicked: vault.lock()
+            }
+            MenuItem {
+                text: qsTr("Delete")
+                enabled: !vault.saving
+                onClicked: {
+                    remorse.execute(vault.deletesPermanently(page.entryId)
+                                    ? qsTr("Deleting permanently")
+                                    : qsTr("Moving to the recycle bin"),
+                                    function() {
+                                        if (vault.deleteEntry(page.entryId))
+                                            pageStack.pop()
+                                    })
+                }
+            }
+            MenuItem {
+                text: qsTr("Edit")
+                enabled: !vault.saving
+                onClicked: pageStack.push(Qt.resolvedUrl("EntryDialog.qml"),
+                                          { "entryId": page.entryId })
             }
         }
 
@@ -61,6 +96,8 @@ Page {
             }
 
             Repeater {
+                id: fieldsRepeater
+
                 model: page.orderedFields()
 
                 delegate: ListItem {

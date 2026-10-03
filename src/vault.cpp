@@ -213,6 +213,48 @@ uint32_t characterClass(bool selected, int flag)
     return selected ? static_cast<uint32_t>(flag) : 0u;
 }
 
+qint64 unixSeconds()
+{
+    return QDateTime::currentMSecsSinceEpoch() / 1000;
+}
+
+// UTF-8 copies of entry fields for the core, wiped when they go out of
+// scope. The map's own QString copies cannot be wiped (see the threat model).
+class CoreFields
+{
+public:
+    explicit CoreFields(const QVariantMap &fields)
+        : m_fields(fields.size())
+    {
+        m_buffers.reserve(2 * fields.size());
+        for (auto field = fields.constBegin(); field != fields.constEnd(); ++field) {
+            m_buffers.append(field.key().toUtf8());
+            m_buffers.append(field.value().toString().toUtf8());
+        }
+        for (int index = 0; index < m_fields.size(); ++index) {
+            const QByteArray &key = m_buffers.at(2 * index);
+            const QByteArray &value = m_buffers.at(2 * index + 1);
+            m_fields[index].key = bytePointer(key);
+            m_fields[index].key_length = static_cast<size_t>(key.size());
+            m_fields[index].value = bytePointer(value);
+            m_fields[index].value_length = static_cast<size_t>(value.size());
+        }
+    }
+
+    ~CoreFields()
+    {
+        for (QByteArray &buffer : m_buffers)
+            secureWipe(buffer);
+    }
+
+    const SvField *data() const { return m_fields.constData(); }
+    size_t count() const { return static_cast<size_t>(m_fields.size()); }
+
+private:
+    QVector<QByteArray> m_buffers;
+    QVector<SvField> m_fields;
+};
+
 } // namespace
 
 Vault::Vault(QObject *parent)
@@ -464,34 +506,59 @@ bool Vault::addEntry(const QString &groupId, const QVariantMap &fields)
     if (m_saving || !database())
         return false;
     const QByteArray group = QByteArray::fromHex(groupId.toLatin1());
-    QVector<QByteArray> buffers;
-    buffers.reserve(2 * fields.size());
-    for (auto field = fields.constBegin(); field != fields.constEnd(); ++field) {
-        buffers.append(field.key().toUtf8());
-        buffers.append(field.value().toString().toUtf8());
-    }
-    QVector<SvField> coreFields(fields.size());
-    for (int index = 0; index < coreFields.size(); ++index) {
-        const QByteArray &key = buffers.at(2 * index);
-        const QByteArray &value = buffers.at(2 * index + 1);
-        coreFields[index].key = bytePointer(key);
-        coreFields[index].key_length = static_cast<size_t>(key.size());
-        coreFields[index].value = bytePointer(value);
-        coreFields[index].value_length = static_cast<size_t>(value.size());
-    }
+    const CoreFields coreFields(fields);
     QByteArray uuid(SV_UUID_LENGTH, Qt::Uninitialized);
     const int status = sv_database_add_entry(
         m_database, group.size() == SV_UUID_LENGTH ? bytePointer(group) : nullptr,
-        coreFields.constData(), static_cast<size_t>(coreFields.size()),
-        QDateTime::currentMSecsSinceEpoch() / 1000, reinterpret_cast<uint8_t *>(uuid.data()));
-    for (QByteArray &buffer : buffers)
-        secureWipe(buffer);
+        coreFields.data(), coreFields.count(), unixSeconds(),
+        reinterpret_cast<uint8_t *>(uuid.data()));
     if (status != SV_OK)
         return false;
+    commitChange();
+    return true;
+}
+
+bool Vault::updateEntry(const QString &entryId, const QVariantMap &fields)
+{
+    const QByteArray uuid = entryUuid(entryId);
+    if (m_saving || uuid.isEmpty() || !database())
+        return false;
+    const CoreFields coreFields(fields);
+    bool changed = false;
+    if (sv_database_update_entry(m_database, bytePointer(uuid), coreFields.data(),
+                                 coreFields.count(), unixSeconds(), &changed) != SV_OK)
+        return false;
+    if (changed)
+        commitChange();
+    return true;
+}
+
+bool Vault::deletesPermanently(const QString &entryId)
+{
+    const QByteArray uuid = entryUuid(entryId);
+    bool permanent = false;
+    return !uuid.isEmpty() && database()
+        && sv_database_delete_is_permanent(m_database, bytePointer(uuid), &permanent) == SV_OK
+        && permanent;
+}
+
+bool Vault::deleteEntry(const QString &entryId)
+{
+    const QByteArray uuid = entryUuid(entryId);
+    if (m_saving || uuid.isEmpty() || !database())
+        return false;
+    bool permanent = false;
+    if (sv_database_delete_entry(m_database, bytePointer(uuid), unixSeconds(), &permanent) != SV_OK)
+        return false;
+    commitChange();
+    return true;
+}
+
+void Vault::commitChange()
+{
     setDirty(true);
     emit contentChanged();
     save();
-    return true;
 }
 
 void Vault::save()

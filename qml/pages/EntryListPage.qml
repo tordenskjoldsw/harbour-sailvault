@@ -58,7 +58,7 @@ Page {
             MenuItem {
                 text: qsTr("New entry")
                 enabled: !vault.saving
-                onClicked: pageStack.push(Qt.resolvedUrl("NewEntryDialog.qml"),
+                onClicked: pageStack.push(Qt.resolvedUrl("EntryDialog.qml"),
                                           { "groupId": page.groupId })
             }
         }
@@ -120,6 +120,23 @@ Page {
                 id: entryMenu
 
                 ContextMenu {
+                    MenuItem {
+                        text: qsTr("Edit")
+                        enabled: !vault.saving
+                        onClicked: pageStack.push(Qt.resolvedUrl("EntryDialog.qml"),
+                                                  { "entryId": model.id })
+                    }
+                    MenuItem {
+                        text: qsTr("Delete")
+                        enabled: !vault.saving
+                        onClicked: {
+                            var entryId = model.id
+                            item.remorseAction(vault.deletesPermanently(entryId)
+                                               ? qsTr("Deleting permanently")
+                                               : qsTr("Moving to the recycle bin"),
+                                               function() { vault.deleteEntry(entryId) })
+                        }
+                    }
                     MenuItem {
                         text: qsTr("Copy user name")
                         onClicked: {

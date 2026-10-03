@@ -81,8 +81,13 @@ public:
     Q_INVOKABLE QString fieldValue(const QString &entryId, const QString &key);
     Q_INVOKABLE bool copyField(const QString &entryId, const QString &key);
     // fields maps field names to values; an empty groupId means the root
-    // group. Starts a save on success.
+    // group. Each change starts a save.
     Q_INVOKABLE bool addEntry(const QString &groupId, const QVariantMap &fields);
+    Q_INVOKABLE bool updateEntry(const QString &entryId, const QVariantMap &fields);
+    // True when deleteEntry would remove the entry for good instead of
+    // moving it to the recycle bin.
+    Q_INVOKABLE bool deletesPermanently(const QString &entryId);
+    Q_INVOKABLE bool deleteEntry(const QString &entryId);
     Q_INVOKABLE void save();
     Q_INVOKABLE QString generatePassword(int length, bool lower, bool upper, bool digits,
                                          bool symbols) const;
@@ -114,6 +119,8 @@ private slots:
 
 private:
     QString readField(const QString &entryId, const QString &key) const;
+    // Marks the in-memory change and starts the save.
+    void commitChange();
     void lockAutomatically();
     void cancelPendingUnlock();
     void updateWatchdog();
