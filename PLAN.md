@@ -444,6 +444,13 @@ previous group), emptying the recycle bin (`Database::emptyRecycleBin`),
 and a read-only history view. `keepassxc-cli` reads a saved file with all of
 these changes.
 
+Security review fixes (2026-10-03): the temporary file of a save is created
+exclusively and never through a symlink; database content is shown as plain
+text; an import merges only into entries an import created. Device test on
+the Jolla Phone: saving after an edit still works, and importing the
+two-item export and then the one-item export ends with "Nothing new to
+import".
+
 Exit: criterion 3 (lossless KeePassXC round trip) met for every fixture and
 for files changed on the phone.
 
