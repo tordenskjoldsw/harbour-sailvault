@@ -23,6 +23,10 @@ const DEFAULT_HISTORY_MAX_SIZE: i64 = 6 * 1024 * 1024;
 const GROUP_ICON: &str = "48";
 const RECYCLE_BIN_ICON: &str = "43";
 const NO_UUID: [u8; UUID_LENGTH] = [0; UUID_LENGTH];
+/// The entry CustomData key that records `NewEntry::origin`.
+const ORIGIN_KEY: &str = "SailVault/ImportedFrom";
+pub const ORIGIN_BITWARDEN: &str = "Bitwarden";
+const KNOWN_ORIGINS: [&str; 1] = [ORIGIN_BITWARDEN];
 // Entry children that KeePassXC writes after the String elements.
 const AFTER_STRINGS: [&str; 4] = ["Binary", "AutoType", "CustomData", "History"];
 // A path of this length (Root, Group) is the root group itself.
@@ -53,6 +57,10 @@ pub struct NewEntry {
     /// The identity used to recognise the entry when it is merged again; a
     /// random UUID when missing.
     pub uuid: Option<[u8; UUID_LENGTH]>,
+    /// Where an imported entry came from, kept in its CustomData. A later
+    /// merge only updates entries of the same origin, so an import can never
+    /// change an entry it did not create, whatever UUID it claims.
+    pub origin: Option<&'static str>,
     pub fields: Vec<NewField>,
     pub tags: Vec<String>,
     pub created: Option<i64>,
@@ -636,8 +644,10 @@ fn entry_element(
             .collect::<Vec<_>>(),
     )?;
     let now_time = kdbx_time(now);
-    let created = entry.created.map_or_else(|| now_time.clone(), kdbx_time);
-    let modified = entry.modified.map_or_else(|| now_time.clone(), kdbx_time);
+    // A time in the future would win every later merge, here and in
+    // KeePassXC; it counts as now.
+    let created = kdbx_time(entry.created.map_or(now, |time| time.min(now)));
+    let modified = kdbx_time(entry.modified.map_or(now, |time| time.min(now)));
     let mut tags: Vec<&str> = entry.tags.iter().map(String::as_str).collect();
     tags.sort_unstable();
     tags.dedup();
@@ -670,6 +680,15 @@ fn entry_element(
             text("DefaultSequence", ""),
         ],
     ));
+    if let Some(origin) = entry.origin {
+        children.push(element(
+            "CustomData",
+            vec![element(
+                "Item",
+                vec![text("Key", ORIGIN_KEY), text("Value", origin)],
+            )],
+        ));
+    }
     children.push(element("History", Vec::new()));
     Ok(element("Entry", children))
 }
@@ -682,7 +701,7 @@ fn merge_into(
     summary: &mut MergeSummary,
 ) -> Result<()> {
     for entry in &group.entries {
-        let known = entry
+        let mut known = entry
             .uuid
             .filter(|uuid| group_path(document, uuid).is_none());
         if let Some(uuid) = known {
@@ -690,19 +709,26 @@ fn merge_into(
                 continue;
             }
             if let Some(path) = entry_path(document, &uuid) {
-                let in_recycle_bin = context.recycle_bin.is_some_and(|bin| {
-                    groups_on_path(document, &path)
-                        .iter()
-                        .any(|group| group.child("UUID").and_then(decode_uuid) == Some(bin))
+                let same_origin = descend(document, &path).is_some_and(|existing| {
+                    entry.origin.is_some() && origin(existing) == entry.origin
                 });
-                if in_recycle_bin {
+                if same_origin {
+                    let in_recycle_bin = context.recycle_bin.is_some_and(|bin| {
+                        groups_on_path(document, &path)
+                            .iter()
+                            .any(|group| group.child("UUID").and_then(decode_uuid) == Some(bin))
+                    });
+                    if in_recycle_bin {
+                        continue;
+                    }
+                    let existing = descend_mut(document, &path).ok_or(KdbxError::UnknownEntry)?;
+                    if merge_entry(existing, entry, &uuid, context)? {
+                        summary.updated += 1;
+                    }
                     continue;
                 }
-                let existing = descend_mut(document, &path).ok_or(KdbxError::UnknownEntry)?;
-                if merge_entry(existing, entry, &uuid, context)? {
-                    summary.updated += 1;
-                }
-                continue;
+                // The UUID belongs to an entry this origin did not create.
+                known = None;
             }
         }
         let uuid = match known {
@@ -771,7 +797,9 @@ fn merge_entry(
         .child("Times")
         .and_then(|times| times.child("LastModificationTime"))
         .and_then(|time| parse_kdbx_time(&time.text()));
-    let imported_time = imported.modified.unwrap_or(context.now);
+    let imported_time = imported
+        .modified
+        .map_or(context.now, |time| time.min(context.now));
     let mut candidates = history_elements(imported, uuid, &context.protected_keys, context.now)?;
     let mut changed = false;
     match local_time {
@@ -1277,6 +1305,23 @@ fn groups_on_path<'a>(document: &'a Element, path: &[usize]) -> Vec<&'a Element>
         }
     }
     groups
+}
+
+/// The `NewEntry::origin` recorded in an entry's CustomData.
+fn origin(entry: &Element) -> Option<&'static str> {
+    let value = entry
+        .child("CustomData")?
+        .children_named("Item")
+        .find(|item| {
+            item.child("Key")
+                .is_some_and(|key| *key.text() == *ORIGIN_KEY)
+        })?
+        .child("Value")?
+        .text();
+    KNOWN_ORIGINS
+        .iter()
+        .copied()
+        .find(|known| *known == value.as_str())
 }
 
 /// The UUID of the group holding the entry at `path`.

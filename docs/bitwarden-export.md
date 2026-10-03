@@ -99,10 +99,16 @@ import" of the open database instead of a new database.
 Importing again merges, following KeePassXC's `Merger.cpp`
 (`resolveEntryConflict_MergeHistories`, `mergeHistory`):
 
-- The item `id` (a UUID) becomes the entry UUID, so an item is recognised
-  wherever its entry is now; entries moved out of the import group stay
-  where they are. KeePassXC's importer draws random UUIDs, so its imports
-  cannot be merged this way
+- The item `id` (a UUID) becomes the entry UUID, and the entry's CustomData
+  records `SailVault/ImportedFrom = Bitwarden`. A later import matches only
+  entries with that UUID and that record, wherever they are now; entries
+  moved out of the import group stay where they are. An item whose ID
+  equals the UUID of any other entry is added as a new entry with a random
+  UUID, so a crafted export cannot change entries it did not create.
+  KeePassXC's importer draws random UUIDs, so its imports cannot be merged
+  this way
+- Creation and modification times in the future count as the import time;
+  otherwise a crafted date would win every later merge
 - The newer side by modification time wins; the other becomes a history
   item. History items are combined by modification time. The same file
   imported twice changes nothing

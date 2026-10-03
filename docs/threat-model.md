@@ -61,9 +61,10 @@ Protected:
   used) through the KDF stored in the file. Nothing that unlocks it is
   stored on the device.
 - No decrypted data is written to disk. Settings contain only file paths.
-  A save writes the encrypted file to a temporary file next to the
-  database and renames it over the original; the previous file goes to the
-  backups, encrypted as it was.
+  A save writes the encrypted file to a new temporary file next to the
+  database (created exclusively, never through a symlink, and read back
+  through the same descriptor) and renames it over the original; the
+  previous file goes to the backups, encrypted as it was.
 - `/home` is LUKS-encrypted on the Jolla Phone (checked on 5.2.0.18), which
   protects the files while the phone is off.
 
@@ -160,6 +161,11 @@ Protected:
   Values are kept in zeroized memory and the import is added in one step.
 - After importing an unencrypted export the app offers to delete it; it
   can delete only that file.
+- A later import merges only into entries an import created (UUID and a
+  CustomData record), so a crafted export cannot change other entries;
+  dates in the future count as the import time.
+- Database content and file names are shown as plain text, so markup in an
+  imported title cannot change what the app displays.
 
 Limits:
 

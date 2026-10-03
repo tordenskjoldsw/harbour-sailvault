@@ -928,16 +928,16 @@ fn a_second_import_merges_like_keepassxc_and_keeps_local_changes() {
         .update_entry(&ssh_key, &[("Notes", "edited on the phone")], NOW)
         .unwrap();
     database
-        .update_entry(&mail, &[("phone-only", "kept")], NOW)
+        .update_entry(&mail, &[("phone-only", "kept")], NOW - 30 * 86_400)
         .unwrap();
 
-    // In Bitwarden: the mail password changes later, the SSH key changed
-    // earlier than the phone edit, and a new item appears.
+    // In Bitwarden: the mail password changes after the phone edit, the SSH
+    // key changed before it, and a new item appears.
     let items = export["items"].as_array_mut().unwrap();
     items[0]["login"]["password"] = "example-new-password".into();
-    items[0]["revisionDate"] = "2026-02-01T00:00:00.000Z".into();
+    items[0]["revisionDate"] = "2025-12-15T00:00:00.000Z".into();
     items[1]["card"]["code"] = "999".into();
-    items[1]["revisionDate"] = "2026-02-01T00:00:00.000Z".into();
+    items[1]["revisionDate"] = "2025-12-15T00:00:00.000Z".into();
     items[2]["notes"] = "edited in Bitwarden".into();
     items[2]["revisionDate"] = "2025-12-01T00:00:00.000Z".into();
     let mut added = items[3].clone();
@@ -1021,4 +1021,73 @@ fn renamed_moved_restored_groups_and_an_emptied_bin_survive_a_save() {
     assert!(listing.contains("Cards/Example card\n"), "{listing}");
     assert!(listing.contains("\nExample login\n") || listing.starts_with("Example login\n"));
     assert!(!listing.contains("Recycled entry"), "{listing}");
+}
+
+#[test]
+fn an_import_never_changes_entries_it_did_not_create() {
+    let mut database = open(AES_AESKDF, false);
+    let login = entry(&database.root_group().unwrap(), "Example login");
+    let target = login.uuid().unwrap();
+    let password_before = value(&login, "Password");
+    let target_id = format!(
+        "{}-{}-{}-{}-{}",
+        hex(&target[..4]),
+        hex(&target[4..6]),
+        hex(&target[6..8]),
+        hex(&target[8..10]),
+        hex(&target[10..])
+    );
+    let export = serde_json::json!({
+        "encrypted": false,
+        "folders": [],
+        "items": [{
+            "id": target_id,
+            "type": 1,
+            "name": "Example login",
+            "revisionDate": "2099-01-01T00:00:00.000Z",
+            "login": {"username": "attacker", "password": "attacker-password",
+                      "uris": [{"uri": "https://phishing.example"}]}
+        }]
+    });
+    assert_eq!(import_export(&mut database, &export), (1, 0));
+
+    let saved = database.save().unwrap();
+    let reopened = Database::open(&saved, key(false)).unwrap();
+    let root = reopened.root_group().unwrap();
+    let original = root.entries().find(|e| e.uuid() == Some(target)).unwrap();
+    assert_eq!(value(&original, "Password"), password_before);
+    let imported = entry(&subgroup(&root, "Bitwarden import"), "Example login");
+    assert_ne!(imported.uuid(), Some(target));
+    assert_eq!(value(&imported, "Password"), "attacker-password");
+    let modified = imported
+        .element()
+        .child("Times")
+        .unwrap()
+        .child("LastModificationTime")
+        .unwrap()
+        .text()
+        .to_string();
+    assert_eq!(modified, sailvault_core_kdbx_time(NOW));
+
+    // KeePassXC keeps the marker that lets a later import merge again.
+    let file = TempFile::write("import-origin", &saved);
+    let xml = keepassxc_cli(&["export", "-f", "xml"], &file, false, &[]);
+    assert!(
+        xml.contains("<Key>SailVault/ImportedFrom</Key>"),
+        "marker lost"
+    );
+    assert!(
+        xml.contains("<Value>Bitwarden</Value>"),
+        "marker value lost"
+    );
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// KDBX 4 time text: base64 of the little-endian seconds since year 1.
+fn sailvault_core_kdbx_time(unix_seconds: i64) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.encode((unix_seconds + 62_135_596_800).to_le_bytes())
 }

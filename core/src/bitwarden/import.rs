@@ -11,7 +11,7 @@ use zeroize::Zeroizing;
 
 use super::error::{ImportError, Result};
 use super::export::{Item, Login, Section, Vault};
-use crate::kdbx::{NewEntry, NewField, NewGroup};
+use crate::kdbx::{NewEntry, NewField, NewGroup, ORIGIN_BITWARDEN};
 
 /// Deeper folder paths are refused: the KDBX reader bounds XML nesting.
 const MAX_FOLDER_DEPTH: usize = 32;
@@ -226,6 +226,7 @@ fn map_item(item: &Item) -> NewEntry {
         .collect();
     NewEntry {
         uuid: parse_uuid(item.id.as_str()),
+        origin: Some(ORIGIN_BITWARDEN),
         fields: fields.0,
         tags,
         created,
