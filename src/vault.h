@@ -63,7 +63,9 @@ public:
         FileUnreadable,
         FileUnwritable,
         SaveFailed,
-        FileExists
+        FileExists,
+        // Changes that could not be saved were discarded by a lock.
+        ChangesDiscarded
     };
     Q_ENUM(Error)
 
@@ -80,7 +82,8 @@ public:
     QString keyFilePath() const;
     void setKeyFilePath(const QString &path);
 
-    // Null when locked or when a lock deadline has passed.
+    // Null when locked, when a lock deadline has passed or while a requested
+    // lock waits for a save.
     const SvDatabase *database();
     // Merges a Bitwarden import into its group in the root group and saves
     // when anything changed; refused while a save runs or when locked.

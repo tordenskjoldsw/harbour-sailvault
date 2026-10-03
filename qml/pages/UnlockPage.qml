@@ -31,6 +31,7 @@ Page {
         case Vault.FileUnreadable: return qsTr("The file cannot be read")
         case Vault.FileUnwritable: return qsTr("The file cannot be written")
         case Vault.FileExists: return qsTr("A file with this name already exists")
+        case Vault.ChangesDiscarded: return qsTr("Changes that could not be saved were discarded when the database locked")
         default: return ""
         }
     }

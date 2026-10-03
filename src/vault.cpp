@@ -410,7 +410,8 @@ void Vault::setKeyFilePath(const QString &path)
 const SvDatabase *Vault::database()
 {
     enforceDeadlines();
-    return m_database;
+    // A requested lock waits for the running save; nothing is read meanwhile.
+    return m_lockAfterSave || m_autoLockAfterSave ? nullptr : m_database;
 }
 
 void Vault::unlock(const QString &password)
@@ -529,6 +530,9 @@ void Vault::lock()
     sv_database_free(m_database);
     m_database = nullptr;
     m_fileDigest.clear();
+    // An earlier save error no longer applies; changes it kept from being
+    // written are gone now, which the unlock page reports.
+    setError(m_dirty ? ChangesDiscarded : NoError);
     setDirty(false);
     setState(Locked);
 }
@@ -829,7 +833,6 @@ void Vault::save()
 void Vault::onSaveFinished(int attempt, int status, const QByteArray &digest,
                            bool replacedChangedFile)
 {
-    setSaving(false);
     if (attempt == m_attempt && m_state == Unlocked) {
         if (status == SV_OK) {
             m_fileDigest = digest;
@@ -841,6 +844,9 @@ void Vault::onSaveFinished(int attempt, int status, const QByteArray &digest,
             emit saveFailed();
         }
     }
+    // After the result is applied: the end of a save lets a pending import
+    // merge, which starts the next save against the new digest.
+    setSaving(false);
     if (m_autoLockAfterSave) {
         m_autoLockAfterSave = false;
         m_lockAfterSave = false;
