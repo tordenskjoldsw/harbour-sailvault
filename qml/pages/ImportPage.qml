@@ -34,8 +34,9 @@ Page {
     function summary(added, updated) {
         if (added === 0 && updated === 0)
             return qsTr("Nothing new to import")
+        // No translations exist yet, so %n plurals would read "1 entries".
         if (updated === 0)
-            return qsTr("%n entries imported", "", added)
+            return added === 1 ? qsTr("1 entry imported") : qsTr("%1 entries imported").arg(added)
         return qsTr("%1 new, %2 updated").arg(added).arg(updated)
     }
 
