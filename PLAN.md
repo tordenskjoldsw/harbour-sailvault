@@ -532,6 +532,11 @@ Decided:
   of a benchmarked Argon2d: RFC 9106 recommends Argon2id, and the fixed
   parameters take about 0.9 s on the Jolla Phone. Password only, at least
   8 characters; key files stay in Phase 7.
+  Device test on the Jolla Phone (2026-10-03): a database was created on
+  the phone and a test export imported into it. The saved file was fetched;
+  `keepassxc-cli` 2.7.12 opened it with its password and reported AES
+  256-bit, Argon2id (3 rounds, 262144 KB), the name and both imported
+  entries in their folder. The file has mode 0600.
 - License (2026-10-03): MIT. No code from GPL projects such as KeePassXC is
   reused, only documented behavior; every vendored crate has a permissive
   license (MIT, Apache-2.0, BSD-3-Clause, Zlib, Unicode-3.0, Unlicense).
