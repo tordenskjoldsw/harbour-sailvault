@@ -451,13 +451,14 @@ void Vault::updateWatchdog()
         m_watchdog.stop();
 }
 
-QVariantList Vault::fields(const QString &entryId)
+QVariantList Vault::fields(const QString &entryId, int version)
 {
     QVariantList result;
     const QByteArray uuid = itemUuid(entryId);
     const SvDatabase *handle = database();
     SvFieldList *fields = nullptr;
-    if (!handle || uuid.isEmpty() || sv_database_fields(handle, bytePointer(uuid), &fields) != SV_OK)
+    if (!handle || uuid.isEmpty()
+        || sv_database_fields(handle, bytePointer(uuid), version, &fields) != SV_OK)
         return result;
     for (size_t index = 0; index < sv_field_list_length(fields); ++index) {
         SvString key = emptyCoreString();
@@ -472,33 +473,63 @@ QVariantList Vault::fields(const QString &entryId)
     return result;
 }
 
-QString Vault::fieldValue(const QString &entryId, const QString &key)
+QString Vault::fieldValue(const QString &entryId, const QString &key, int version)
 {
-    return database() ? readField(entryId, key) : QString();
+    return database() ? readField(entryId, key, version) : QString();
 }
 
-QString Vault::readField(const QString &entryId, const QString &key) const
+QString Vault::readField(const QString &entryId, const QString &key, int version) const
 {
     const QByteArray uuid = itemUuid(entryId);
     const QByteArray keyBytes = key.toUtf8();
     SvString value = emptyCoreString();
     if (!m_database || uuid.isEmpty()
-        || sv_database_field_value(m_database, bytePointer(uuid), bytePointer(keyBytes),
-                                   static_cast<size_t>(keyBytes.size()), &value) != SV_OK)
+        || sv_database_field_value(m_database, bytePointer(uuid), version,
+                                   bytePointer(keyBytes), static_cast<size_t>(keyBytes.size()),
+                                   &value)
+            != SV_OK)
         return QString();
     return takeCoreString(value);
 }
 
-bool Vault::copyField(const QString &entryId, const QString &key)
+bool Vault::copyField(const QString &entryId, const QString &key, int version)
 {
-    const QString value = fieldValue(entryId, key);
+    const QString value = fieldValue(entryId, key, version);
     if (value.isEmpty())
         return false;
     // The guard compares against the core's value instead of keeping a copy
     // or hash; lock() clears the clipboard before it frees the database.
-    m_clipboard.copy(value, [this, entryId, key] { return readField(entryId, key); });
+    m_clipboard.copy(value, [this, entryId, key, version] {
+        return readField(entryId, key, version);
+    });
     updateWatchdog();
     return true;
+}
+
+QVariantList Vault::history(const QString &entryId)
+{
+    QVariantList result;
+    const QByteArray uuid = itemUuid(entryId);
+    const SvDatabase *handle = database();
+    size_t length = 0;
+    if (!handle || uuid.isEmpty()
+        || sv_database_history_length(handle, bytePointer(uuid), &length) != SV_OK)
+        return result;
+    for (size_t index = length; index-- > 0;) {
+        const int version = static_cast<int>(index);
+        int64_t modified = 0;
+        if (sv_database_modification_time(handle, bytePointer(uuid), version, &modified) != SV_OK)
+            continue;
+        QVariantMap item;
+        item.insert(QStringLiteral("version"), version);
+        item.insert(QStringLiteral("modified"),
+                    QDateTime::fromMSecsSinceEpoch(static_cast<qint64>(modified) * 1000));
+        item.insert(QStringLiteral("title"), readField(entryId, QStringLiteral("Title"), version));
+        item.insert(QStringLiteral("userName"),
+                    readField(entryId, QStringLiteral("UserName"), version));
+        result.append(item);
+    }
+    return result;
 }
 
 bool Vault::addEntry(const QString &groupId, const QVariantMap &fields)
@@ -586,6 +617,69 @@ bool Vault::moveEntry(const QString &entryId, const QString &groupId)
     if (moved)
         commitChange();
     return true;
+}
+
+bool Vault::renameGroup(const QString &groupId, const QString &name)
+{
+    const QByteArray uuid = itemUuid(groupId);
+    if (m_saving || uuid.isEmpty() || !database())
+        return false;
+    const QByteArray nameBytes = name.toUtf8();
+    bool changed = false;
+    if (sv_database_rename_group(m_database, bytePointer(uuid), bytePointer(nameBytes),
+                                 static_cast<size_t>(nameBytes.size()), unixSeconds(), &changed)
+        != SV_OK)
+        return false;
+    if (changed)
+        commitChange();
+    return true;
+}
+
+bool Vault::moveGroup(const QString &groupId, const QString &parentId)
+{
+    const QByteArray uuid = itemUuid(groupId);
+    const QByteArray parent = itemUuid(parentId);
+    if (m_saving || uuid.isEmpty() || parent.isEmpty() || !database())
+        return false;
+    bool moved = false;
+    if (sv_database_move_group(m_database, bytePointer(uuid), bytePointer(parent), unixSeconds(),
+                               &moved)
+        != SV_OK)
+        return false;
+    if (moved)
+        commitChange();
+    return true;
+}
+
+bool Vault::restore(const QString &itemId)
+{
+    const QByteArray uuid = itemUuid(itemId);
+    if (m_saving || uuid.isEmpty() || !database()
+        || sv_database_restore(m_database, bytePointer(uuid), unixSeconds()) != SV_OK)
+        return false;
+    commitChange();
+    return true;
+}
+
+bool Vault::emptyRecycleBin()
+{
+    if (m_saving || !database())
+        return false;
+    bool changed = false;
+    if (sv_database_empty_recycle_bin(m_database, unixSeconds(), &changed) != SV_OK)
+        return false;
+    if (changed)
+        commitChange();
+    return true;
+}
+
+QString Vault::recycleBinId()
+{
+    QByteArray uuid(SV_UUID_LENGTH, Qt::Uninitialized);
+    const SvDatabase *handle = database();
+    if (!handle || sv_database_recycle_bin(handle, reinterpret_cast<uint8_t *>(uuid.data())) != SV_OK)
+        return QString();
+    return QString::fromLatin1(uuid.toHex());
 }
 
 bool Vault::deletesPermanently(const QString &itemId)

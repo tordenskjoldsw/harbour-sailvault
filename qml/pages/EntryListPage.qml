@@ -10,6 +10,7 @@ Page {
     property string groupName
     // Nothing new is added in the recycle bin, as in KeePassXC.
     property bool inRecycleBin: vault.inRecycleBin(groupId)
+    property string recycleBinId: vault.recycleBinId()
     // The file picker closes itself after a selection; the import page opens
     // once this page is back.
     property string pendingImportPath
@@ -36,6 +37,11 @@ Page {
         remorse.execute(text, function() { vault.deleteItem(itemId) })
     }
 
+    function restoreItem(itemId) {
+        if (vault.restore(itemId))
+            Notices.show(qsTr("Restored"), Notice.Short)
+    }
+
     RemorsePopup {
         id: remorse
     }
@@ -51,7 +57,10 @@ Page {
 
     Connections {
         target: vault
-        onContentChanged: page.inRecycleBin = vault.inRecycleBin(page.groupId)
+        onContentChanged: {
+            page.inRecycleBin = vault.inRecycleBin(page.groupId)
+            page.recycleBinId = vault.recycleBinId()
+        }
     }
 
     SilicaListView {
@@ -104,6 +113,13 @@ Page {
                 text: qsTr("Save")
                 visible: vault.dirty && !vault.saving
                 onClicked: vault.save()
+            }
+            MenuItem {
+                text: qsTr("Empty recycle bin")
+                visible: page.groupId.length > 0 && page.groupId === page.recycleBinId
+                enabled: !vault.saving && listView.count > 0
+                onClicked: remorse.execute(qsTr("Emptying the recycle bin"),
+                                           function() { vault.emptyRecycleBin() })
             }
             MenuItem {
                 text: qsTr("New group")
@@ -178,6 +194,31 @@ Page {
                 id: groupMenu
 
                 ContextMenu {
+                    id: groupContextMenu
+
+                    readonly property bool isRecycleBin: model.id === page.recycleBinId
+
+                    MenuItem {
+                        text: qsTr("Restore")
+                        visible: page.inRecycleBin
+                        enabled: !vault.saving
+                        onClicked: page.restoreItem(model.id)
+                    }
+                    MenuItem {
+                        text: qsTr("Rename")
+                        visible: !page.inRecycleBin && !groupContextMenu.isRecycleBin
+                        enabled: !vault.saving
+                        onClicked: pageStack.push(Qt.resolvedUrl("GroupDialog.qml"),
+                                                  { "groupId": model.id,
+                                                    "currentName": model.title })
+                    }
+                    MenuItem {
+                        text: qsTr("Move")
+                        visible: !page.inRecycleBin && !groupContextMenu.isRecycleBin
+                        enabled: !vault.saving
+                        onClicked: pageStack.push(Qt.resolvedUrl("MovePage.qml"),
+                                                  { "itemId": model.id, "isGroup": true })
+                    }
                     MenuItem {
                         text: qsTr("Delete")
                         enabled: !vault.saving
@@ -191,16 +232,24 @@ Page {
 
                 ContextMenu {
                     MenuItem {
+                        text: qsTr("Restore")
+                        visible: page.inRecycleBin
+                        enabled: !vault.saving
+                        onClicked: page.restoreItem(model.id)
+                    }
+                    MenuItem {
                         text: qsTr("Edit")
+                        visible: !page.inRecycleBin
                         enabled: !vault.saving
                         onClicked: pageStack.push(Qt.resolvedUrl("EntryDialog.qml"),
                                                   { "entryId": model.id })
                     }
                     MenuItem {
                         text: qsTr("Move")
+                        visible: !page.inRecycleBin
                         enabled: !vault.saving
-                        onClicked: pageStack.push(Qt.resolvedUrl("MoveEntryPage.qml"),
-                                                  { "entryId": model.id })
+                        onClicked: pageStack.push(Qt.resolvedUrl("MovePage.qml"),
+                                                  { "itemId": model.id, "isGroup": false })
                     }
                     MenuItem {
                         text: qsTr("Delete")

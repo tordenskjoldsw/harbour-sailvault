@@ -7,6 +7,12 @@ Page {
 
     property string entryId
     property string entryTitle
+    // -1 shows the entry; 0 and up show a history item, read-only.
+    property int version: -1
+    property string versionTime
+    readonly property bool isHistory: version >= 0
+    property bool inRecycleBin: vault.inRecycleBin(entryId)
+    property int historyLength: isHistory ? 0 : vault.history(entryId).length
 
     readonly property var standardKeys: ["UserName", "Password", "URL", "Notes"]
     // Every value on this page depends on this, so a lock empties the page
@@ -26,7 +32,7 @@ Page {
     // Standard fields first in a fixed order, then custom fields; the title
     // is already in the page header.
     function orderedFields() {
-        var all = vault.fields(entryId)
+        var all = vault.fields(entryId, version)
         var ordered = []
         standardKeys.forEach(function(key) {
             all.forEach(function(field) { if (field.key === key) ordered.push(field) })
@@ -43,8 +49,10 @@ Page {
     Connections {
         target: vault
         onContentChanged: {
-            if (page.unlocked) {
+            if (page.unlocked && !page.isHistory) {
                 page.entryTitle = vault.fieldValue(page.entryId, "Title")
+                page.inRecycleBin = vault.inRecycleBin(page.entryId)
+                page.historyLength = vault.history(page.entryId).length
                 fieldsRepeater.model = page.orderedFields()
             }
         }
@@ -66,7 +74,14 @@ Page {
                 onClicked: vault.lock()
             }
             MenuItem {
+                text: qsTr("History")
+                visible: page.historyLength > 0
+                onClicked: pageStack.push(Qt.resolvedUrl("HistoryPage.qml"),
+                                          { "entryId": page.entryId })
+            }
+            MenuItem {
                 text: qsTr("Delete")
+                visible: !page.isHistory
                 enabled: !vault.saving
                 onClicked: {
                     remorse.execute(vault.deletesPermanently(page.entryId)
@@ -79,13 +94,24 @@ Page {
                 }
             }
             MenuItem {
-                text: qsTr("Move")
+                text: qsTr("Restore")
+                visible: !page.isHistory && page.inRecycleBin
                 enabled: !vault.saving
-                onClicked: pageStack.push(Qt.resolvedUrl("MoveEntryPage.qml"),
-                                          { "entryId": page.entryId })
+                onClicked: {
+                    if (vault.restore(page.entryId))
+                        Notices.show(qsTr("Restored"), Notice.Short)
+                }
+            }
+            MenuItem {
+                text: qsTr("Move")
+                visible: !page.isHistory && !page.inRecycleBin
+                enabled: !vault.saving
+                onClicked: pageStack.push(Qt.resolvedUrl("MovePage.qml"),
+                                          { "itemId": page.entryId, "isGroup": false })
             }
             MenuItem {
                 text: qsTr("Edit")
+                visible: !page.isHistory && !page.inRecycleBin
                 enabled: !vault.saving
                 onClicked: pageStack.push(Qt.resolvedUrl("EntryDialog.qml"),
                                           { "entryId": page.entryId })
@@ -99,6 +125,7 @@ Page {
 
             PageHeader {
                 title: page.entryTitle
+                description: page.isHistory ? qsTr("Version of %1").arg(page.versionTime) : ""
             }
 
             Repeater {
@@ -113,7 +140,9 @@ Page {
                     property string revealedValue
                     readonly property bool isProtected: modelData.protected
                     readonly property string plainValue: !page.unlocked || isProtected
-                                                         ? "" : vault.fieldValue(page.entryId, modelData.key)
+                                                         ? ""
+                                                         : vault.fieldValue(page.entryId, modelData.key,
+                                                                            page.version)
 
                     Connections {
                         target: page
@@ -130,7 +159,7 @@ Page {
                     menu: fieldMenu
 
                     onClicked: {
-                        if (vault.copyField(page.entryId, modelData.key))
+                        if (vault.copyField(page.entryId, modelData.key, page.version))
                             Notices.show(qsTr("Copied, cleared in 30 seconds"), Notice.Short)
                     }
 
@@ -170,14 +199,16 @@ Page {
                                 text: fieldItem.revealed ? qsTr("Hide") : qsTr("Show")
                                 onClicked: {
                                     fieldItem.revealedValue = fieldItem.revealed
-                                        ? "" : vault.fieldValue(page.entryId, modelData.key)
+                                        ? "" : vault.fieldValue(page.entryId, modelData.key,
+                                                                                page.version)
                                     fieldItem.revealed = !fieldItem.revealed
                                 }
                             }
                             MenuItem {
                                 text: qsTr("Copy")
                                 onClicked: {
-                                    if (vault.copyField(page.entryId, modelData.key))
+                                    if (vault.copyField(page.entryId, modelData.key,
+                                                        page.version))
                                         Notices.show(qsTr("Copied, cleared in 30 seconds"),
                                                      Notice.Short)
                                 }

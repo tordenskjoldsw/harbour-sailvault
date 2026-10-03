@@ -80,9 +80,14 @@ public:
     Q_INVOKABLE void unlock(const QString &password);
     Q_INVOKABLE void lock();
     Q_INVOKABLE void clearError();
-    Q_INVOKABLE QVariantList fields(const QString &entryId);
-    Q_INVOKABLE QString fieldValue(const QString &entryId, const QString &key);
-    Q_INVOKABLE bool copyField(const QString &entryId, const QString &key);
+    // version -1 is the current state of an entry, 0 and up its history
+    // items, oldest first.
+    Q_INVOKABLE QVariantList fields(const QString &entryId, int version = -1);
+    Q_INVOKABLE QString fieldValue(const QString &entryId, const QString &key, int version = -1);
+    Q_INVOKABLE bool copyField(const QString &entryId, const QString &key, int version = -1);
+    // History items newest first, each with version, modified, title and
+    // userName.
+    Q_INVOKABLE QVariantList history(const QString &entryId);
     // fields maps field names to values; an empty groupId means the root
     // group. Each change starts a save.
     Q_INVOKABLE bool addEntry(const QString &groupId, const QVariantMap &fields);
@@ -95,6 +100,14 @@ public:
     // Moves an entry into another group; moving out of the recycle bin
     // restores it.
     Q_INVOKABLE bool moveEntry(const QString &entryId, const QString &groupId);
+    Q_INVOKABLE bool renameGroup(const QString &groupId, const QString &name);
+    Q_INVOKABLE bool moveGroup(const QString &groupId, const QString &parentId);
+    // Moves an entry or group out of the recycle bin to where it was deleted
+    // from, or to the root group.
+    Q_INVOKABLE bool restore(const QString &itemId);
+    Q_INVOKABLE bool emptyRecycleBin();
+    // Empty when the database has no recycle bin.
+    Q_INVOKABLE QString recycleBinId();
     // True when deleteItem would remove the entry or group for good instead
     // of moving it to the recycle bin.
     Q_INVOKABLE bool deletesPermanently(const QString &itemId);
@@ -130,7 +143,7 @@ private slots:
     void enforceDeadlines();
 
 private:
-    QString readField(const QString &entryId, const QString &key) const;
+    QString readField(const QString &entryId, const QString &key, int version) const;
     // Marks the in-memory change and starts the save.
     void commitChange();
     void lockAutomatically();

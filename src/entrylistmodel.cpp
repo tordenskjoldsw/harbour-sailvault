@@ -79,6 +79,20 @@ void EntryListModel::setAllGroups(bool allGroups)
     reload();
 }
 
+QString EntryListModel::excludeId() const
+{
+    return m_excludeId;
+}
+
+void EntryListModel::setExcludeId(const QString &excludeId)
+{
+    if (m_excludeId == excludeId)
+        return;
+    m_excludeId = excludeId;
+    emit excludeIdChanged();
+    reload();
+}
+
 int EntryListModel::count() const
 {
     return m_items.size();
@@ -131,7 +145,12 @@ void EntryListModel::reload()
     SvList *list = nullptr;
     int status = SV_INVALID_ARGUMENT;
     if (database && m_allGroups) {
-        status = sv_database_groups(database, &list);
+        const QByteArray exclude = QByteArray::fromHex(m_excludeId.toLatin1());
+        status = sv_database_groups(
+            database,
+            exclude.size() == SV_UUID_LENGTH ? reinterpret_cast<const uint8_t *>(exclude.constData())
+                                             : nullptr,
+            &list);
     } else if (database && !m_query.trimmed().isEmpty()) {
         const QByteArray query = m_query.toUtf8();
         status = sv_database_search(database, reinterpret_cast<const uint8_t *>(query.constData()),

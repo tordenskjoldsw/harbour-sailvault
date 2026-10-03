@@ -2,15 +2,19 @@ import QtQuick 2.0
 import Sailfish.Silica 1.0
 import harbour.sailvault 1.0
 
+// Moves the entry or group itemId into a group picked from every group
+// outside the recycle bin; a group is never offered as its own target.
 Page {
     id: page
 
-    property string entryId
+    property string itemId
+    property bool isGroup
 
     // The move reloads the list, which destroys the tapped delegate, so the
     // page finishes the action instead of the delegate's handler.
     function moveTo(groupId, groupName) {
-        if (vault.moveEntry(entryId, groupId)) {
+        var moved = isGroup ? vault.moveGroup(itemId, groupId) : vault.moveEntry(itemId, groupId)
+        if (moved) {
             Notices.show(qsTr("Moved to %1").arg(groupName), Notice.Short)
             pageStack.pop()
         }
@@ -26,6 +30,7 @@ Page {
         model: EntryListModel {
             source: vault
             allGroups: true
+            excludeId: page.isGroup ? page.itemId : ""
         }
 
         header: PageHeader {
