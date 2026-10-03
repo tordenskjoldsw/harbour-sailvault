@@ -3,6 +3,7 @@
 //! `KdbxXmlWriter.cpp`, `keys/`).
 
 mod database;
+mod edit;
 mod error;
 mod header;
 mod inner_header;

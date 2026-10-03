@@ -10,7 +10,7 @@ use super::payload::{self, PayloadKeys};
 use super::xml::{self, Element};
 use crate::random;
 
-const UUID_LENGTH: usize = 16;
+pub(crate) const UUID_LENGTH: usize = 16;
 
 /// An unlocked KDBX 4 database: the outer header, the inner header with the
 /// attachment pool, the complete XML document and the composite key, which
@@ -84,6 +84,10 @@ impl Database {
     /// interpret.
     pub fn document(&self) -> &Element {
         &self.document
+    }
+
+    pub(crate) fn document_mut(&mut self) -> &mut Element {
+        &mut self.document
     }
 
     pub fn binaries(&self) -> &[Binary] {
@@ -304,8 +308,12 @@ pub(crate) fn validate_fields(document: &Element) -> Result<()> {
     Ok(())
 }
 
-fn decode_uuid(element: &Element) -> Option<[u8; UUID_LENGTH]> {
+pub(crate) fn decode_uuid(element: &Element) -> Option<[u8; UUID_LENGTH]> {
     STANDARD.decode(element.text().trim()).ok()?.try_into().ok()
+}
+
+pub(crate) fn encode_uuid(uuid: &[u8; UUID_LENGTH]) -> String {
+    STANDARD.encode(uuid)
 }
 
 #[cfg(test)]

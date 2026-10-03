@@ -49,6 +49,15 @@ pub struct SvBytes {
     pub length: usize,
 }
 
+/// A field of a new entry: UTF-8 key and value, not NUL-terminated.
+#[repr(C)]
+pub struct SvField {
+    pub key: *const u8,
+    pub key_length: usize,
+    pub value: *const u8,
+    pub value_length: usize,
+}
+
 /// One row of an entry or group list. All strings are owned by the list.
 struct ListItem {
     uuid: [u8; UUID_LENGTH],
@@ -92,6 +101,8 @@ fn status(error: KdbxError) -> i32 {
         KdbxError::CompressionFailed
         | KdbxError::RandomUnavailable
         | KdbxError::WriteVerificationFailed => SV_WRITE_FAILED,
+        KdbxError::InvalidEntry(_) => SV_INVALID_ARGUMENT,
+        KdbxError::UnknownGroup => SV_NOT_FOUND,
     }
 }
 
@@ -505,6 +516,55 @@ pub unsafe extern "C" fn sv_database_field_value(
     }
 }
 
+/// Adds an entry to the group with `group_uuid` and writes the entry's UUID
+/// to `uuid_out`. `now` is in seconds since the Unix epoch. The change is in
+/// memory only until `sv_database_save`.
+///
+/// # Safety
+///
+/// `database` must be a live handle not in use by another thread;
+/// `group_uuid` and `uuid_out` valid for 16 bytes; `fields` null or valid for
+/// reads of `field_count` entries whose key and value pointers follow the
+/// rules of `bytes`.
+#[no_mangle]
+pub unsafe extern "C" fn sv_database_add_entry(
+    database: *mut SvDatabase,
+    group_uuid: *const u8,
+    fields: *const SvField,
+    field_count: usize,
+    now: i64,
+    uuid_out: *mut u8,
+) -> i32 {
+    let (Some(database), Some(group_uuid)) = (database.as_mut(), read_uuid(group_uuid)) else {
+        return SV_INVALID_ARGUMENT;
+    };
+    if uuid_out.is_null() || (fields.is_null() && field_count > 0) {
+        return SV_INVALID_ARGUMENT;
+    }
+    let fields = if fields.is_null() {
+        &[][..]
+    } else {
+        slice::from_raw_parts(fields, field_count)
+    };
+    let mut pairs = Vec::with_capacity(fields.len());
+    for field in fields {
+        let (Some(key), Some(value)) = (
+            bytes(field.key, field.key_length).and_then(|k| std::str::from_utf8(k).ok()),
+            bytes(field.value, field.value_length).and_then(|v| std::str::from_utf8(v).ok()),
+        ) else {
+            return SV_INVALID_ARGUMENT;
+        };
+        pairs.push((key, value));
+    }
+    match database.database.add_entry(&group_uuid, &pairs, now) {
+        Ok(uuid) => {
+            slice::from_raw_parts_mut(uuid_out, UUID_LENGTH).copy_from_slice(&uuid);
+            SV_OK
+        }
+        Err(error) => status(error),
+    }
+}
+
 /// Serializes the database as a KDBX 4 file with fresh seeds, verified by
 /// decrypting it again. Runs the KDF: call it off the UI thread. Release the
 /// result with `sv_bytes_free`.
@@ -739,6 +799,99 @@ mod tests {
                 data: std::ptr::null_mut(),
                 length: 0,
             });
+        }
+    }
+
+    #[test]
+    fn adds_an_entry_and_saves_a_file_that_opens_again() {
+        unsafe {
+            let (status, database) = open(PASSWORD);
+            assert_eq!(status, SV_OK);
+            let mut root = std::ptr::null_mut();
+            assert_eq!(
+                sv_database_group(database, std::ptr::null(), &mut root),
+                SV_OK
+            );
+            let mut root_uuid = [0u8; UUID_LENGTH];
+            let root_index = sv_list_length(root) - 1;
+            assert_eq!(
+                sv_list_uuid(root, root_index, root_uuid.as_mut_ptr()),
+                SV_OK
+            );
+            sv_list_free(root);
+            let group_uuid = (*database).database.root_group().unwrap().uuid().unwrap();
+
+            let field = |key: &'static str, value: &'static str| SvField {
+                key: key.as_ptr(),
+                key_length: key.len(),
+                value: value.as_ptr(),
+                value_length: value.len(),
+            };
+            let fields = [field("Title", "Via FFI"), field("Password", "ffi-secret")];
+            let mut uuid = [0u8; UUID_LENGTH];
+            assert_eq!(
+                sv_database_add_entry(
+                    database,
+                    group_uuid.as_ptr(),
+                    fields.as_ptr(),
+                    fields.len(),
+                    1_767_261_600,
+                    uuid.as_mut_ptr()
+                ),
+                SV_OK
+            );
+            assert_eq!(
+                sv_database_add_entry(
+                    database,
+                    [0xEE; UUID_LENGTH].as_ptr(),
+                    fields.as_ptr(),
+                    fields.len(),
+                    0,
+                    uuid.as_mut_ptr()
+                ),
+                SV_NOT_FOUND
+            );
+
+            let mut file = SvBytes {
+                data: std::ptr::null_mut(),
+                length: 0,
+            };
+            assert_eq!(sv_database_save(database, &mut file), SV_OK);
+            let saved = slice::from_raw_parts(file.data, file.length).to_vec();
+            sv_bytes_free(file);
+            sv_database_free(database);
+
+            let mut reopened = std::ptr::null_mut();
+            assert_eq!(
+                sv_database_open(
+                    saved.as_ptr(),
+                    saved.len(),
+                    PASSWORD.as_ptr(),
+                    PASSWORD.len(),
+                    true,
+                    std::ptr::null(),
+                    0,
+                    &mut reopened
+                ),
+                SV_OK
+            );
+            let mut value = SvString {
+                data: std::ptr::null_mut(),
+                length: 0,
+            };
+            let key = "Password";
+            assert_eq!(
+                sv_database_field_value(
+                    reopened,
+                    uuid.as_ptr(),
+                    key.as_ptr(),
+                    key.len(),
+                    &mut value
+                ),
+                SV_OK
+            );
+            assert_eq!(take(value), "ffi-secret");
+            sv_database_free(reopened);
         }
     }
 }

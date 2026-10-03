@@ -50,6 +50,14 @@ typedef struct SvBytes {
     size_t length;
 } SvBytes;
 
+/* A field of a new entry: UTF-8 key and value, not NUL-terminated. */
+typedef struct SvField {
+    const uint8_t *key;
+    size_t key_length;
+    const uint8_t *value;
+    size_t value_length;
+} SvField;
+
 /* Runs the KDF; call off the UI thread. A database handle is not thread-safe:
  * use it from one thread at a time. */
 int32_t sv_database_open(const uint8_t *data, size_t data_length,
@@ -82,6 +90,13 @@ int32_t sv_database_field_value(const SvDatabase *database, const uint8_t *entry
                                 const uint8_t *key, size_t key_length, SvString *out);
 
 void sv_string_free(SvString string);
+
+/* Adds an entry to a group, in memory only until sv_database_save. The five
+ * standard fields (Title, UserName, Password, URL, Notes) are always written;
+ * now is in seconds since the Unix epoch. Writes the entry's UUID to uuid_out. */
+int32_t sv_database_add_entry(SvDatabase *database, const uint8_t *group_uuid,
+                              const SvField *fields, size_t field_count, int64_t now,
+                              uint8_t *uuid_out);
 
 /* Serializes the database with fresh seeds and verifies it by decrypting it
  * again. Runs the KDF; call off the UI thread. Other threads may read the

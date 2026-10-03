@@ -51,6 +51,13 @@ impl Element {
         self.elements().find(|element| element.name == name)
     }
 
+    pub fn child_mut(&mut self, name: &str) -> Option<&mut Element> {
+        self.children.iter_mut().find_map(|child| match child {
+            Node::Element(element) if element.name == name => Some(element),
+            _ => None,
+        })
+    }
+
     pub fn children_named<'a>(&'a self, name: &'a str) -> impl Iterator<Item = &'a Element> {
         self.elements().filter(move |element| element.name == name)
     }

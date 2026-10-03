@@ -502,3 +502,110 @@ fn keepassxc_reads_saved_fixtures_as_the_originals() {
         );
     }
 }
+
+const NOW: i64 = 1_767_261_600; // 2026-01-01T10:00:00Z, the fixture timestamp
+
+#[test]
+fn added_entries_follow_keepassxc_layout_and_memory_protection() {
+    let mut database = open(AES_ARGON2D, false);
+    let root_uuid = database.root_group().unwrap().uuid().unwrap();
+    let uuid = database
+        .add_entry(
+            &root_uuid,
+            &[
+                ("Title", "Added on the phone"),
+                ("UserName", "bob"),
+                ("Password", "p4ss <&>"),
+                ("URL", "https://added.example.org"),
+                ("Notes", "line one\nline two"),
+                ("PIN", "0000"),
+            ],
+            NOW,
+        )
+        .unwrap();
+
+    let root = database.root_group().unwrap();
+    let added = root
+        .entries()
+        .find(|entry| entry.uuid() == Some(uuid))
+        .expect("entry is in the root group");
+    let keys: Vec<String> = added.fields().map(|f| f.key().to_string()).collect();
+    assert_eq!(
+        keys,
+        ["Title", "UserName", "Password", "URL", "Notes", "PIN"]
+    );
+    assert_eq!(value(&added, "Title"), "Added on the phone");
+    assert_eq!(value(&added, "Password"), "p4ss <&>");
+    assert_eq!(value(&added, "Notes"), "line one\nline two");
+    assert!(added.field("Password").unwrap().is_protected());
+    assert!(!added.field("Title").unwrap().is_protected());
+    assert!(!added.field("PIN").unwrap().is_protected());
+    assert_eq!(added.history().count(), 0);
+
+    let times = added.element().child("Times").unwrap();
+    let fixture_time = root
+        .element()
+        .child("Times")
+        .unwrap()
+        .child("CreationTime")
+        .unwrap()
+        .text();
+    for name in ["CreationTime", "LastModificationTime", "LocationChanged"] {
+        assert_eq!(*times.child(name).unwrap().text(), *fixture_time, "{name}");
+    }
+
+    let children: Vec<&str> = root
+        .element()
+        .elements()
+        .map(|element| element.name.as_str())
+        .collect();
+    let last_entry = children.iter().rposition(|name| *name == "Entry").unwrap();
+    let first_group = children.iter().position(|name| *name == "Group").unwrap();
+    assert!(last_entry < first_group, "entries stay before subgroups");
+    assert_eq!(root.entries().last().unwrap().uuid(), Some(uuid));
+}
+
+#[test]
+fn added_entry_in_a_subgroup_survives_a_save_and_keepassxc_reads_it() {
+    let mut database = open(CHACHA20_ARGON2ID, false);
+    let cards = subgroup(
+        &subgroup(&database.root_group().unwrap(), "Banking"),
+        "Cards",
+    )
+    .uuid()
+    .unwrap();
+    assert_eq!(
+        database
+            .add_entry(&[0xAB; 16], &[("Title", "x")], NOW)
+            .map(|_| ()),
+        Err(KdbxError::UnknownGroup)
+    );
+    database
+        .add_entry(
+            &cards,
+            &[("Title", "Phone card"), ("Password", "s3cret äöü")],
+            NOW,
+        )
+        .unwrap();
+
+    let saved = database.save().unwrap();
+    let reopened = Database::open(&saved, key(false)).unwrap();
+    let cards = subgroup(
+        &subgroup(&reopened.root_group().unwrap(), "Banking"),
+        "Cards",
+    );
+    assert_eq!(
+        value(&entry(&cards, "Phone card"), "Password"),
+        "s3cret äöü"
+    );
+    assert_eq!(reopened.entries().unwrap().len(), 5);
+
+    let file = TempFile::write("added-entry", &saved);
+    let shown = keepassxc_cli(
+        &["show", "-a", "Password", "-a", "UserName", "-a", "Title"],
+        &file,
+        false,
+        &["Banking/Cards/Phone card"],
+    );
+    assert_eq!(shown, "s3cret äöü\n\nPhone card\n");
+}

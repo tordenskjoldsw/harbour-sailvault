@@ -32,6 +32,8 @@ pub enum KdbxError {
     /// The serialized database did not decrypt back to the same content;
     /// nothing is written.
     WriteVerificationFailed,
+    InvalidEntry(&'static str),
+    UnknownGroup,
 }
 
 impl fmt::Display for KdbxError {
@@ -63,6 +65,8 @@ impl fmt::Display for KdbxError {
             Self::WriteVerificationFailed => {
                 f.write_str("the written database does not decrypt to the same content")
             }
+            Self::InvalidEntry(reason) => write!(f, "invalid entry: {reason}"),
+            Self::UnknownGroup => f.write_str("group not found"),
         }
     }
 }
