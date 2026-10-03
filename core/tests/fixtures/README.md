@@ -8,25 +8,33 @@ as the reference implementation. No real secrets.
 
 ## Generated with keepassxc-cli
 
-`tools/gen-kdbx-fixtures.sh` creates these. `keepassxc-cli` always writes
-KDBX 3.1 with AES-KDF and AES-256.
+`tools/gen-kdbx-fixtures.sh` creates these and checks their format version.
+`keepassxc-cli import` writes AES-KDF with AES-256; CustomData in the content
+forces KDBX 4.0, so the 3.1 files are imported without CustomData.
 
-| File | Format | KDF | Cipher | Key file |
-|------|--------|-----|--------|----------|
-| `kdbx31-aeskdf.kdbx` | KDBX 3.1 | AES-KDF | AES-256 | no |
-| `kdbx31-aeskdf-keyfile.kdbx` | KDBX 3.1 | AES-KDF | AES-256 | yes |
+| File | Format | KDF | Cipher | Key file | Content |
+|------|--------|-----|--------|----------|---------|
+| `kdbx31-aeskdf.kdbx` | KDBX 3.1 | AES-KDF | AES 256-bit | no | without CustomData |
+| `kdbx31-aeskdf-keyfile.kdbx` | KDBX 3.1 | AES-KDF | AES 256-bit | yes | without CustomData |
+| `kdbx4-aes-aeskdf.kdbx` | KDBX 4.0 | AES-KDF | AES 256-bit | no | full |
+| `kdbx4-aes-aeskdf-keyfile.kdbx` | KDBX 4.0 | AES-KDF | AES 256-bit | yes | full |
 
 ## Made in the KeePassXC GUI
 
-KeePassXC 2.7.12. For each row: open the source file, then **Database >
-Database Settings > Security > Encryption Settings**, switch to **Advanced
-Settings**, set the values, click **OK**, then **Database > Save Database
-As** with the file name from the table. Argon2: 2 iterations, 8 MiB memory,
-2 threads. AES-KDF: 10000 transform rounds.
+KeePassXC 2.7.12 saves after every settings change when "Automatically save
+after every change" is on, so each file is edited in place, never with
+"Save As":
 
-| File | Source | Format | KDF | Cipher |
-|------|--------|--------|-----|--------|
-| `kdbx4-aes-argon2d.kdbx` | `kdbx31-aeskdf.kdbx` | KDBX 4.0 | Argon2d | AES 256-bit |
-| `kdbx4-chacha20-argon2id.kdbx` | `kdbx31-aeskdf.kdbx` | KDBX 4.0 | Argon2id | ChaCha20 256-bit |
-| `kdbx4-twofish-aeskdf.kdbx` | `kdbx31-aeskdf.kdbx` | KDBX 4.0 | AES-KDF | Twofish 256-bit |
-| `kdbx4-aes-argon2d-keyfile.kdbx` | `kdbx31-aeskdf-keyfile.kdbx` | KDBX 4.0 | Argon2d | AES 256-bit |
+1. Copy `kdbx4-aes-aeskdf.kdbx` to the target name.
+2. Open the copy, then **Database > Database Settings > Security >
+   Encryption Settings > Advanced Settings**.
+3. Set the values from the table, click **OK**, then **Database > Save
+   Database** (Ctrl+S).
+
+Argon2: 2 iterations, 8 MiB memory, 2 threads. AES-KDF: 10000 rounds.
+
+| File | Format | KDF | Cipher |
+|------|--------|-----|--------|
+| `kdbx4-aes-argon2d.kdbx` | KDBX 4.0 | Argon2d | AES 256-bit |
+| `kdbx4-chacha20-argon2id.kdbx` | KDBX 4.0 | Argon2id | ChaCha20 256-bit |
+| `kdbx4-twofish-aeskdf.kdbx` | KDBX 4.0 | AES-KDF | Twofish 256-bit |

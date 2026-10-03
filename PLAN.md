@@ -4,9 +4,9 @@ Status: 2026-10-03 - direction changed from a Bitwarden client to a KeePass
 (KDBX4) password manager with Bitwarden import. Phase 1 (device spike) is
 complete and carries over. The cleanup of the Bitwarden server client is
 done and Phase 2 (KDBX4 read core) has started.
-Next step: write the KDBX4 reader. Two items are needed first: the four
-KDBX4 test fixtures (manual step, section 11) and the KDBX 3.1 decision
-(section 14).
+Next step: write the KDBX4 reader. Two items are needed first: the three
+GUI-made KDBX4 test fixtures (manual step, section 11) and the KDBX 3.1
+decision (section 14).
 
 ## 1. Goal
 
@@ -216,35 +216,32 @@ Preparation (done):
 - `tools/kdbx-fixtures/content.xml`: fake data with history, attachment,
   TOTP, custom fields, tags, nested groups, recycle bin and deleted objects;
   KeePassXC imports all of it
-- `tools/gen-kdbx-fixtures.sh`: creates two test databases with
-  `keepassxc-cli`, one with and one without a key file
-  (`kdbx31-aeskdf.kdbx`, `kdbx31-aeskdf-keyfile.kdbx`)
+- `tools/gen-kdbx-fixtures.sh`: creates four test databases with
+  `keepassxc-cli` and checks their format version: KDBX 3.1 and KDBX 4.0
+  (AES-KDF, AES-256), each with and without a key file
 
-Finding: `keepassxc-cli` only writes KDBX 3.1 with AES-KDF. It cannot
-produce KDBX4, so the KDBX4 fixtures have to be saved from the KeePassXC GUI.
+Finding: `keepassxc-cli import` writes AES-KDF with AES-256 and picks the
+format from the content: CustomData forces KDBX 4.0, without it the file
+stays 3.1. Other KDFs and ciphers need the KeePassXC GUI. KeePassXC may save
+after every settings change, so GUI fixtures are edited in place on a copy.
 
-Pending manual step (owner: Tobias) - four KDBX4 fixtures. Exact steps are in
-`core/tests/fixtures/README.md`:
+Pending manual step (owner: Tobias) - three KDBX4 fixtures, each a copy of
+`kdbx4-aes-aeskdf.kdbx` that is already in place under its target name.
+Exact steps are in `core/tests/fixtures/README.md`:
 
-1. Open `core/tests/fixtures/kdbx31-aeskdf.kdbx` in KeePassXC, password
-   `sailvault-fixture`.
+1. Open the file in KeePassXC, password `sailvault-fixture`.
 2. Database > Database Settings > Security > Encryption Settings > Advanced
    Settings.
-3. Set the values from the table, confirm, then "Save Database As". Once per
-   file.
+3. Set the values from the table, confirm, then save (Ctrl+S).
 
-| Save as | Format | KDF | Cipher |
-|---------|--------|-----|--------|
+| File | Format | KDF | Cipher |
+|------|--------|-----|--------|
 | `kdbx4-aes-argon2d.kdbx` | KDBX 4.0 | Argon2d | AES 256-bit |
 | `kdbx4-chacha20-argon2id.kdbx` | KDBX 4.0 | Argon2id | ChaCha20 256-bit |
 | `kdbx4-twofish-aeskdf.kdbx` | KDBX 4.0 | AES-KDF | Twofish 256-bit |
-| `kdbx4-aes-argon2d-keyfile.kdbx` | KDBX 4.0 | Argon2d | AES 256-bit |
 
 - Argon2 settings: 2 iterations, 8 MiB, 2 threads
 - AES-KDF: 10000 rounds
-- Key-file variant: start from `kdbx31-aeskdf-keyfile.kdbx`, opened with the
-  key file `fixture.keyx`
-- Save all four files into `core/tests/fixtures/`
 
 Exit: the core opens every test database created with KeePassXC and exposes
 all entries; nothing unknown is dropped from the model.
@@ -299,7 +296,7 @@ Exit: usable as a daily read-only KeePass app on the Jolla Phone; criteria 2,
 |------|------------|
 | Writer bug destroys the user's database | Data safety design (section 7); round-trip tests against KeePassXC before write ships |
 | Merge loses edits | Mirror KeePassXC's Merger; tests with conflicting edits; recycle bin default |
-| KDBX format details misread | Verify against KeePassXC source; fixtures created with KeePassXC (KDBX 3.1 by `keepassxc-cli`, KDBX4 from the GUI) |
+| KDBX format details misread | Verify against KeePassXC source; fixtures created with KeePassXC (`keepassxc-cli` and the GUI) |
 | KDBX4 fixtures are made by hand and can drift from the documented settings | Steps and parameters fixed in `core/tests/fixtures/README.md`; tests assert format, KDF and cipher of each fixture |
 | Argon2 with high memory too slow on the device | Measure on the Jolla Phone in Phase 2; worker thread with progress |
 | Rust 1.75 in the target too old for a needed crate | Pin compatible versions; fallback: build the static library on the host with a current Rust |
@@ -312,9 +309,9 @@ Exit: usable as a daily read-only KeePass app on the Jolla Phone; criteria 2,
     in KeePassXC".
   - (b) Read 3.1 too and save as KDBX 4.0, which KeePassXC opens without
     trouble.
-  - Who has 3.1 files: anyone who created the database with `keepassxc-cli`
-    or an older KeePass version, or who uses AES-KDF; KeePassXC deliberately
-    keeps the old format in those cases. The KeePassXC GUI defaults to
+  - Who has 3.1 files: anyone whose database uses AES-KDF and no KDBX4-only
+    features (for example created with `keepassxc-cli db-create`) or comes
+    from an older KeePass version; KeePassXC keeps the old format then. The KeePassXC GUI defaults to
     KDBX4, so most KeePassXC users have KDBX4 files.
   - Cost of (b): 3.1 differs internally (block format, stream encryption of
     protected fields, attachment storage). Extra work, easier switch.
