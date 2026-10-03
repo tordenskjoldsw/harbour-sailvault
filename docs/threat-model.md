@@ -171,6 +171,10 @@ network requests.
 - **Compression buffers are not wiped.** `flate2` keeps the decompressed
   and, on save, the compressed plaintext in internal buffers that are
   freed without zeroing; the buffers the core owns are zeroized.
+- **JSON parser buffers are not wiped.** When reading a Bitwarden export,
+  `serde_json` copies strings with escape sequences through an internal
+  buffer that is freed without zeroing; every value the core keeps is
+  zeroized.
 - **Memory paging.** The phone swaps to zram (compressed RAM, checked on
   5.2.0.18), not to flash, so swapped pages stay in RAM. The app does not
   lock its memory.

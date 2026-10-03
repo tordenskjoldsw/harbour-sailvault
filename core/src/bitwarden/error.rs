@@ -9,6 +9,15 @@ pub enum ImportError {
     MacMismatch,
     DecryptionFailed,
     InvalidUtf8,
+    /// The file is not a Bitwarden/Vaultwarden JSON export.
+    NotAnExport,
+    /// The decrypted content of a password-protected export is not valid.
+    InvalidJson,
+    TooLarge,
+    /// Encrypted with the account key; only the server can decrypt it.
+    AccountRestricted,
+    PasswordRequired,
+    WrongPassword,
 }
 
 impl fmt::Display for ImportError {
@@ -24,6 +33,14 @@ impl fmt::Display for ImportError {
             Self::MacMismatch => f.write_str("wrong password or corrupted export"),
             Self::DecryptionFailed => f.write_str("decryption failed"),
             Self::InvalidUtf8 => f.write_str("decrypted data is not valid UTF-8"),
+            Self::NotAnExport => f.write_str("not a Bitwarden JSON export"),
+            Self::InvalidJson => f.write_str("the export content is not valid"),
+            Self::TooLarge => f.write_str("the export is too large"),
+            Self::AccountRestricted => {
+                f.write_str("account-restricted exports cannot be decrypted offline")
+            }
+            Self::PasswordRequired => f.write_str("the export needs its password"),
+            Self::WrongPassword => f.write_str("wrong export password"),
         }
     }
 }

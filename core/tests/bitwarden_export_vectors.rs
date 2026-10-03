@@ -2,7 +2,9 @@
 //! generated independently with the OpenSSL CLI
 //! (`tools/gen-bitwarden-export-vectors.py`).
 
-use sailvault_core::bitwarden::{EncString, ImportError, Kdf, SymmetricKey};
+use sailvault_core::bitwarden::{
+    export_kind, read_export, EncString, ExportKind, ImportError, Kdf, SymmetricKey,
+};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -104,4 +106,49 @@ fn out_of_range_kdf_parameters_are_rejected() {
     ] {
         assert_eq!(result, Err(ImportError::InvalidKdfParameters));
     }
+}
+
+fn export_file(name: &str) -> Vec<u8> {
+    let vectors: serde_json::Value =
+        serde_json::from_str(include_str!("vectors/bitwarden_export.json")).unwrap();
+    serde_json::to_vec(&vectors[name]).unwrap()
+}
+
+#[test]
+fn password_protected_exports_read_as_their_plaintext_vault() {
+    let v = vectors();
+    for name in ["pbkdf2_export", "argon2id_export"] {
+        let file = export_file(name);
+        assert_eq!(export_kind(&file), Ok(ExportKind::PasswordProtected));
+        let vault = read_export(&file, Some(v.password.as_bytes())).unwrap();
+        assert_eq!(vault.folders.len(), 1);
+        assert_eq!(vault.folders[0].name.as_str(), "Example folder");
+        let item = &vault.items[0];
+        assert_eq!(item.name.as_str(), "Example login äöü 🔐");
+        assert_eq!(item.folder(), vault.folders[0].id.as_str());
+        assert!(item.favorite);
+        let login = item.login.as_ref().unwrap();
+        assert_eq!(login.username.as_str(), "alice@example.org");
+        assert_eq!(login.password.as_str(), "example-password");
+        assert_eq!(login.totp.as_str(), "JBSWY3DPEHPK3PXP");
+        assert_eq!(login.uris[0].uri.as_str(), "https://example.org");
+    }
+    let plain = read_export(v.plaintext.as_bytes(), None).unwrap();
+    assert_eq!(plain.items.len(), 1);
+}
+
+#[test]
+fn wrong_password_and_tampered_data_are_told_apart() {
+    let file = export_file("pbkdf2_export");
+    assert_eq!(
+        read_export(&file, Some(b"wrong password")).map(|_| ()),
+        Err(ImportError::WrongPassword)
+    );
+    let mut export: serde_json::Value = serde_json::from_slice(&file).unwrap();
+    export["data"] = serde_json::Value::String(vectors().data_tampered_mac);
+    let tampered = serde_json::to_vec(&export).unwrap();
+    assert_eq!(
+        read_export(&tampered, Some(vectors().password.as_bytes())).map(|_| ()),
+        Err(ImportError::MacMismatch)
+    );
 }

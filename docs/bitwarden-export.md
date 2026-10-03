@@ -72,6 +72,21 @@ Item (`cl/libs/common/src/models/export/cipher.export.ts:184-206`): `id`,
 - `card`: `cardholderName`, `brand`, `number`, `expMonth`, `expYear`, `code`
 - `identity`: 18 fields (`identity.export.ts:77-94`)
 - `sshKey`: `privateKey`, `publicKey`, `keyFingerprint`
+- `bankAccount`: `bankName`, `nameOnAccount`, `accountType`,
+  `accountNumber`, `routingNumber`, `branchNumber`, `pin`, `swiftCode`,
+  `iban`, `bankContactPhone` (`bank-account.export.ts`)
+- `driversLicense`: `firstName`, `middleName`, `lastName`, `dateOfBirth`,
+  `licenseNumber`, `issuingCountry`, `issuingState`, `issueDate`,
+  `expirationDate`, `issuingAuthority`, `licenseClass`
+  (`drivers-license.export.ts`)
+- `passport`: `surname`, `givenName`, `dateOfBirth`, `sex`, `birthPlace`,
+  `nationality`, `issuingCountry`, `passportNumber`, `passportType`,
+  `nationalIdentificationNumber`, `issuingAuthority`, `issueDate`,
+  `expirationDate` (`passport.export.ts`)
+- Items in the trash are not exported: the export services keep only
+  ciphers with `deletedDate == null`
+  (`cl/libs/tools/export-vault-core/src/services/individual-vault-export.service.ts`,
+  `org-vault-export.service.ts`)
 - The zip export adds an `attachments/` folder (personal vault only)
 
 ## Mapping to KDBX
