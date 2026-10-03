@@ -9,6 +9,7 @@ mod kdf;
 mod key;
 mod payload;
 mod reader;
+mod search;
 mod variant_dictionary;
 mod xml;
 
@@ -18,5 +19,6 @@ pub use header::{Cipher, Compression, OuterHeader};
 pub use inner_header::Binary;
 pub use kdf::{Argon2Variant, KdfParameters};
 pub use key::CompositeKey;
+pub use search::ListedEntry;
 pub use variant_dictionary::{Value, VariantDictionary};
 pub use xml::{Element, Node};

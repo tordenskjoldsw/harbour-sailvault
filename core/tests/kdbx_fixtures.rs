@@ -288,3 +288,53 @@ fn tampered_files_are_rejected() {
         Err(KdbxError::PayloadCorrupted)
     );
 }
+
+fn titles(entries: &[sailvault_core::kdbx::ListedEntry<'_>]) -> Vec<String> {
+    entries
+        .iter()
+        .map(|listed| value(&listed.entry, "Title"))
+        .collect()
+}
+
+#[test]
+fn lists_all_current_entries_with_their_group() {
+    let database = open(AES_ARGON2D, false);
+    let entries = database.entries().unwrap();
+    assert_eq!(
+        titles(&entries),
+        [
+            "Example login",
+            "Special characters äöü 🔐",
+            "Example card",
+            "Recycled entry"
+        ]
+    );
+    let groups: Vec<String> = entries.iter().map(|l| l.group.name().to_string()).collect();
+    assert_eq!(groups, ["Root", "Root", "Cards", "Recycle Bin"]);
+    let searchable: Vec<bool> = entries.iter().map(|l| l.searchable).collect();
+    assert_eq!(searchable, [true, true, true, false]);
+}
+
+#[test]
+fn search_matches_visible_fields_and_tags_but_not_secrets() {
+    let database = open(AES_ARGON2D, false);
+    let search = |query: &str| titles(&database.search(query).unwrap());
+
+    assert_eq!(search("EXAMPLE login"), ["Example login"]);
+    assert_eq!(search("alice"), ["Example login"]);
+    assert_eq!(search("example.org"), ["Example login"]);
+    assert_eq!(search("umlauts"), ["Example login"]);
+    assert_eq!(search("favorite"), ["Example login"]);
+    assert_eq!(
+        search("ÄÖÜ"),
+        ["Example login", "Special characters äöü 🔐"]
+    );
+    assert!(search("current-password-3").is_empty());
+    assert!(search("4111111111111111").is_empty());
+    assert!(search("recycled").is_empty());
+    assert!(search("example nothing-matches").is_empty());
+    assert_eq!(
+        search("  "),
+        ["Example login", "Special characters äöü 🔐", "Example card"]
+    );
+}
