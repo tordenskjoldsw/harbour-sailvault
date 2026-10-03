@@ -412,8 +412,8 @@ Part C - Bitwarden/Vaultwarden import:
    item types KeePassXC does not map (SSH key, bank account, driver's
    license, passport) keep every field as a custom attribute, secret values
    protected
-4. Import into the open database under a new group; folders become
-   subgroups
+4. Import into the open database, in the group "Bitwarden import";
+   folders become subgroups; a later import merges
 5. UI: file picker, export password, warning for unencrypted exports with
    an offer to delete the file afterwards
 6. Device test
@@ -510,7 +510,10 @@ Decided:
   submits later.
 - Phase 4 order (2026-10-03): create entries, then edit and delete, then
   the Bitwarden import.
-- Import target (2026-10-03): the open database, under a new group.
+- Import target (2026-10-03): the open database, in the group "Bitwarden
+  import"; a later import merges into it like KeePassXC's merge (item ID as
+  entry UUID, newer side wins, the other goes to history, deleted entries
+  stay deleted, nothing is removed).
   Creating a database is a separate feature (KDF settings, credentials,
   file location). Groups can be created and entries moved between them to
   sort the import.

@@ -93,8 +93,24 @@ Item (`cl/libs/common/src/models/export/cipher.export.ts:184-206`): `id`,
 
 SailVault follows KeePassXC's `BitwardenReader.cpp` (`kpxc/src/format/
 BitwardenReader.cpp`, `readItem` and `createGroup`), so imported entries
-match what KeePassXC produces. The import goes into a new group of the open
-database instead of a new database.
+match what KeePassXC produces. The import goes into the group "Bitwarden
+import" of the open database instead of a new database.
+
+Importing again merges, following KeePassXC's `Merger.cpp`
+(`resolveEntryConflict_MergeHistories`, `mergeHistory`):
+
+- The item `id` (a UUID) becomes the entry UUID, so an item is recognised
+  wherever its entry is now; entries moved out of the import group stay
+  where they are. KeePassXC's importer draws random UUIDs, so its imports
+  cannot be merged this way
+- The newer side by modification time wins; the other becomes a history
+  item. History items are combined by modification time. The same file
+  imported twice changes nothing
+- Unlike KeePassXC, fields and attachments that only the database has are
+  kept when the import wins; they also stay in the history item
+- Entries in the recycle bin or under `DeletedObjects` stay deleted, and
+  entries missing from the export are never removed
+- Folders are matched by name below the import group
 
 - `name`, `notes`, `login.username` and `login.password` become Title,
   Notes, UserName and Password; the first URI becomes URL, further URIs
