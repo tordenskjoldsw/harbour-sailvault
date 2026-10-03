@@ -7,7 +7,7 @@
 #include <QThreadPool>
 
 #include "databasefile.h"
-#include "secure.h"
+#include "corebridge.h"
 #include "vault.h"
 
 namespace {
@@ -37,11 +37,6 @@ Importer::Status statusFor(int status)
     }
 }
 
-const uint8_t *bytePointer(const QByteArray &bytes)
-{
-    return reinterpret_cast<const uint8_t *>(bytes.constData());
-}
-
 // Reads, decrypts and maps the export on a pool thread. A cancelled task
 // frees its result itself.
 class ReadTask : public QRunnable
@@ -66,7 +61,7 @@ public:
 
     void run() override
     {
-        SvImport *import = nullptr;
+        SvImport *read = nullptr;
         QByteArray data;
         int status = readDatabaseFile(m_path, MaxExportBytes, data);
         // The user decided on the kind shown from an earlier read. A file
@@ -84,17 +79,19 @@ public:
                                        static_cast<size_t>(m_password.size()),
                                        m_kind == SV_EXPORT_PASSWORD_PROTECTED,
                                        bytePointer(m_groupName),
-                                       static_cast<size_t>(m_groupName.size()), &import);
+                                       static_cast<size_t>(m_groupName.size()), &read);
         }
+        CoreImport import(read);
         secureWipe(data);
         secureWipe(m_password);
 
         const bool delivered = !*m_cancelled
             && QMetaObject::invokeMethod(m_importer, "onReadFinished", Qt::QueuedConnection,
                                          Q_ARG(int, m_attempt), Q_ARG(int, status),
-                                         Q_ARG(qulonglong, reinterpret_cast<qulonglong>(import)));
-        if (!delivered)
-            sv_import_free(import);
+                                         Q_ARG(qulonglong,
+                                               reinterpret_cast<qulonglong>(import.get())));
+        if (delivered)
+            import.release();
     }
 
 private:
@@ -125,7 +122,6 @@ Importer::~Importer()
     m_cancelled->store(true);
     QThreadPool::globalInstance()->waitForDone();
     QCoreApplication::sendPostedEvents(this, QEvent::MetaCall);
-    discardPendingImport();
 }
 
 bool Importer::busy() const
@@ -179,17 +175,14 @@ void Importer::start(const QString &path, const QString &password)
 
 void Importer::onReadFinished(int attempt, int status, qulonglong handle)
 {
-    SvImport *import = reinterpret_cast<SvImport *>(handle);
-    if (attempt != m_attempt || !m_busy) {
-        sv_import_free(import);
+    CoreImport import(reinterpret_cast<SvImport *>(handle));
+    if (attempt != m_attempt || !m_busy)
         return;
-    }
     if (status != SV_OK) {
-        sv_import_free(import);
         fail(statusFor(status));
         return;
     }
-    m_pending = import;
+    m_pending = std::move(import);
     addPendingImport();
 }
 
@@ -199,13 +192,10 @@ void Importer::addPendingImport()
 {
     if (!m_pending || m_vault->saving())
         return;
-    SvImport *import = m_pending;
-    m_pending = nullptr;
+    const CoreImport import = std::move(m_pending);
     int added = 0;
     int updated = 0;
-    const bool merged = m_vault->addImport(import, added, updated);
-    sv_import_free(import);
-    if (!merged) {
+    if (!m_vault->addImport(import.get(), added, updated)) {
         fail(NotAdded);
         return;
     }
@@ -240,7 +230,7 @@ void Importer::onVaultStateChanged()
         return;
     ++m_attempt;
     m_awaitingSave = false;
-    discardPendingImport();
+    m_pending.reset();
     fail(Locked);
 }
 
@@ -273,10 +263,4 @@ void Importer::setBusy(bool busy)
         return;
     m_busy = busy;
     emit busyChanged();
-}
-
-void Importer::discardPendingImport()
-{
-    sv_import_free(m_pending);
-    m_pending = nullptr;
 }

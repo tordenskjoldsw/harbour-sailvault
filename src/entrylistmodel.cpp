@@ -1,6 +1,6 @@
 #include "entrylistmodel.h"
 
-#include "secure.h"
+#include "corebridge.h"
 
 namespace {
 
@@ -142,42 +142,33 @@ void EntryListModel::reload()
     m_items.clear();
 
     const SvDatabase *database = m_vault ? m_vault->database() : nullptr;
-    SvList *list = nullptr;
+    SvList *found = nullptr;
     int status = SV_INVALID_ARGUMENT;
     if (database && m_allGroups) {
-        const QByteArray exclude = QByteArray::fromHex(m_excludeId.toLatin1());
-        status = sv_database_groups(
-            database,
-            exclude.size() == SV_UUID_LENGTH ? reinterpret_cast<const uint8_t *>(exclude.constData())
-                                             : nullptr,
-            &list);
+        status = sv_database_groups(database, uuidOrRoot(itemUuid(m_excludeId)), &found);
     } else if (database && !m_query.trimmed().isEmpty()) {
         const QByteArray query = m_query.toUtf8();
-        status = sv_database_search(database, reinterpret_cast<const uint8_t *>(query.constData()),
-                                    static_cast<size_t>(query.size()), &list);
+        status = sv_database_search(database, bytePointer(query),
+                                    static_cast<size_t>(query.size()), &found);
     } else if (database) {
-        const QByteArray group = QByteArray::fromHex(m_groupId.toLatin1());
-        status = sv_database_group(
-            database,
-            group.size() == SV_UUID_LENGTH ? reinterpret_cast<const uint8_t *>(group.constData())
-                                           : nullptr,
-            &list);
+        status = sv_database_group(database, uuidOrRoot(itemUuid(m_groupId)), &found);
     }
+    const CoreList list(found);
 
     if (status == SV_OK) {
-        const size_t length = sv_list_length(list);
+        const size_t length = sv_list_length(list.get());
         m_items.reserve(static_cast<int>(length));
         for (size_t index = 0; index < length; ++index) {
             QByteArray uuid(SV_UUID_LENGTH, Qt::Uninitialized);
-            if (sv_list_uuid(list, index, reinterpret_cast<uint8_t *>(uuid.data())) != SV_OK)
+            if (sv_list_uuid(list.get(), index, reinterpret_cast<uint8_t *>(uuid.data())) != SV_OK)
                 continue;
-            m_items.append(Item{QString::fromLatin1(uuid.toHex()), sv_list_is_group(list, index),
-                                listText(list, index, SV_COLUMN_TITLE),
-                                listText(list, index, SV_COLUMN_USER_NAME),
-                                listText(list, index, SV_COLUMN_GROUP)});
+            m_items.append(Item{QString::fromLatin1(uuid.toHex()),
+                                sv_list_is_group(list.get(), index),
+                                listText(list.get(), index, SV_COLUMN_TITLE),
+                                listText(list.get(), index, SV_COLUMN_USER_NAME),
+                                listText(list.get(), index, SV_COLUMN_GROUP)});
         }
     }
-    sv_list_free(list);
     endResetModel();
     if (m_items.size() != previousCount)
         emit countChanged();

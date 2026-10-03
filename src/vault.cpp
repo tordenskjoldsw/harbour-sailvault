@@ -6,15 +6,15 @@
 #include <QEvent>
 #include <QFileInfo>
 #include <QGuiApplication>
-#include <QRunnable>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QThreadPool>
 #include <QVector>
 
 #include "boottime.h"
+#include "corebridge.h"
 #include "databasefile.h"
-#include "secure.h"
+#include "vaulttasks.h"
 
 namespace {
 
@@ -28,211 +28,6 @@ QString settingsPath()
     return QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation)
         + QStringLiteral("/settings.ini");
 }
-
-// Backups live in the app's private data directory, never next to the
-// database, which may be shared or synced.
-QString backupDirectory()
-{
-    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
-        + QStringLiteral("/backups");
-}
-
-// Reads the files and runs the KDF on a pool thread, then hands the result
-// to the vault on its own thread. A cancelled task frees its result itself.
-class UnlockTask : public QRunnable
-{
-public:
-    UnlockTask(Vault *vault, std::shared_ptr<std::atomic_bool> cancelled, int attempt,
-               const QString &databasePath, const QString &keyFilePath, QByteArray password)
-        : m_vault(vault)
-        , m_cancelled(std::move(cancelled))
-        , m_attempt(attempt)
-        , m_databasePath(databasePath)
-        , m_keyFilePath(keyFilePath)
-        , m_password(std::move(password))
-    {
-    }
-
-    ~UnlockTask() override
-    {
-        secureWipe(m_password);
-    }
-
-    void run() override
-    {
-        SvDatabase *database = nullptr;
-        QByteArray digest;
-        const int status = open(&database, digest);
-        secureWipe(m_password);
-
-        const bool delivered = !*m_cancelled
-            && QMetaObject::invokeMethod(m_vault, "onUnlockFinished", Qt::QueuedConnection,
-                                         Q_ARG(int, m_attempt), Q_ARG(int, status),
-                                         Q_ARG(qulonglong, reinterpret_cast<qulonglong>(database)),
-                                         Q_ARG(QByteArray, digest));
-        if (!delivered)
-            sv_database_free(database);
-    }
-
-private:
-    int open(SvDatabase **database, QByteArray &digest)
-    {
-        QByteArray data;
-        int status = readDatabaseFile(m_databasePath, MaxDatabaseBytes, data);
-        if (status != SV_OK)
-            return status;
-        QByteArray keyFile;
-        if (!m_keyFilePath.isEmpty()) {
-            status = readDatabaseFile(m_keyFilePath, MaxKeyFileBytes, keyFile);
-            if (status != SV_OK)
-                return status;
-        }
-        // KDBX distinguishes "no password" from an empty one. Like KeePassXC,
-        // an empty field means no password, and a failed attempt is retried
-        // with an empty password.
-        status = openWith(data, keyFile, !m_password.isEmpty(), database);
-        if (status == SV_INVALID_CREDENTIALS && m_password.isEmpty())
-            status = openWith(data, keyFile, true, database);
-        secureWipe(keyFile);
-        // A later save compares the file against this digest to notice
-        // changes by other programs.
-        if (status == SV_OK)
-            digest = fileDigest(data);
-        return status;
-    }
-
-    int openWith(const QByteArray &data, const QByteArray &keyFile, bool hasPassword,
-                 SvDatabase **database) const
-    {
-        return sv_database_open(reinterpret_cast<const uint8_t *>(data.constData()),
-                                static_cast<size_t>(data.size()),
-                                reinterpret_cast<const uint8_t *>(m_password.constData()),
-                                static_cast<size_t>(m_password.size()), hasPassword,
-                                reinterpret_cast<const uint8_t *>(keyFile.constData()),
-                                static_cast<size_t>(keyFile.size()), database);
-    }
-
-    // The vault outlives every task: its destructor cancels and waits for
-    // the pool before it is destroyed.
-    Vault *m_vault;
-    std::shared_ptr<std::atomic_bool> m_cancelled;
-    int m_attempt;
-    QString m_databasePath;
-    QString m_keyFilePath;
-    QByteArray m_password;
-};
-
-// Serializes the database, which runs the KDF, and replaces the file on a
-// pool thread. The vault keeps the handle alive and read-only until the
-// result arrives.
-class SaveTask : public QRunnable
-{
-public:
-    SaveTask(Vault *vault, int attempt, const SvDatabase *database, const QString &databasePath,
-             const QByteArray &expectedDigest)
-        : m_vault(vault)
-        , m_attempt(attempt)
-        , m_database(database)
-        , m_databasePath(databasePath)
-        , m_expectedDigest(expectedDigest)
-    {
-    }
-
-    void run() override
-    {
-        SvBytes file;
-        file.data = nullptr;
-        file.length = 0;
-        int status = sv_database_save(m_database, &file);
-        QByteArray digest;
-        bool replacedChangedFile = false;
-        if (status == SV_OK) {
-            const QByteArray data = QByteArray::fromRawData(
-                reinterpret_cast<const char *>(file.data), static_cast<int>(file.length));
-            status = writeDatabaseFile(m_databasePath, data, backupDirectory(), m_expectedDigest,
-                                       replacedChangedFile);
-            digest = fileDigest(data);
-        }
-        sv_bytes_free(file);
-        QMetaObject::invokeMethod(m_vault, "onSaveFinished", Qt::QueuedConnection,
-                                  Q_ARG(int, m_attempt), Q_ARG(int, status),
-                                  Q_ARG(QByteArray, digest), Q_ARG(bool, replacedChangedFile));
-    }
-
-private:
-    Vault *m_vault;
-    int m_attempt;
-    const SvDatabase *m_database;
-    QString m_databasePath;
-    QByteArray m_expectedDigest;
-};
-
-// Creates the database and its file on a pool thread, then hands the
-// unlocked handle to the vault like an unlock does.
-class CreateTask : public QRunnable
-{
-public:
-    CreateTask(Vault *vault, std::shared_ptr<std::atomic_bool> cancelled, int attempt,
-               const QString &path, const QString &name, QByteArray password, uint32_t kdfLevel)
-        : m_vault(vault)
-        , m_cancelled(std::move(cancelled))
-        , m_attempt(attempt)
-        , m_path(path)
-        , m_name(name.toUtf8())
-        , m_password(std::move(password))
-        , m_kdfLevel(kdfLevel)
-    {
-    }
-
-    ~CreateTask() override
-    {
-        secureWipe(m_password);
-    }
-
-    void run() override
-    {
-        SvDatabase *database = nullptr;
-        SvBytes file;
-        file.data = nullptr;
-        file.length = 0;
-        int status = sv_database_create(
-            reinterpret_cast<const uint8_t *>(m_password.constData()),
-            static_cast<size_t>(m_password.size()),
-            reinterpret_cast<const uint8_t *>(m_name.constData()),
-            static_cast<size_t>(m_name.size()), m_kdfLevel,
-            QDateTime::currentMSecsSinceEpoch() / 1000, &database, &file);
-        secureWipe(m_password);
-        QByteArray digest;
-        if (status == SV_OK) {
-            const QByteArray data = QByteArray::fromRawData(
-                reinterpret_cast<const char *>(file.data), static_cast<int>(file.length));
-            status = createDatabaseFile(m_path, data);
-            digest = fileDigest(data);
-        }
-        sv_bytes_free(file);
-        if (status != SV_OK) {
-            sv_database_free(database);
-            database = nullptr;
-        }
-
-        const bool delivered = !*m_cancelled
-            && QMetaObject::invokeMethod(m_vault, "onCreateFinished", Qt::QueuedConnection,
-                                         Q_ARG(int, m_attempt), Q_ARG(int, status),
-                                         Q_ARG(qulonglong, reinterpret_cast<qulonglong>(database)),
-                                         Q_ARG(QByteArray, digest), Q_ARG(QString, m_path));
-        if (!delivered)
-            sv_database_free(database);
-    }
-
-private:
-    Vault *m_vault;
-    std::shared_ptr<std::atomic_bool> m_cancelled;
-    int m_attempt;
-    QString m_path;
-    QByteArray m_name;
-    QByteArray m_password;
-    uint32_t m_kdfLevel;
-};
 
 Vault::Error errorFor(int status)
 {
@@ -266,25 +61,9 @@ Vault::Error errorFor(int status)
     }
 }
 
-QByteArray itemUuid(const QString &itemId)
-{
-    const QByteArray uuid = QByteArray::fromHex(itemId.toLatin1());
-    return uuid.size() == SV_UUID_LENGTH ? uuid : QByteArray();
-}
-
-const uint8_t *bytePointer(const QByteArray &bytes)
-{
-    return reinterpret_cast<const uint8_t *>(bytes.constData());
-}
-
 uint32_t characterClass(bool selected, int flag)
 {
     return selected ? static_cast<uint32_t>(flag) : 0u;
-}
-
-qint64 unixSeconds()
-{
-    return QDateTime::currentMSecsSinceEpoch() / 1000;
 }
 
 // One-time password secrets, in KeePassXC's and KeePass's attributes, are
@@ -319,6 +98,8 @@ public:
         }
     }
 
+    CoreFields(const CoreFields &) = delete;
+    CoreFields &operator=(const CoreFields &) = delete;
     ~CoreFields()
     {
         for (QByteArray &buffer : m_buffers)
@@ -363,7 +144,7 @@ Vault::~Vault()
     // deliver it now so the slot frees or locks the handle.
     QCoreApplication::sendPostedEvents(this, QEvent::MetaCall);
     m_clipboard.clear();
-    sv_database_free(m_database);
+    m_database.reset();
 }
 
 Vault::State Vault::state() const
@@ -419,7 +200,7 @@ const SvDatabase *Vault::database()
 {
     enforceDeadlines();
     // A requested lock waits for the running save; nothing is read meanwhile.
-    return m_lockAfterSave || m_autoLockAfterSave ? nullptr : m_database;
+    return m_lockAfterSave || m_autoLockAfterSave ? nullptr : m_database.get();
 }
 
 void Vault::unlock(const QString &password)
@@ -436,23 +217,26 @@ void Vault::unlock(const QString &password)
 
 void Vault::onUnlockFinished(int attempt, int status, qulonglong handle, const QByteArray &digest)
 {
-    SvDatabase *database = reinterpret_cast<SvDatabase *>(handle);
-    if (m_state != Unlocking || attempt != m_attempt) {
-        sv_database_free(database);
-        return;
-    }
-    if (status != SV_OK) {
-        sv_database_free(database);
-        setError(errorFor(status));
-        setState(Locked);
-        return;
-    }
-    finishUnlock(database, digest);
+    CoreDatabase database(reinterpret_cast<SvDatabase *>(handle));
+    if (acceptsResult(attempt, status))
+        finishUnlock(std::move(database), digest);
 }
 
-void Vault::finishUnlock(SvDatabase *database, const QByteArray &digest)
+bool Vault::acceptsResult(int attempt, int status)
 {
-    m_database = database;
+    if (m_state != Unlocking || attempt != m_attempt)
+        return false;
+    if (status != SV_OK) {
+        setError(errorFor(status));
+        setState(Locked);
+        return false;
+    }
+    return true;
+}
+
+void Vault::finishUnlock(CoreDatabase database, const QByteArray &digest)
+{
+    m_database = std::move(database);
     m_fileDigest = digest;
     saveSettings();
     m_lastActivityMs = bootTimeMs();
@@ -496,22 +280,14 @@ void Vault::createDatabase(int location, const QString &name, const QString &pas
 void Vault::onCreateFinished(int attempt, int status, qulonglong handle,
                              const QByteArray &digest, const QString &path)
 {
-    SvDatabase *database = reinterpret_cast<SvDatabase *>(handle);
-    if (m_state != Unlocking || attempt != m_attempt) {
-        sv_database_free(database);
+    CoreDatabase database(reinterpret_cast<SvDatabase *>(handle));
+    if (!acceptsResult(attempt, status))
         return;
-    }
-    if (status != SV_OK) {
-        sv_database_free(database);
-        setError(errorFor(status));
-        setState(Locked);
-        return;
-    }
     m_databasePath = path;
     m_keyFilePath.clear();
     emit databasePathChanged();
     emit keyFilePathChanged();
-    finishUnlock(database, digest);
+    finishUnlock(std::move(database), digest);
 }
 
 void Vault::lock()
@@ -532,8 +308,7 @@ void Vault::lock()
     }
     if (!m_database)
         return;
-    sv_database_free(m_database);
-    m_database = nullptr;
+    m_database.reset();
     m_fileDigest.clear();
     // An earlier save error no longer applies; changes it kept from being
     // written are gone now, which the unlock page reports.
@@ -595,22 +370,22 @@ QVariantList Vault::fields(const QString &entryId, int version)
     QVariantList result;
     const QByteArray uuid = itemUuid(entryId);
     const SvDatabase *handle = database();
-    SvFieldList *fields = nullptr;
+    SvFieldList *found = nullptr;
     if (!handle || uuid.isEmpty()
-        || sv_database_fields(handle, bytePointer(uuid), version, &fields) != SV_OK)
+        || sv_database_fields(handle, bytePointer(uuid), version, &found) != SV_OK)
         return result;
-    for (size_t index = 0; index < sv_field_list_length(fields); ++index) {
+    const CoreFieldList fields(found);
+    for (size_t index = 0; index < sv_field_list_length(fields.get()); ++index) {
         SvString key = emptyCoreString();
-        if (sv_field_list_key(fields, index, &key) != SV_OK)
+        if (sv_field_list_key(fields.get(), index, &key) != SV_OK)
             continue;
         const QString name = takeCoreString(key);
         QVariantMap field;
         field.insert(QStringLiteral("key"), name);
-        field.insert(QStringLiteral("protected"),
-                     sv_field_list_is_protected(fields, index) || isOneTimePasswordSecret(name));
+        field.insert(QStringLiteral("protected"), sv_field_list_is_protected(fields.get(), index)
+                                                      || isOneTimePasswordSecret(name));
         result.append(field);
     }
-    sv_field_list_free(fields);
     return result;
 }
 
@@ -625,7 +400,7 @@ QString Vault::readField(const QString &entryId, const QString &key, int version
     const QByteArray keyBytes = key.toUtf8();
     SvString value = emptyCoreString();
     if (!m_database || uuid.isEmpty()
-        || sv_database_field_value(m_database, bytePointer(uuid), version,
+        || sv_database_field_value(m_database.get(), bytePointer(uuid), version,
                                    bytePointer(keyBytes), static_cast<size_t>(keyBytes.size()),
                                    &value)
             != SV_OK)
@@ -681,7 +456,7 @@ bool Vault::addEntry(const QString &groupId, const QVariantMap &fields)
     return change([&](SvDatabase *database, int64_t now, bool &changed) {
         changed = true;
         QByteArray uuid(SV_UUID_LENGTH, Qt::Uninitialized);
-        return sv_database_add_entry(database, group.isEmpty() ? nullptr : bytePointer(group),
+        return sv_database_add_entry(database, uuidOrRoot(group),
                                      coreFields.data(), coreFields.count(), now,
                                      reinterpret_cast<uint8_t *>(uuid.data()));
     });
@@ -718,7 +493,7 @@ bool Vault::addGroup(const QString &parentId, const QString &name)
     return change([&](SvDatabase *database, int64_t now, bool &changed) {
         changed = true;
         QByteArray uuid(SV_UUID_LENGTH, Qt::Uninitialized);
-        return sv_database_add_group(database, parent.isEmpty() ? nullptr : bytePointer(parent),
+        return sv_database_add_group(database, uuidOrRoot(parent),
                                      bytePointer(nameBytes), static_cast<size_t>(nameBytes.size()),
                                      now, reinterpret_cast<uint8_t *>(uuid.data()));
     });
@@ -729,7 +504,7 @@ bool Vault::inRecycleBin(const QString &itemId)
     const QByteArray uuid = itemUuid(itemId);
     bool inside = false;
     return !uuid.isEmpty() && database()
-        && sv_database_in_recycle_bin(m_database, bytePointer(uuid), &inside) == SV_OK && inside;
+        && sv_database_in_recycle_bin(m_database.get(), bytePointer(uuid), &inside) == SV_OK && inside;
 }
 
 bool Vault::moveEntry(const QString &entryId, const QString &groupId)
@@ -794,7 +569,7 @@ bool Vault::deletesPermanently(const QString &itemId)
     const QByteArray uuid = itemUuid(itemId);
     bool permanent = false;
     return !uuid.isEmpty() && database()
-        && sv_database_delete_is_permanent(m_database, bytePointer(uuid), &permanent) == SV_OK
+        && sv_database_delete_is_permanent(m_database.get(), bytePointer(uuid), &permanent) == SV_OK
         && permanent;
 }
 
@@ -814,7 +589,7 @@ bool Vault::change(const Edit &edit)
         return false;
     m_clipboard.keepCopiedValue();
     bool changed = false;
-    if (edit(m_database, unixSeconds(), changed) != SV_OK)
+    if (edit(m_database.get(), unixSeconds(), changed) != SV_OK)
         return false;
     if (changed)
         commitChange();
@@ -834,7 +609,7 @@ void Vault::save()
         return;
     setSaving(true);
     QThreadPool::globalInstance()->start(
-        new SaveTask(this, m_attempt, m_database, m_databasePath, m_fileDigest));
+        new SaveTask(this, m_attempt, m_database.get(), m_databasePath, m_fileDigest));
 }
 
 void Vault::onSaveFinished(int attempt, int status, const QByteArray &digest,

@@ -15,7 +15,7 @@
 #include <unistd.h>
 
 #include "sailvault_core.h"
-#include "secure.h"
+#include "corebridge.h"
 
 namespace {
 

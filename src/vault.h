@@ -13,7 +13,7 @@
 #include <memory>
 
 #include "clipboardguard.h"
-#include "sailvault_core.h"
+#include "corebridge.h"
 
 // Owns the unlocked database handle and the lock state. QML sees titles
 // and the one value the user shows or copies; everything else stays in
@@ -181,7 +181,10 @@ private:
     // runs or when locked.
     bool change(const Edit &edit);
     QString readField(const QString &entryId, const QString &key, int version) const;
-    void finishUnlock(SvDatabase *database, const QByteArray &digest);
+    // Whether the result of an unlock or create attempt is still wanted and
+    // succeeded; a failure is reported and locks.
+    bool acceptsResult(int attempt, int status);
+    void finishUnlock(CoreDatabase database, const QByteArray &digest);
     // Marks the in-memory change and starts the save.
     void commitChange();
     void lockAutomatically();
@@ -193,7 +196,7 @@ private:
     void setDirty(bool dirty);
     void saveSettings() const;
 
-    SvDatabase *m_database = nullptr;
+    CoreDatabase m_database;
     int m_attempt = 0;
     std::shared_ptr<std::atomic_bool> m_unlockCancelled;
     State m_state = Locked;

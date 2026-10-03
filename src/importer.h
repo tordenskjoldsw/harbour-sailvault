@@ -7,7 +7,7 @@
 #include <atomic>
 #include <memory>
 
-#include "sailvault_core.h"
+#include "corebridge.h"
 
 class Vault;
 
@@ -75,7 +75,6 @@ private:
     void finish();
     void fail(Status status);
     void setBusy(bool busy);
-    void discardPendingImport();
 
     Vault *m_vault;
     std::shared_ptr<std::atomic_bool> m_cancelled;
@@ -88,7 +87,7 @@ private:
     int m_updated = 0;
     QString m_path;
     QString m_removablePath;
-    SvImport *m_pending = nullptr;
+    CoreImport m_pending;
 };
 
 #endif // IMPORTER_H
