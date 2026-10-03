@@ -39,6 +39,19 @@ void ClipboardGuard::clear()
     m_deadlineMs = 0;
 }
 
+void ClipboardGuard::keepCopiedValue()
+{
+    if (!m_source)
+        return;
+    const QString current = QGuiApplication::clipboard()->text();
+    if (current.isEmpty() || current != m_source()) {
+        m_source = nullptr;
+        m_deadlineMs = 0;
+        return;
+    }
+    m_source = [current] { return current; };
+}
+
 bool ClipboardGuard::isPending() const
 {
     return static_cast<bool>(m_source);

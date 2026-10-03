@@ -628,7 +628,8 @@ bool Vault::copyField(const QString &entryId, const QString &key, int version)
     if (value.isEmpty())
         return false;
     // The guard compares against the core's value instead of keeping a copy
-    // or hash; lock() clears the clipboard before it frees the database.
+    // or hash; edits pin the value first, and lock() clears the clipboard
+    // before it frees the database.
     m_clipboard.copy(value, [this, entryId, key, version] {
         return readField(entryId, key, version);
     });
@@ -800,6 +801,7 @@ bool Vault::change(const Edit &edit)
 {
     if (m_saving || !database())
         return false;
+    m_clipboard.keepCopiedValue();
     bool changed = false;
     if (edit(m_database, unixSeconds(), changed) != SV_OK)
         return false;
