@@ -58,7 +58,7 @@ Sync::Sync(Vault *vault, QObject *parent)
     connect(m_connectivity, &QNetworkConfigurationManager::onlineStateChanged, this,
             [this](bool online) {
                 if (online && m_state == Failed && m_problem == Offline)
-                    m_delay->start();
+                    scheduleSync();
             });
     m_delay->setSingleShot(true);
     m_delay->setInterval(SaveDelayMs);
@@ -201,7 +201,17 @@ void Sync::onSaved()
     if (m_running)
         m_again = true;
     else if (m_configured)
-        m_delay->start();
+        scheduleSync();
+}
+
+void Sync::scheduleSync()
+{
+    m_delay->start();
+    if (m_state != Syncing || m_problem != NoProblem) {
+        m_state = Syncing;
+        m_problem = NoProblem;
+        emit stateChanged();
+    }
 }
 
 // Locking ends everything: requests, the login flow and every credential
@@ -483,7 +493,7 @@ void Sync::finish(Problem problem)
     emit stateChanged();
     if (m_again) {
         m_again = false;
-        m_delay->start();
+        scheduleSync();
     }
 }
 

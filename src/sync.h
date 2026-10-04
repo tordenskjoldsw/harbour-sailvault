@@ -123,6 +123,9 @@ private:
     void onSaved();
     void stop();
     void abortSync();
+    // Starts a sync after a short delay and shows it as running already:
+    // the change it covers is not on the server yet.
+    void scheduleSync();
     void updateConfigured();
     bool loadAccount();
     void withUserId(const std::function<void()> &next);
