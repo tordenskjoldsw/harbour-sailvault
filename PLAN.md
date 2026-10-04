@@ -546,6 +546,14 @@ Decided:
   chosen from a list; deleting one removes its key file and backups.
   Decided now because moving existing users later would need a migration.
   Supersedes "File location for Phase 3"; the permissions stay.
+  Device test on the Jolla Phone (2026-10-04): the database picked by the
+  previous version was offered for adding; a wrong password copied
+  nothing, the right one stored it and the originals were deleted from
+  the follow-up page. A database with a key file was added and unlocks
+  with the stored key file. Several databases can be switched in the
+  list. A saved copy with its key file opens with `keepassxc-cli`, and saving it
+  again under the same name is refused. Deleting a database removes it
+  with its key file and backups; saves still write backups.
 - Versioning (2026-10-03): Semantic Versioning. A new feature raises the
   minor version, a release with fixes only the patch version; 1.0.0 comes
   after the first Harbour round and outside feedback, not before. Releases
