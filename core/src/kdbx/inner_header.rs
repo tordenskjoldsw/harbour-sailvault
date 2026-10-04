@@ -23,7 +23,7 @@ pub(crate) const STREAM_KEY_LENGTH: usize = 64;
 
 /// An attachment from the inner header binary pool. Entries reference it by
 /// its position in the pool.
-#[derive(PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Binary {
     pub protected: bool,
     pub data: Zeroizing<Vec<u8>>,

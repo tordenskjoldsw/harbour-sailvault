@@ -1443,3 +1443,267 @@ fn without_settings_changed(xml: &str) -> String {
         .collect::<Vec<_>>()
         .join("\n")
 }
+
+// Merging two copies: KeePassXC's `keepassxc-cli merge` is the reference
+// for everything except deletions, which it does not apply.
+
+const DAY: i64 = 86_400;
+
+fn uuid_of(database: &Database, path: &[&str], title: &str) -> [u8; 16] {
+    let mut group = database.root_group().unwrap();
+    for name in path {
+        group = subgroup(&group, name);
+    }
+    entry(&group, title).uuid().unwrap()
+}
+
+fn group_uuid(database: &Database, path: &[&str]) -> [u8; 16] {
+    let mut group = database.root_group().unwrap();
+    for name in path {
+        group = subgroup(&group, name);
+    }
+    group.uuid().unwrap()
+}
+
+/// Two copies of the Twofish fixture changed apart, like the database on the
+/// phone and on the computer between two syncs.
+fn diverged_copies() -> (Vec<u8>, Vec<u8>) {
+    let mut local = open(TWOFISH_AESKDF, false);
+    let mut remote = open(TWOFISH_AESKDF, false);
+    let login = uuid_of(&local, &[], "Example login");
+    let card = uuid_of(&local, &["Banking", "Cards"], "Example card");
+    let special = uuid_of(&local, &[], "Special characters äöü 🔐");
+    let banking = group_uuid(&local, &["Banking"]);
+    let root = local.root_group().unwrap().uuid().unwrap();
+
+    // Both changed the login; the phone later, so its version wins.
+    remote
+        .update_entry(&login, &[("UserName", "bob@example.org")], NOW + 5 * DAY)
+        .unwrap();
+    local
+        .update_entry(&login, &[("Password", "phone-password-4")], NOW + 10 * DAY)
+        .unwrap();
+    // Only the computer changed the card.
+    remote
+        .update_entry(&card, &[("card_code", "456")], NOW + 20 * DAY)
+        .unwrap();
+    // The phone moved the entry with the attachment, the computer edited it
+    // afterwards: it stays moved and takes the computer's content.
+    local
+        .move_entry(&special, &banking, NOW + 30 * DAY)
+        .unwrap();
+    remote
+        .update_entry(
+            &special,
+            &[("Notes", "edited on the computer")],
+            NOW + 50 * DAY,
+        )
+        .unwrap();
+    // New entries and groups on both sides, and a rename on the computer.
+    local
+        .add_entry(
+            &root,
+            &[("Title", "Phone entry"), ("Password", "p1")],
+            NOW + 11 * DAY,
+        )
+        .unwrap();
+    let travel = remote.add_group(&root, "Travel", NOW + 12 * DAY).unwrap();
+    remote
+        .add_entry(
+            &travel,
+            &[("Title", "Airline"), ("Password", "p2")],
+            NOW + 12 * DAY,
+        )
+        .unwrap();
+    remote
+        .add_entry(
+            &banking,
+            &[("Title", "Computer entry"), ("Password", "p3")],
+            NOW + 13 * DAY,
+        )
+        .unwrap();
+    remote
+        .rename_group(&banking, "Finance", NOW + 40 * DAY)
+        .unwrap();
+    (local.save().unwrap(), remote.save().unwrap())
+}
+
+#[test]
+fn merging_another_copy_matches_keepassxc() {
+    let (local, remote) = diverged_copies();
+
+    let reference = TempFile::write("merge-reference", &local);
+    let other = TempFile::write("merge-other", &remote);
+    keepassxc_cli(
+        &["merge", "-s"],
+        &reference,
+        false,
+        &[other.0.to_str().unwrap()],
+    );
+    let expected = without_save_values(&without_export_time(&keepassxc_cli(
+        &["export", "-f", "xml"],
+        &reference,
+        false,
+        &[],
+    )));
+
+    let mut merged = Database::open(&local, key(false)).unwrap();
+    let changes = merged
+        .merge_from(&Database::open(&remote, key(false)).unwrap())
+        .unwrap();
+    assert_eq!(
+        (
+            changes.added,
+            changes.modified,
+            changes.moved,
+            changes.deleted
+        ),
+        (3, 4, 0, 0),
+        "{changes:?}"
+    );
+    let saved = TempFile::write("merge-ours", &merged.save().unwrap());
+    let exported = without_save_values(&without_export_time(&keepassxc_cli(
+        &["export", "-f", "xml"],
+        &saved,
+        false,
+        &[],
+    )));
+    let difference = expected
+        .lines()
+        .zip(exported.lines())
+        .enumerate()
+        .find(|(_, (a, b))| a != b)
+        .map(|(line, (a, b))| format!("line {line}: {a:?} vs {b:?}"))
+        .unwrap_or_default();
+    assert!(
+        expected == exported,
+        "merge differs from KeePassXC at {difference}"
+    );
+
+    let root = merged.root_group().unwrap();
+    let login = entry(&root, "Example login");
+    assert_eq!(value(&login, "Password"), "phone-password-4");
+    assert_eq!(value(&login, "UserName"), "alice@example.org");
+    let history: Vec<String> = login.history().map(|h| value(&h, "UserName")).collect();
+    assert!(
+        history.contains(&"bob@example.org".to_owned()),
+        "{history:?}"
+    );
+    let finance = subgroup(&root, "Finance");
+    let special = entry(&finance, "Special characters äöü 🔐");
+    assert_eq!(value(&special, "Notes"), "edited on the computer");
+    let attachment = special.attachments().next().unwrap();
+    assert_eq!(
+        merged.attachment(&attachment).unwrap().data.as_slice(),
+        b"Hello from a SailVault test attachment.\n"
+    );
+}
+
+#[test]
+fn merging_twice_or_with_itself_changes_nothing() {
+    let (local, remote) = diverged_copies();
+    let remote = Database::open(&remote, key(false)).unwrap();
+    let mut merged = Database::open(&local, key(false)).unwrap();
+    assert!(merged.merge_from(&remote).unwrap().any());
+    let once = merged.document().clone();
+    assert!(!merged.merge_from(&remote).unwrap().any());
+    assert!(*merged.document() == once);
+
+    let mut copy = open(TWOFISH_AESKDF, false);
+    let same = open(TWOFISH_AESKDF, false);
+    assert!(!copy.merge_from(&same).unwrap().any());
+}
+
+/// After a sync the computer reads the merged file. If it has unsaved
+/// changes of its own, KeePassXC merges them into that file instead; with
+/// nothing new on the computer, that merge must change nothing.
+#[test]
+fn the_merged_file_takes_nothing_back_from_the_older_copy() {
+    let (local, remote) = diverged_copies();
+    let computer = Database::open(&remote, key(false)).unwrap();
+    let mut merged = Database::open(&local, key(false)).unwrap();
+    merged.merge_from(&computer).unwrap();
+    let synced = merged.save().unwrap();
+    let mut on_computer = Database::open(&synced, key(false)).unwrap();
+    assert!(!on_computer.merge_from(&computer).unwrap().any());
+}
+
+#[test]
+fn an_emptied_recycle_bin_stays_empty_unless_the_entry_changed_later() {
+    let mut phone = open(TWOFISH_AESKDF, false);
+    let computer = open(TWOFISH_AESKDF, false);
+    phone.empty_recycle_bin(NOW + DAY).unwrap();
+    let mut merged = Database::open(&phone.save().unwrap(), key(false)).unwrap();
+    let changes = merged.merge_from(&computer).unwrap();
+    assert_eq!(changes.deleted, 0, "{changes:?}");
+    assert_eq!(
+        subgroup(&merged.root_group().unwrap(), "Recycle Bin")
+            .entries()
+            .count(),
+        0
+    );
+
+    // Changed on the computer after the phone deleted it: it comes back.
+    let mut computer = open(TWOFISH_AESKDF, false);
+    let recycled = uuid_of(&computer, &["Recycle Bin"], "Recycled entry");
+    computer
+        .update_entry(&recycled, &[("Notes", "still needed")], NOW + 2 * DAY)
+        .unwrap();
+    let mut merged = Database::open(&phone.save().unwrap(), key(false)).unwrap();
+    let changes = merged.merge_from(&computer).unwrap();
+    assert_eq!(changes.added, 1, "{changes:?}");
+    let bin = subgroup(&merged.root_group().unwrap(), "Recycle Bin");
+    assert_eq!(
+        value(&entry(&bin, "Recycled entry"), "Notes"),
+        "still needed"
+    );
+    assert!(merged
+        .deleted_objects()
+        .iter()
+        .all(|deleted| deleted.uuid != recycled));
+
+    // The other way round: the computer emptied its bin, the phone did not.
+    let mut computer = open(TWOFISH_AESKDF, false);
+    computer.empty_recycle_bin(NOW + DAY).unwrap();
+    let mut phone = open(TWOFISH_AESKDF, false);
+    let changes = phone.merge_from(&computer).unwrap();
+    assert_eq!(changes.deleted, 1, "{changes:?}");
+    assert_eq!(
+        subgroup(&phone.root_group().unwrap(), "Recycle Bin")
+            .entries()
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn a_large_merge_stays_fast() {
+    let mut local = open(LARGE, false);
+    let remote = open(LARGE, false);
+    let start = std::time::Instant::now();
+    assert!(!local.merge_from(&remote).unwrap().any());
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(2),
+        "{:?}",
+        start.elapsed()
+    );
+}
+
+/// Values KeePassXC sets when it saves: a new random slug that varies the
+/// file size, and the access time of a group whose properties it merged.
+fn without_save_values(xml: &str) -> String {
+    let mut lines = Vec::new();
+    let mut after_slug = false;
+    for line in xml.lines() {
+        let trimmed = line.trim();
+        if after_slug {
+            after_slug = false;
+            continue;
+        }
+        after_slug = trimmed == "<Key>KPXC_RANDOM_SLUG</Key>";
+        if !trimmed.starts_with("<LastAccessTime>") {
+            lines.push(line);
+        }
+    }
+    lines.join("\n")
+}

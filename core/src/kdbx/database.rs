@@ -137,6 +137,16 @@ impl Database {
         &self.inner.binaries
     }
 
+    pub(super) fn binaries_mut(&mut self) -> &mut Vec<Binary> {
+        &mut self.inner.binaries
+    }
+
+    /// Takes a KDBX 4.1 feature merged from another copy along: the file is
+    /// saved as 4.1 then, as KeePassXC saves it.
+    pub(super) fn raise_minor_version(&mut self, minor_version: u16) {
+        self.header.minor_version = self.header.minor_version.max(minor_version);
+    }
+
     pub fn meta(&self) -> Option<&Element> {
         self.document.child("Meta")
     }
