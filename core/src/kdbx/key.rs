@@ -15,7 +15,8 @@ pub const KEY_LENGTH: usize = 32;
 
 /// SHA-256 over the hashed password followed by the key file key, as in
 /// KeePassXC's `CompositeKey::rawKey`.
-#[derive(Zeroize, ZeroizeOnDrop)]
+// Copies stay inside the core and are zeroized like the original.
+#[derive(Clone, Zeroize, ZeroizeOnDrop)]
 pub struct CompositeKey([u8; KEY_LENGTH]);
 
 impl CompositeKey {

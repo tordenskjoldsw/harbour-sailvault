@@ -72,6 +72,15 @@ typedef struct SvBytes {
 } SvBytes;
 
 /* A field of a new entry: UTF-8 key and value, not NUL-terminated. */
+/* What sv_database_merge changed. */
+typedef struct SvMergeChanges {
+    size_t added;
+    size_t modified;
+    size_t moved;
+    size_t deleted;
+    bool metadata;
+} SvMergeChanges;
+
 typedef struct SvField {
     const uint8_t *key;
     size_t key_length;
@@ -97,6 +106,15 @@ int32_t sv_database_create(const uint8_t *password, size_t password_length, cons
                            SvBytes *file_out);
 /* Locks: drops and zeroizes all decrypted data. */
 void sv_database_free(SvDatabase *database);
+/* Opens another copy of like, such as the file on the computer, with the
+ * credentials like was unlocked with; they never leave the core. Runs the
+ * KDF; call off the UI thread while nothing modifies like. */
+int32_t sv_database_open_like(const SvDatabase *like, const uint8_t *data, size_t data_length,
+                              SvDatabase **out);
+/* Merges another copy of the database into database as KeePassXC does, and
+ * applies deletions recorded in either copy unless the item changed later.
+ * Nothing changes on an error. */
+int32_t sv_database_merge(SvDatabase *database, const SvDatabase *source, SvMergeChanges *out);
 /* Whether the database was read from a KDBX 3 file. */
 int32_t sv_database_from_kdbx3(const SvDatabase *database, bool *from_kdbx3);
 /* Switches the key derivation to Argon2id at an SV_KDF_* level from the

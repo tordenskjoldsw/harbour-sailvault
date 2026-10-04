@@ -40,6 +40,13 @@ impl Database {
         Self::from_parts(header, inner, document, key)
     }
 
+    /// Unlocks another copy of this database, such as the one on the
+    /// computer, with the credentials this one was unlocked with. Runs the
+    /// KDF, so it must not run on the UI thread.
+    pub fn open_like(&self, data: &[u8]) -> Result<Self> {
+        Self::open(data, self.key.clone())
+    }
+
     /// A database from its parts, checked like an opened one.
     pub(super) fn from_parts(
         header: OuterHeader,

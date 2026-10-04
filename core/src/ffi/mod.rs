@@ -119,6 +119,16 @@ impl SvBytes {
 }
 
 /// A field of a new entry: UTF-8 key and value, not NUL-terminated.
+/// What `sv_database_merge` changed.
+#[repr(C)]
+pub struct SvMergeChanges {
+    pub added: usize,
+    pub modified: usize,
+    pub moved: usize,
+    pub deleted: usize,
+    pub metadata: bool,
+}
+
 #[repr(C)]
 pub struct SvField {
     pub key: *const u8,

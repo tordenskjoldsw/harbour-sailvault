@@ -872,3 +872,51 @@ fn header_and_rust_declare_the_same_constants_and_functions() {
     assert!(declared.len() > 35);
     assert_eq!(declared, functions(&rust, &["fn "]));
 }
+
+#[test]
+fn another_copy_opens_with_the_held_key_and_merges() {
+    unsafe {
+        let (status, database) = open(PASSWORD);
+        assert_eq!(status, SV_OK);
+        let mut copy = std::ptr::null_mut();
+        assert_eq!(
+            sv_database_open_like(database, FIXTURE.as_ptr(), FIXTURE.len(), &mut copy),
+            SV_OK
+        );
+        sv_database_free(copy);
+        assert_eq!(
+            sv_database_open_like(database, b"no".as_ptr(), 2, &mut copy),
+            SV_NOT_KDBX
+        );
+        assert!(copy.is_null());
+        assert_eq!(
+            sv_database_open_like(database, FIXTURE.as_ptr(), FIXTURE.len(), &mut copy),
+            SV_OK
+        );
+
+        let mut changes = SvMergeChanges {
+            added: 9,
+            modified: 9,
+            moved: 9,
+            deleted: 9,
+            metadata: true,
+        };
+        assert_eq!(sv_database_merge(database, copy, &mut changes), SV_OK);
+        assert_eq!(
+            (
+                changes.added,
+                changes.modified,
+                changes.moved,
+                changes.deleted
+            ),
+            (0, 0, 0, 0)
+        );
+        assert!(!changes.metadata);
+        assert_eq!(
+            sv_database_merge(database, database, &mut changes),
+            SV_INVALID_ARGUMENT
+        );
+        sv_database_free(copy);
+        sv_database_free(database);
+    }
+}

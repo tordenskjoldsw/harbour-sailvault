@@ -1,4 +1,4 @@
-use super::{bytes, status, utf8, SvBytes, SvDatabase, SV_INVALID_ARGUMENT, SV_OK};
+use super::{bytes, status, utf8, SvBytes, SvDatabase, SvMergeChanges, SV_INVALID_ARGUMENT, SV_OK};
 use super::{SV_KDF_HIGH, SV_KDF_MAXIMUM, SV_KDF_STANDARD};
 use crate::kdbx::{self, CompositeKey, Database, KdfLevel};
 
@@ -205,4 +205,74 @@ pub unsafe extern "C" fn sv_database_set_kdf_level(
     };
     database.database.set_kdf_level(level);
     SV_OK
+}
+
+/// Opens another copy of `like`, such as the file on the computer, with the
+/// credentials `like` was unlocked with; they never leave the core. Runs the
+/// KDF: call it off the UI thread. On success `*out` receives a handle to
+/// release with `sv_database_free`.
+///
+/// # Safety
+///
+/// `like` must be a live handle that no other thread modifies meanwhile;
+/// `data` must be valid for reads of `data_length` bytes and `out` for one
+/// write.
+#[no_mangle]
+pub unsafe extern "C" fn sv_database_open_like(
+    like: *const SvDatabase,
+    data: *const u8,
+    data_length: usize,
+    out: *mut *mut SvDatabase,
+) -> i32 {
+    let Some(out) = out.as_mut() else {
+        return SV_INVALID_ARGUMENT;
+    };
+    *out = std::ptr::null_mut();
+    let (Some(like), Some(data)) = (like.as_ref(), bytes(data, data_length)) else {
+        return SV_INVALID_ARGUMENT;
+    };
+    match like.database.open_like(data) {
+        Ok(database) => {
+            *out = Box::into_raw(Box::new(SvDatabase { database }));
+            SV_OK
+        }
+        Err(error) => status(error),
+    }
+}
+
+/// Merges `source`, another copy of the database, into `database` (see
+/// `Database::merge_from`) and reports what changed in `*out`. Nothing
+/// changes on an error.
+///
+/// # Safety
+///
+/// `database` and `source` must be distinct live handles that no other
+/// thread uses meanwhile; `out` must be valid for one write.
+#[no_mangle]
+pub unsafe extern "C" fn sv_database_merge(
+    database: *mut SvDatabase,
+    source: *const SvDatabase,
+    out: *mut SvMergeChanges,
+) -> i32 {
+    if std::ptr::eq(database, source) {
+        return SV_INVALID_ARGUMENT;
+    }
+    let (Some(database), Some(source), Some(out)) =
+        (database.as_mut(), source.as_ref(), out.as_mut())
+    else {
+        return SV_INVALID_ARGUMENT;
+    };
+    match database.database.merge_from(&source.database) {
+        Ok(changes) => {
+            *out = SvMergeChanges {
+                added: changes.added,
+                modified: changes.modified,
+                moved: changes.moved,
+                deleted: changes.deleted,
+                metadata: changes.metadata,
+            };
+            SV_OK
+        }
+        Err(error) => status(error),
+    }
 }
