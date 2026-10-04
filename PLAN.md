@@ -522,8 +522,11 @@ Decided:
   may well have 3.1 files, and a detour through the PC is poor usability.
   Cost: a second parser for untrusted files (block format, Salsa20 for
   protected fields, attachments in the metadata, ISO times), with the same
-  bounds as the KDBX 4 reader and the `HeaderHash` check. Whether the
-  conversion also replaces AES-KDF with Argon2id is still to be decided.
+  bounds as the KDBX 4 reader and the `HeaderHash` check. The conversion
+  replaces AES-KDF with Argon2id at the Standard level by default; an
+  advanced choice offers the levels High and Maximum, as for a new
+  database. Keeping AES-KDF is not offered: a KDBX 4 file needs a client
+  that reads Argon2 anyway, so AES-KDF would only lower the protection.
   The 3.1 fixtures serve the tests.
 - Convenience unlock (2026-10-04): the full master password (and key file)
   is always the default. Never stored: no key wrapped with a PIN on disk
