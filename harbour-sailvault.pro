@@ -89,6 +89,7 @@ DISTFILES += \
     qml/pages/NewDatabaseDialog.qml \
     qml/pages/SaveCopyDialog.qml \
     qml/pages/AboutPage.qml \
+    qml/pages/SettingsPage.qml \
     qml/pages/SyncSetupPage.qml \
     qml/pages/ThirdPartyPage.qml \
     qml/pages/thirdparty.js \

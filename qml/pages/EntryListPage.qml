@@ -1,6 +1,5 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
-import Sailfish.Pickers 1.0
 import harbour.sailvault 1.0
 import "../components"
 
@@ -12,25 +11,6 @@ Page {
     // Nothing new is added in the recycle bin, as in KeePassXC.
     property bool inRecycleBin: vault.inRecycleBin(groupId)
     property string recycleBinId: vault.recycleBinId()
-    // The file pickers close themselves after a selection; the import or
-    // merge page opens once this page is back.
-    property string pendingImportPath
-    property string pendingMergePath
-
-    onStatusChanged: {
-        if (status !== PageStatus.Active)
-            return
-        if (pendingImportPath.length > 0) {
-            var path = pendingImportPath
-            pendingImportPath = ""
-            pageStack.push(Qt.resolvedUrl("ImportPage.qml"), { "path": path })
-        } else if (pendingMergePath.length > 0) {
-            var mergePath = pendingMergePath
-            pendingMergePath = ""
-            pageStack.push(Qt.resolvedUrl("MergePage.qml"), { "path": mergePath })
-        }
-    }
-
     allowedOrientations: Orientation.All
 
     // A page-level remorse: the list reloads after the deletion, which
@@ -54,30 +34,6 @@ Page {
         id: remorse
     }
 
-    Component {
-        id: exportPicker
-
-        FilePickerPage {
-            nameFilters: ["*.json"]
-            onSelectedContentPropertiesChanged: page.pendingImportPath = selectedContentProperties.filePath
-        }
-    }
-
-    Component {
-        id: mergePicker
-
-        FilePickerPage {
-            nameFilters: ["*.kdbx"]
-            onSelectedContentPropertiesChanged: page.pendingMergePath = selectedContentProperties.filePath
-        }
-    }
-
-    SyncText {
-        id: syncText
-    }
-
-    // A certificate to confirm interrupts: syncing stops until the user
-    // decides. Only the top page asks.
     Connections {
         target: sync
         onStateChanged: {
@@ -137,39 +93,21 @@ Page {
         PullDownMenu {
             busy: vault.saving
 
+            // Rare actions live on their own page, so the menu stays short.
             MenuItem {
-                text: qsTr("About")
+                text: qsTr("Settings")
                 visible: page.groupId.length === 0
-                onClicked: pageStack.push(Qt.resolvedUrl("AboutPage.qml"))
+                onClicked: pageStack.push(Qt.resolvedUrl("SettingsPage.qml"))
             }
-
             MenuItem {
                 text: qsTr("Lock")
                 onClicked: vault.lock()
-            }
-            MenuItem {
-                text: sync.configured ? qsTr("Sync settings") : qsTr("Set up sync")
-                visible: page.groupId.length === 0
-                enabled: !vault.saving && !vault.merging
-                onClicked: pageStack.push(Qt.resolvedUrl("SyncSetupPage.qml"))
             }
             MenuItem {
                 text: qsTr("Sync now")
                 visible: sync.configured
                 enabled: sync.state !== Sync.Syncing
                 onClicked: sync.sync()
-            }
-            MenuItem {
-                text: qsTr("Merge with file")
-                visible: page.groupId.length === 0
-                enabled: !vault.saving && !vault.merging
-                onClicked: pageStack.push(mergePicker)
-            }
-            MenuItem {
-                text: qsTr("Import from Bitwarden")
-                visible: page.groupId.length === 0
-                enabled: !vault.saving && !importer.busy
-                onClicked: pageStack.push(exportPicker)
             }
             MenuItem {
                 text: qsTr("Save")
