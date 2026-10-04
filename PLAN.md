@@ -1,14 +1,10 @@
 # SailVault - Project Plan
 
-Status: 2026-10-04 - Phases 1 to 4 are complete and were released as 0.2.0
-on 2026-10-03. Since then: new databases created in the app, an About page
-with the license notices, the pre-Harbour review
-(`docs/security-review-2026-10-harbour.md`) with all its findings fixed,
-and databases and key files kept in the app's private storage; all tested
-on the Jolla Phone; released as 0.3.0 on 2026-10-04. 0.4.0 (2026-10-04)
-converts KDBX 3.1 files to KDBX 4 with Argon2id when they are added
-(section 14), also device-tested. Next: Phase 5, merge (Part A) and
-Nextcloud sync (Part B), then the Harbour submission (Phase 6).
+Status: 2026-10-04 - Phases 1 to 5 are complete. Released: 0.2.0
+(editing and Bitwarden import), 0.3.0 (new databases, private storage,
+pre-Harbour review fixes), 0.4.0 (KDBX 3.1 conversion) and 0.5.0 (merging
+copies and Nextcloud sync), all tested on the Jolla Phone. Next: the
+Harbour submission (Phase 6).
 
 ## 1. Goal
 
@@ -510,8 +506,8 @@ Part B - sync with Nextcloud over WebDAV (section 8):
   path in two missing folders was created; a new entry on the phone was
   uploaded; an entry added in KeePassXC on the computer and uploaded
   through Nextcloud arrived on the phone at the next unlock; in flight
-  mode the header reported no connection, and it synced again after
-  flight mode was switched off.
+  mode the header reported saving, syncing and then no connection, and
+  switching flight mode off synced on its own.
 
 ### Phase 6 - Harbour submission
 
