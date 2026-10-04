@@ -112,7 +112,7 @@ Reading KDBX 3.1 is an open decision, see section 14.
 |----------|-----------|
 | Rust core as static library | Memory safety for parsing and crypto, `zeroize`, links into the binary so the validator only sees allowed system libs |
 | Core does no I/O | Unit-testable on the host; the C++ layer owns files and network |
-| Own KDBX4 codec on audited primitives | `keepass` crate: only 0.7.17 builds with Rust 1.75 and it drops attachments on save; newer releases need Rust 1.85+ and still drop unknown XML, force KDBX 4.1 and have an unstable merge |
+| Own KDBX4 codec on established crypto crates | `keepass` crate: only 0.7.17 builds with Rust 1.75 and it drops attachments on save; newer releases need Rust 1.85+ and still drop unknown XML, force KDBX 4.1 and have an unstable merge |
 | Building blocks for the codec | `chacha20`, `twofish`, `flate2` (pure Rust) and `quick-xml` build with Rust 1.75 and have permissive licenses (checked 2026-10-03) |
 | Lossless XML model | Unknown elements and attributes are kept and written back; required for criterion 3 |
 | KDBX file as the only storage | Standard format, readable by KeePassXC, the file is the backup |
@@ -167,6 +167,9 @@ The phone holds the primary copy, so a writer bug can destroy real data.
   `LastModificationTime`, history union, `LocationChanged`, apply
   `DeletedObjects`), save locally, then upload
 - The Nextcloud app password (scoped, revocable) is stored in Sailfish Secrets
+- Known limit: if KeePassXC saves on the PC while the Nextcloud desktop
+  client holds a newer version, Nextcloud creates conflict files outside
+  the app's control; SailVault merges only the file at the synced path
 - Known limit: KeePassXC's default merge ignores deletions, so a phone-side
   hard delete can return if the PC merges an older in-memory copy; the
   recycle bin default avoids this
@@ -474,7 +477,8 @@ for files changed on the phone.
 
 ### Phase 7 - Differentiation
 
-- Attachments UI, key file management, multiple databases
+- Attachments UI, key file management
+- Warning with a time estimate for slow KDF parameters (section 14)
 - Published threat model, reproducible CI builds, signed releases
 - Translations
 
@@ -482,7 +486,9 @@ for files changed on the phone.
 
 - Key material and decrypted data live only in RAM, in the Rust core, and are zeroized on lock
 - No plaintext secret is ever written to disk or to logs
-- Crypto only through audited crates, never hand-rolled primitives
+- Crypto only through established crates (RustCrypto and similar), never
+  hand-rolled primitives. Not every crate has a formal audit, and SailVault
+  itself has had no external review.
 - Untrusted input (KDBX files, imports, server responses) has strict bounds:
   KDF parameters, sizes, nesting depth
 - Auto-lock on timeout and on device lock; clipboard is cleared after a timeout
@@ -522,17 +528,19 @@ Proposed in review (2026-10-03), not decided:
 - Decide the convenience unlock before Phase 3 instead of after the MVP. It
   affects how key material is held in RAM, and typing the full master
   password on every unlock pushes users toward weaker passwords.
-- KDF parameter bounds: warn with a time estimate instead of rejecting, so
-  that high memory settings chosen in KeePassXC do not lock users out of
-  their own database.
-- Replace "audited" in sections 5 and 12 with a per-crate check or with
-  "established, widely used". Not every crate in use has a formal audit.
-- Add a known limit to section 8: if KeePassXC saves on the PC while the
-  Nextcloud client holds a newer version, Nextcloud creates conflict files
-  outside the app's control.
 
 Decided:
 
+- KDF parameter bounds (2026-10-04): the hard limits stay. Argon2 memory
+  above 1 GiB risks running out of memory on the phone; the other limits
+  (1000 iterations, 64 GiB of memory times iterations, 1e9 AES-KDF rounds)
+  keep a crafted file from blocking the app. A warning with a time
+  estimate for slow but feasible parameters can come later (Phase 7); it
+  does not lift the limits.
+- Wording (2026-10-04): "established crates" instead of "audited", since
+  not every crate in use has a formal audit (sections 5 and 12).
+- Nextcloud conflict files (2026-10-04): recorded as a known limit in
+  section 8.
 - Database storage (2026-10-04, before the first Harbour release):
   databases and key files live in the app's private data directory
   (`databases/<name>.kdbx`, `keyfiles/<name>.key`), which Sailjail keeps
@@ -623,8 +631,8 @@ Decided:
 - Cleanup (2026-10-03): code and notes that only served the Bitwarden server
   client are removed; the core keeps only the decryption of
   password-protected exports.
-- KDBX codec (2026-10-03): own implementation in the core on audited
-  primitives instead of the `keepass` crate; see section 5.
+- KDBX codec (2026-10-03): own implementation in the core on established
+  crypto crates instead of the `keepass` crate; see section 5.
 - FFI (2026-10-03): hand-written C API with opaque handles; key material
   never crosses the boundary.
 - Cold start targets (2026-10-03): unlock page < 1 s, list < 0.5 s after key
