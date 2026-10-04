@@ -223,6 +223,15 @@ Protected:
   The Login Flow v2 poll token, which yields the app password, goes only to
   the server the user entered, and the flow is refused if the server
   points its poll or login address elsewhere.
+- A sync configuration runs only once it is confirmed on this device: the
+  settings keep a SHA-256 digest of server, login name, path and pinned
+  certificate (not the password). Setting sync up on the phone confirms it;
+  a configuration that arrived any other way, such as with a copy from
+  another device, sends nothing until the user accepted a dialog showing
+  the server. Entries merged from a database unlocked with other
+  credentials, such as a shared one, lose the sync marker, so such a file
+  cannot redirect the sync (security review before the Harbour
+  submission).
 - Nextcloud only receives the encrypted KDBX file. A downloaded file is
   untrusted input with the reader's bounds, and it is merged only if it
   opens with the credentials of the open database. An older file served

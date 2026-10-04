@@ -81,3 +81,29 @@ opening, searching, history, moving and the new-database name check work.
 - Every label shows database content as plain text; entry URLs are never
   opened; the cover shows only the lock state; nothing is logged.
 - Sailjail permissions: `Documents` and `Downloads` only.
+
+## Follow-up review before the submission (2026-10-04, 0.5.1)
+
+Scope: the 47 commits since the review above (`7e97b25..ab82e3f`): the
+private storage, the KDBX 3.1 reader, merging copies, Nextcloud sync and
+the new pages. One finding, medium, confidence 7/10 after an independent
+check, fixed:
+
+- **A merged file could set the sync target.** The sync configuration is
+  read from any entry with the sync marker. "Merge with file" accepts a
+  database with other credentials and keeps entry CustomData, so a shared
+  file with a marked entry pointing at an attacker's server would make the
+  next save upload the encrypted database there, without a prompt (the
+  pin came from the entry too). Fixed twice: entries merged from a
+  database with other credentials lose the marker (`fb2ce62`), and a
+  configuration runs only once confirmed on the device (digest of server,
+  login, path and pin in the settings; dialog otherwise).
+
+Checked and found correct: certificate pinning (exact SHA-256 of the
+peer, only the self-signed and host-name errors of that certificate,
+connection cache cleared on account changes), https only with no
+redirects and no cookies, the Login Flow v2 poll token only to the same
+host and port, no secret in QML, logs or settings, database and copy
+names that cannot leave their folders, deletion only of picked or stored
+files, and the bounded, Rust-only KDBX 3.1 reader without XXE.
+
