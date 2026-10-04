@@ -119,6 +119,9 @@ public:
     Q_INVOKABLE void createDatabase(const QString &name, const QString &password, int kdfLevel);
     // Deletes the addedOriginals, and nothing else.
     Q_INVOKABLE bool removeAddedOriginals();
+    // Deletes a stored database with its key file and backups; refused
+    // unless locked.
+    Q_INVOKABLE bool removeDatabase(const QString &name);
     Q_INVOKABLE void lock();
     Q_INVOKABLE void clearError();
     // version -1 is the current state of an entry, 0 and up its history

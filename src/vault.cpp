@@ -217,6 +217,23 @@ bool Vault::removeAddedOriginals()
     return removed;
 }
 
+bool Vault::removeDatabase(const QString &name)
+{
+    if (m_state != Locked || !Databases::exists(name))
+        return false;
+    const QString path = Databases::databasePath(name);
+    if (!QFile::remove(path))
+        return false;
+    if (m_databaseName == name) {
+        m_databaseName.clear();
+        emit databaseNameChanged();
+        saveSettings();
+    }
+    const QString keyFile = Databases::keyFilePath(name);
+    const bool keyFileRemoved = !QFile::exists(keyFile) || QFile::remove(keyFile);
+    return removeBackups(path, Databases::backupDirectory()) && keyFileRemoved;
+}
+
 int Vault::clipboardClearSeconds() const
 {
     return ClipboardGuard::ClearAfterSeconds;

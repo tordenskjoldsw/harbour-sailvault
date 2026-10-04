@@ -25,7 +25,21 @@ Page {
         })
     }
 
+    // A page-level remorse: the list reloads after the deletion, which would
+    // destroy a remorse shown inside the deleted item's delegate.
+    function removeDatabase(name) {
+        remorse.execute(qsTr("Deleting database and backups"), function() {
+            if (!vault.removeDatabase(name))
+                Notices.show(qsTr("The database could not be deleted completely"), Notice.Short)
+            listView.model = databases.names()
+        })
+    }
+
     allowedOrientations: Orientation.All
+
+    RemorsePopup {
+        id: remorse
+    }
 
     SilicaListView {
         id: listView
@@ -61,7 +75,16 @@ Page {
                     text: qsTr("Save copy")
                     onClicked: page.saveCopy(modelData)
                 }
+                MenuItem {
+                    text: qsTr("Delete")
+                    onClicked: page.removeDatabase(modelData)
+                }
             }
+        }
+
+        ViewPlaceholder {
+            enabled: listView.count === 0
+            text: qsTr("No databases")
         }
 
         VerticalScrollDecorator { }

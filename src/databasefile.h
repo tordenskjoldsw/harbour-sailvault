@@ -39,4 +39,7 @@ int writeDatabaseFile(const QString &path, const QByteArray &data, const QString
 // meanwhile.
 int createNewFile(const QString &path, const QByteArray &data);
 
+// Removes every backup writeDatabaseFile made of the database at path.
+bool removeBackups(const QString &databasePath, const QString &backupDir);
+
 #endif // DATABASEFILE_H

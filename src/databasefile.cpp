@@ -97,6 +97,17 @@ bool writeTemporary(const QString &tempPath, mode_t mode, const QByteArray &data
     return ::close(fd) == 0 && written;
 }
 
+// Exactly this database's backups: a wildcard would also match those of
+// "Work-old" for "Work".
+QRegularExpression backupPattern(const QString &databasePath, bool withChangedElsewhere)
+{
+    const QString base = QFileInfo(databasePath).completeBaseName();
+    return QRegularExpression(QStringLiteral("^%1-\\d{8}-\\d{6}-\\d{3}%2\\.kdbx$")
+                                  .arg(QRegularExpression::escape(base),
+                                       withChangedElsewhere ? QStringLiteral("(-changed-elsewhere)?")
+                                                            : QString()));
+}
+
 // Backups are named after the database with a UTC timestamp, so sorting by
 // name sorts by age. A version another program wrote is replaced without a
 // merge, so its backup is marked and stays out of the rotation.
@@ -115,11 +126,8 @@ bool backUp(const QString &databasePath, const QByteArray &current, const QStrin
         return false;
     backup.setPermissions(QFile::ReadOwner | QFile::WriteOwner);
 
-    // Exactly this database's rotating backups: a wildcard would also match
-    // those of "Work-old" for "Work".
-    const QRegularExpression rotating(QStringLiteral("^%1-\\d{8}-\\d{6}-\\d{3}\\.kdbx$")
-                                          .arg(QRegularExpression::escape(base)));
-    QStringList backups = dir.entryList(QDir::Files, QDir::Name).filter(rotating);
+    QStringList backups = dir.entryList(QDir::Files, QDir::Name)
+                              .filter(backupPattern(databasePath, false));
     while (backups.size() > BackupsToKeep)
         dir.remove(backups.takeFirst());
     return syncDirectory(backupDir);
@@ -215,4 +223,14 @@ int createNewFile(const QString &path, const QByteArray &data)
     // As after a rename: the file exists now, and a retry would only find it.
     syncDirectory(QFileInfo(path).absolutePath());
     return SV_OK;
+}
+
+bool removeBackups(const QString &databasePath, const QString &backupDir)
+{
+    QDir dir(backupDir);
+    bool removed = true;
+    const QStringList backups = dir.entryList(QDir::Files).filter(backupPattern(databasePath, true));
+    for (const QString &backup : backups)
+        removed = dir.remove(backup) && removed;
+    return removed;
 }
