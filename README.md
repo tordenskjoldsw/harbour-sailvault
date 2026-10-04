@@ -6,9 +6,12 @@ A password manager for Sailfish OS that keeps your passwords in a standard
 KeePass (KDBX 4) file. No account, no server, no lock-in: the same file
 opens in KeePassXC on your computer.
 
-I built SailVault because no sandboxed Sailfish app could write KDBX 4
-files, and I wanted my passwords on my phone in a format I control. It is
-written for Sailfish OS 5.2 and tested on the Jolla Phone (aarch64).
+There are other KeePass apps for Sailfish OS, such as ownKeepass on Chum
+and KeePassRX on OpenRepos. But none of them could write KDBX 4 files while
+running in the app sandbox, so none could be in the Jolla Store. I wanted
+my passwords on my phone, in a format I control, in an app that runs
+sandboxed. SailVault is written for Sailfish OS 5.2 and tested on the Jolla
+Phone (aarch64).
 
 **Status:** version 0.5.3. Reading, editing, importing, merging and sync
 through Nextcloud are done and tested on the device. It is submitted to the
