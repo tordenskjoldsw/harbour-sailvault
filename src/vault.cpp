@@ -226,6 +226,7 @@ bool Vault::removeDatabase(const QString &name)
         return false;
     if (m_databaseName == name) {
         m_databaseName.clear();
+        setError(NoError);
         emit databaseNameChanged();
         saveSettings();
     }

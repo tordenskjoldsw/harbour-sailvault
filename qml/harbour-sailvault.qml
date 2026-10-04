@@ -35,6 +35,8 @@ ApplicationWindow {
             }
         }
         onLockedAutomatically: window.lockedAutomatically = true
+        // The notice belongs to the database that locked.
+        onDatabaseNameChanged: window.lockedAutomatically = false
         onSaveFailed: {
             Notices.show(vault.error === Vault.FileUnwritable
                          ? qsTr("The database file could not be written")

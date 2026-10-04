@@ -16,6 +16,7 @@ Page {
     property var storedNames: databases.names()
     readonly property string addName: nameField.text.trim()
     readonly property bool addNameTaken: databases.exists(addName)
+    readonly property bool hasDatabase: adding || storedNames.length > 0
     readonly property bool canUnlock: adding ? databases.isValidName(addName) && !addNameTaken
                                              : vault.databaseName.length > 0
     readonly property bool passwordError: vault.error === Vault.WrongCredentials
@@ -82,6 +83,10 @@ Page {
             if (vault.state === Vault.Unlocked)
                 vault.lock()
             storedNames = databases.names()
+            // A single database needs no choice, also after the chosen one
+            // was deleted.
+            if (vault.databaseName.length === 0 && storedNames.length === 1)
+                vault.databaseName = storedNames[0]
         }
     }
 
@@ -162,7 +167,7 @@ Page {
             }
 
             ValueButton {
-                visible: page.adding || page.storedNames.length > 0
+                visible: page.hasDatabase
                 label: qsTr("Database")
                 value: page.adding ? page.fileName(vault.sourcePath)
                                    : vault.databaseName.length > 0 ? vault.databaseName
@@ -205,6 +210,7 @@ Page {
             PasswordInput {
                 id: passwordField
 
+                visible: page.hasDatabase
                 label: qsTr("Master password")
                 errorText: page.passwordError ? page.errorText(vault.error) : ""
                 EnterKey.enabled: page.canUnlock
@@ -217,6 +223,7 @@ Page {
 
             Button {
                 anchors.horizontalCenter: parent.horizontalCenter
+                visible: page.hasDatabase
                 text: page.adding ? qsTr("Add and unlock") : qsTr("Unlock")
                 enabled: page.canUnlock
                 onClicked: page.unlock()
@@ -224,14 +231,14 @@ Page {
 
             Button {
                 anchors.horizontalCenter: parent.horizontalCenter
-                visible: !page.adding && page.storedNames.length === 0
+                visible: !page.hasDatabase
                 text: qsTr("New database")
                 onClicked: page.createDatabase()
             }
 
             Button {
                 anchors.horizontalCenter: parent.horizontalCenter
-                visible: !page.adding && page.storedNames.length === 0
+                visible: !page.hasDatabase
                 text: qsTr("Add existing database")
                 onClicked: pageStack.push(sourcePicker)
             }
