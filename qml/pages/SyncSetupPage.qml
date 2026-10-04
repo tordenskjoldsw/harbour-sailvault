@@ -12,6 +12,10 @@ Page {
                                     || sync.setupState === Sync.Checking
     readonly property bool ready: serverField.text.trim().length > 0
                                   && pathField.text.trim().length > 0 && !working
+    // Set up before: the fields show the stored settings.
+    readonly property bool configured: sync.configured
+    readonly property bool sameServer: configured
+                                       && serverField.text.trim() === sync.storedServer()
 
     function useAppPassword() {
         if (!manualButton.enabled)
@@ -24,7 +28,14 @@ Page {
     allowedOrientations: Orientation.All
     backNavigation: !working
 
-    Component.onCompleted: sync.cancelSetup()
+    Component.onCompleted: {
+        sync.cancelSetup()
+        if (configured) {
+            serverField.text = sync.storedServer()
+            pathField.text = sync.storedPath()
+            loginField.text = sync.storedLoginName()
+        }
+    }
 
     SyncText {
         id: syncText
@@ -57,6 +68,13 @@ Page {
                 title: qsTr("Sync with Nextcloud")
             }
 
+            Paragraph {
+                visible: page.configured
+                font.pixelSize: Theme.fontSizeSmall
+                color: Theme.secondaryHighlightColor
+                text: qsTr("Sync is set up. Change the file and save, or log in again for another server or account.")
+            }
+
             TextField {
                 id: serverField
 
@@ -77,7 +95,7 @@ Page {
                 enabled: !page.working
                 label: qsTr("File on Nextcloud")
                 placeholderText: label
-                text: sync.defaultPath()
+                text: page.configured ? "" : sync.defaultPath()
                 description: qsTr("Missing folders and the file are created.")
                 inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
                 EnterKey.iconSource: "image://theme/icon-m-enter-close"
@@ -111,9 +129,18 @@ Page {
 
             Button {
                 anchors.horizontalCenter: parent.horizontalCenter
+                visible: page.sameServer && !page.working
+                enabled: page.ready && pathField.text.trim() !== sync.storedPath()
+                text: qsTr("Save")
+                onClicked: sync.changePath(pathField.text)
+            }
+
+            Button {
+                anchors.horizontalCenter: parent.horizontalCenter
                 visible: !page.working
                 enabled: page.ready
-                text: qsTr("Log in with the browser")
+                text: page.configured ? qsTr("Log in again with the browser")
+                                      : qsTr("Log in with the browser")
                 onClicked: sync.startLogin(serverField.text, pathField.text)
             }
 
@@ -139,6 +166,8 @@ Page {
 
                 visible: !page.working
                 label: qsTr("App password")
+                placeholderText: page.configured ? qsTr("Stored; enter a new one to replace it")
+                                                 : label
                 EnterKey.enabled: page.ready && loginField.text.length > 0 && text.length > 0
                 EnterKey.onClicked: page.useAppPassword()
             }

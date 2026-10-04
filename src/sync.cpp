@@ -140,6 +140,36 @@ QString Sync::defaultPath() const
     return QStringLiteral("/SailVault/") + m_vault->databaseName() + QStringLiteral(".kdbx");
 }
 
+QString Sync::storedServer() const
+{
+    return QString::fromUtf8(m_vault->syncSetting(SV_SYNC_SERVER));
+}
+
+QString Sync::storedPath() const
+{
+    return QString::fromUtf8(m_vault->syncSetting(SV_SYNC_PATH));
+}
+
+QString Sync::storedLoginName() const
+{
+    return QString::fromUtf8(m_vault->syncSetting(SV_SYNC_USER));
+}
+
+void Sync::changePath(const QString &path)
+{
+    const QString remote = remotePath(path);
+    if (!m_configured || remote.length() < 2 || remote == storedPath())
+        return;
+    abortSync();
+    QByteArray password = m_vault->syncSetting(SV_SYNC_APP_PASSWORD);
+    // Saving the entry starts the next sync.
+    const bool stored = m_vault->storeSyncSettings(storedServer(), storedLoginName(), password,
+                                                   remote,
+                                                   m_vault->syncSetting(SV_SYNC_CERTIFICATE));
+    secureWipe(password);
+    setSetupState(stored ? SetupDone : SetupFailed, stored ? NoProblem : ServerProblem);
+}
+
 void Sync::onVaultStateChanged()
 {
     if (m_vault->state() == Vault::Unlocked) {

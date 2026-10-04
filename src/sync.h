@@ -83,6 +83,14 @@ public:
 
     // The suggested path on the server for the open database.
     Q_INVOKABLE QString defaultPath() const;
+    // The stored settings, for the settings page; the app password stays
+    // out of QML.
+    Q_INVOKABLE QString storedServer() const;
+    Q_INVOKABLE QString storedPath() const;
+    Q_INVOKABLE QString storedLoginName() const;
+    // Moves the sync to another file on the same server with the stored
+    // login; the next sync uses it.
+    Q_INVOKABLE void changePath(const QString &path);
     // Sets up sync for the open database through Nextcloud Login Flow v2:
     // opens the login page in the browser and waits for access.
     Q_INVOKABLE void startLogin(const QString &server, const QString &path);
