@@ -23,7 +23,6 @@ use crate::kdbx::{Database, KdbxError, NewGroup, Result};
 pub const SV_OK: i32 = 0;
 pub const SV_INVALID_ARGUMENT: i32 = 1;
 pub const SV_NOT_KDBX: i32 = 2;
-pub const SV_KDBX3_UNSUPPORTED: i32 = 3;
 pub const SV_UNSUPPORTED_FORMAT: i32 = 4;
 pub const SV_INVALID_CREDENTIALS: i32 = 5;
 pub const SV_INVALID_KEY_FILE: i32 = 6;
@@ -153,7 +152,6 @@ pub struct SvFieldList {
 fn status(error: KdbxError) -> i32 {
     match error {
         KdbxError::NotKdbx => SV_NOT_KDBX,
-        KdbxError::Kdbx3Unsupported => SV_KDBX3_UNSUPPORTED,
         KdbxError::UnsupportedVersion { .. }
         | KdbxError::UnsupportedCipher
         | KdbxError::UnsupportedCompression

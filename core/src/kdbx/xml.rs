@@ -121,6 +121,23 @@ impl fmt::Debug for Node {
 /// Parses the database XML into its root element and decrypts protected
 /// values with the inner stream in document order.
 pub(crate) fn parse(xml: &[u8], stream: &mut ProtectedStream) -> Result<Element> {
+    parse_as(xml, stream, Format::Kdbx4)
+}
+
+/// Parses KDBX 3 XML, which also holds attachments, in `Meta/Binaries` or
+/// inline in an entry's `Binary/Value`. Protected attachments keep their
+/// decrypted bytes as base64 text, since they need not be UTF-8.
+pub(crate) fn parse_kdbx3(xml: &[u8], stream: &mut ProtectedStream) -> Result<Element> {
+    parse_as(xml, stream, Format::Kdbx3)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Format {
+    Kdbx3,
+    Kdbx4,
+}
+
+fn parse_as(xml: &[u8], stream: &mut ProtectedStream, format: Format) -> Result<Element> {
     let mut reader = Reader::from_reader(xml);
     let mut stack: Vec<Element> = Vec::new();
     let mut root = None;
@@ -159,7 +176,11 @@ pub(crate) fn parse(xml: &[u8], stream: &mut ProtectedStream) -> Result<Element>
                 let mut finished = stack
                     .pop()
                     .ok_or(KdbxError::InvalidXml("unbalanced end tag"))?;
-                finish(&mut finished, stream)?;
+                let attachment = format == Format::Kdbx3
+                    && (finished.name == "Binary"
+                        || (finished.name == "Value"
+                            && stack.last().is_some_and(|parent| parent.name == "Binary")));
+                finish(&mut finished, stream, attachment)?;
                 match stack.last_mut() {
                     Some(parent) => parent.children.push(Node::Element(finished)),
                     None => root = Some(finished),
@@ -261,7 +282,8 @@ fn push_text(stack: &mut [Element], text: &str) -> Result<()> {
 }
 
 /// Drops indentation between child elements and decrypts protected values.
-fn finish(element: &mut Element, stream: &mut ProtectedStream) -> Result<()> {
+/// An attachment's plaintext is kept as base64.
+fn finish(element: &mut Element, stream: &mut ProtectedStream, attachment: bool) -> Result<()> {
     if element.elements().next().is_some() {
         element
             .children
@@ -275,6 +297,15 @@ fn finish(element: &mut Element, stream: &mut ProtectedStream) -> Result<()> {
                 .map_err(|_| KdbxError::InvalidXml("protected value"))?,
         );
         stream.apply(&mut plaintext);
+        if attachment {
+            element.children.clear();
+            if !plaintext.is_empty() {
+                element.children.push(Node::Text(Zeroizing::new(
+                    STANDARD.encode(plaintext.as_slice()),
+                )));
+            }
+            return Ok(());
+        }
         let plaintext = String::from_utf8(std::mem::take(&mut *plaintext)).map_err(|error| {
             error.into_bytes().zeroize();
             KdbxError::InvalidXml("protected value encoding")

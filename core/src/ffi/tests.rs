@@ -753,9 +753,20 @@ fn renames_and_moves_groups() {
 }
 
 #[test]
-fn reports_kdbx3_files_with_their_own_status() {
+fn kdbx3_files_open_and_save_as_kdbx4_with_argon2id() {
     const KDBX31: &[u8] = include_bytes!("../../tests/fixtures/kdbx31-aeskdf.kdbx");
     unsafe {
+        let (mut major, mut minor) = (0u16, 0u16);
+        assert_eq!(
+            sv_kdbx_version(KDBX31.as_ptr(), 12, &mut major, &mut minor),
+            SV_OK
+        );
+        assert_eq!((major, minor), (3, 1));
+        assert_eq!(
+            sv_kdbx_version(b"not kdbx".as_ptr(), 8, &mut major, &mut minor),
+            SV_NOT_KDBX
+        );
+
         let mut database = std::ptr::null_mut();
         let status = sv_database_open(
             KDBX31.as_ptr(),
@@ -767,8 +778,23 @@ fn reports_kdbx3_files_with_their_own_status() {
             0,
             &mut database,
         );
-        assert_eq!(status, SV_KDBX3_UNSUPPORTED);
-        assert!(database.is_null());
+        assert_eq!(status, SV_OK);
+        let mut from_kdbx3 = false;
+        assert_eq!(sv_database_from_kdbx3(database, &mut from_kdbx3), SV_OK);
+        assert!(from_kdbx3);
+        assert_eq!(sv_database_set_kdf_level(database, 3), SV_INVALID_ARGUMENT);
+        assert_eq!(sv_database_set_kdf_level(database, SV_KDF_STANDARD), SV_OK);
+
+        let mut file = SvBytes::EMPTY;
+        assert_eq!(sv_database_save(database, &mut file), SV_OK);
+        let saved = std::slice::from_raw_parts(file.data, file.length);
+        assert_eq!(
+            sv_kdbx_version(saved.as_ptr(), saved.len(), &mut major, &mut minor),
+            SV_OK
+        );
+        assert_eq!((major, minor), (4, 0));
+        sv_bytes_free(file);
+        sv_database_free(database);
     }
 }
 

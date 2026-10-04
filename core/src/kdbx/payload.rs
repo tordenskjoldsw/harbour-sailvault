@@ -18,7 +18,7 @@ use crate::secret::{ByteSink, SecretBuffer};
 
 const HASH_LENGTH: usize = 32;
 const HEADER_HMAC_BLOCK_INDEX: u64 = u64::MAX;
-const MAX_PAYLOAD_LENGTH: usize = 256 << 20;
+pub(crate) const MAX_PAYLOAD_LENGTH: usize = 256 << 20;
 const MAX_XML_LENGTH: usize = 512 << 20;
 // KeePassXC's HmacBlockStream block size.
 const BLOCK_LENGTH: usize = 1 << 20;
@@ -151,10 +151,23 @@ fn decrypt_payload(
     keys: &PayloadKeys,
     ciphertext: Vec<u8>,
 ) -> Result<Zeroizing<Vec<u8>>> {
+    decrypt_ciphertext(
+        header.cipher,
+        keys.cipher_key.as_ref(),
+        &header.encryption_iv,
+        ciphertext,
+    )
+}
+
+/// Decrypts a whole payload; CBC padding is removed.
+pub(crate) fn decrypt_ciphertext(
+    cipher: Cipher,
+    key: &[u8],
+    iv: &[u8],
+    ciphertext: Vec<u8>,
+) -> Result<Zeroizing<Vec<u8>>> {
     let mut buffer = Zeroizing::new(ciphertext);
-    let key = keys.cipher_key.as_ref();
-    let iv = header.encryption_iv.as_slice();
-    let plaintext_length = match header.cipher {
+    let plaintext_length = match cipher {
         Cipher::Aes256 => cbc_decrypt::<aes::Aes256>(key, iv, &mut buffer)?,
         Cipher::Twofish => cbc_decrypt::<twofish::Twofish>(key, iv, &mut buffer)?,
         Cipher::ChaCha20 => {
@@ -203,7 +216,7 @@ where
 
 /// The gzip trailer's size field sizes the output, so it rarely has to grow.
 /// The payload is authenticated at this point; the limit still applies.
-fn gunzip(compressed: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
+pub(crate) fn gunzip(compressed: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
     let stated_length = compressed
         .len()
         .checked_sub(4)

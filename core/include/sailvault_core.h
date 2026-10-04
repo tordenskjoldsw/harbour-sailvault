@@ -14,7 +14,6 @@ enum {
     SV_OK = 0,
     SV_INVALID_ARGUMENT = 1,
     SV_NOT_KDBX = 2,
-    SV_KDBX3_UNSUPPORTED = 3,
     SV_UNSUPPORTED_FORMAT = 4,
     SV_INVALID_CREDENTIALS = 5,
     SV_INVALID_KEY_FILE = 6,
@@ -37,9 +36,9 @@ enum {
     SV_EXPORT_ACCOUNT_RESTRICTED = 2
 };
 
-/* Key derivation levels for sv_database_create: Argon2id with 256 MiB and 3
- * iterations, 512 MiB and 4, or 1 GiB and 4 (about 1, 2.5 and 5 s per
- * unlock and save on the Jolla Phone). */
+/* Key derivation levels for sv_database_create and sv_database_set_kdf_level:
+ * Argon2id with 256 MiB and 3 iterations, 512 MiB and 4, or 1 GiB and 4
+ * (about 1, 2.5 and 5 s per unlock and save on the Jolla Phone). */
 enum { SV_KDF_STANDARD = 0, SV_KDF_HIGH = 1, SV_KDF_MAXIMUM = 2 };
 
 /* Character classes for sv_generate_password, combined with bitwise or. */
@@ -80,8 +79,12 @@ typedef struct SvField {
     size_t value_length;
 } SvField;
 
-/* Runs the KDF; call off the UI thread. A database handle is not thread-safe:
- * use it from one thread at a time. */
+/* The format version from the first twelve bytes of a KDBX file, without
+ * credentials. Major version 3 opens as KDBX 4 and is saved as KDBX 4. */
+int32_t sv_kdbx_version(const uint8_t *data, size_t data_length, uint16_t *major,
+                        uint16_t *minor);
+/* Opens KDBX 4, and KDBX 3 as KDBX 4. Runs the KDF; call off the UI thread.
+ * A database handle is not thread-safe: use it from one thread at a time. */
 int32_t sv_database_open(const uint8_t *data, size_t data_length,
                          const uint8_t *password, size_t password_length, bool has_password,
                          const uint8_t *key_file, size_t key_file_length,
@@ -94,6 +97,11 @@ int32_t sv_database_create(const uint8_t *password, size_t password_length, cons
                            SvBytes *file_out);
 /* Locks: drops and zeroizes all decrypted data. */
 void sv_database_free(SvDatabase *database);
+/* Whether the database was read from a KDBX 3 file. */
+int32_t sv_database_from_kdbx3(const SvDatabase *database, bool *from_kdbx3);
+/* Switches the key derivation to Argon2id at an SV_KDF_* level from the
+ * next save on. */
+int32_t sv_database_set_kdf_level(SvDatabase *database, uint32_t kdf_level);
 
 int32_t sv_database_search(const SvDatabase *database, const uint8_t *query, size_t query_length,
                            SvList **out);

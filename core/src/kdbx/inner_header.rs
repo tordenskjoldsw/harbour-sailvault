@@ -2,8 +2,9 @@ use std::fmt;
 
 use chacha20::cipher::{KeyIvInit, StreamCipher};
 use chacha20::ChaCha20;
+use salsa20::Salsa20;
 use sha2::digest::generic_array::GenericArray;
-use sha2::{Digest, Sha512};
+use sha2::{Digest, Sha256, Sha512};
 use zeroize::Zeroizing;
 
 use super::error::{KdbxError, Result};
@@ -17,7 +18,7 @@ const FIELD_STREAM_KEY: u8 = 2;
 const FIELD_BINARY: u8 = 3;
 const STREAM_CHACHA20: u32 = 3;
 const BINARY_FLAG_PROTECTED: u8 = 0x01;
-const MAX_BINARIES: usize = 100_000;
+pub(crate) const MAX_BINARIES: usize = 100_000;
 pub(crate) const STREAM_KEY_LENGTH: usize = 64;
 
 /// An attachment from the inner header binary pool. Entries reference it by
@@ -118,21 +119,40 @@ impl InnerHeader {
     }
 }
 
+// The fixed nonce KeePass uses for the KDBX 3 inner stream.
+const SALSA20_NONCE: [u8; 8] = [0xE8, 0x30, 0x09, 0x4B, 0x97, 0x20, 0x5D, 0x2A];
+
 /// Keystream for `Protected="True"` values. Values consume it in document
 /// order, so they must be decrypted in the order they appear in the XML.
-pub(crate) struct ProtectedStream(ChaCha20);
+pub(crate) enum ProtectedStream {
+    ChaCha20(ChaCha20),
+    Salsa20(Salsa20),
+}
 
 impl ProtectedStream {
+    /// The KDBX 4 stream: ChaCha20 keyed from SHA-512 of the stream key.
     pub(crate) fn new(stream_key: &[u8]) -> Self {
         let mut digest = Zeroizing::new([0u8; 64]);
         Sha512::new()
             .chain_update(stream_key)
             .finalize_into(GenericArray::from_mut_slice(digest.as_mut()));
-        Self(ChaCha20::new(digest[..32].into(), digest[32..44].into()))
+        Self::ChaCha20(ChaCha20::new(digest[..32].into(), digest[32..44].into()))
+    }
+
+    /// The KDBX 3 stream: Salsa20 keyed with SHA-256 of the stream key.
+    pub(crate) fn salsa20(stream_key: &[u8]) -> Self {
+        let mut key = Zeroizing::new([0u8; 32]);
+        Sha256::new()
+            .chain_update(stream_key)
+            .finalize_into(GenericArray::from_mut_slice(key.as_mut()));
+        Self::Salsa20(Salsa20::new(key.as_ref().into(), &SALSA20_NONCE.into()))
     }
 
     pub(crate) fn apply(&mut self, data: &mut [u8]) {
-        self.0.apply_keystream(data);
+        match self {
+            Self::ChaCha20(cipher) => cipher.apply_keystream(data),
+            Self::Salsa20(cipher) => cipher.apply_keystream(data),
+        }
     }
 }
 

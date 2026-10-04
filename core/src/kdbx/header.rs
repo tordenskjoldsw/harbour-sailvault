@@ -5,11 +5,11 @@ use super::variant_dictionary::VariantDictionary;
 use crate::random;
 use crate::secret::ByteSink;
 
-const SIGNATURE_1: u32 = 0x9AA2_D903;
-const SIGNATURE_2_KDBX: u32 = 0xB54B_FB67;
+pub(crate) const SIGNATURE_1: u32 = 0x9AA2_D903;
+pub(crate) const SIGNATURE_2_KDBX: u32 = 0xB54B_FB67;
 const MAJOR_VERSION: u16 = 4;
 const SUPPORTED_MINOR_VERSIONS: [u16; 2] = [0, 1];
-const MAX_HEADER_LENGTH: usize = 1 << 20;
+pub(crate) const MAX_HEADER_LENGTH: usize = 1 << 20;
 
 const FIELD_END: u8 = 0;
 const FIELD_COMMENT: u8 = 1;
@@ -25,6 +25,20 @@ const END_OF_HEADER: &[u8] = b"\r\n\r\n";
 const CIPHER_AES256: [u8; 16] = uuid(0x31c1f2e6_bf714350_be580521_6afc5aff);
 const CIPHER_CHACHA20: [u8; 16] = uuid(0xd6038a2b_8b6f4cb5_a524339a_31dbb59a);
 const CIPHER_TWOFISH: [u8; 16] = uuid(0xad68f29f_576f4bb9_a36ad47a_f965346c);
+
+/// The format version of a KDBX file as (major, minor), read from its
+/// first twelve bytes.
+pub fn version(data: &[u8]) -> Result<(u16, u16)> {
+    let mut reader = ByteReader::new(data);
+    if reader.u32(KdbxError::NotKdbx)? != SIGNATURE_1
+        || reader.u32(KdbxError::NotKdbx)? != SIGNATURE_2_KDBX
+    {
+        return Err(KdbxError::NotKdbx);
+    }
+    let minor = reader.u16(KdbxError::NotKdbx)?;
+    let major = reader.u16(KdbxError::NotKdbx)?;
+    Ok((major, minor))
+}
 
 pub(crate) const fn uuid(value: u128) -> [u8; 16] {
     value.to_be_bytes()
@@ -98,7 +112,6 @@ impl OuterHeader {
         let major = reader.u16(truncated)?;
         match major {
             MAJOR_VERSION if SUPPORTED_MINOR_VERSIONS.contains(&minor) => {}
-            3 => return Err(KdbxError::Kdbx3Unsupported),
             _ => return Err(KdbxError::UnsupportedVersion { major, minor }),
         }
 
@@ -239,7 +252,7 @@ pub(crate) fn write_field(out: &mut impl ByteSink, id: u8, value: &[u8]) -> Resu
     Ok(())
 }
 
-fn parse_cipher(value: &[u8]) -> Result<Cipher> {
+pub(crate) fn parse_cipher(value: &[u8]) -> Result<Cipher> {
     let id: [u8; 16] = value
         .try_into()
         .map_err(|_| KdbxError::InvalidHeader("cipher id"))?;
@@ -251,7 +264,7 @@ fn parse_cipher(value: &[u8]) -> Result<Cipher> {
     }
 }
 
-fn parse_compression(value: &[u8]) -> Result<Compression> {
+pub(crate) fn parse_compression(value: &[u8]) -> Result<Compression> {
     let flag: [u8; 4] = value
         .try_into()
         .map_err(|_| KdbxError::InvalidHeader("compression flag"))?;

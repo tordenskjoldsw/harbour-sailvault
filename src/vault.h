@@ -51,7 +51,6 @@ public:
         NoError,
         WrongCredentials,
         InvalidKeyFile,
-        Kdbx3Unsupported,
         NotKdbx,
         UnsupportedFormat,
         Corrupted,

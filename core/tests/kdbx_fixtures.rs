@@ -6,8 +6,8 @@ use std::process::{Command, Stdio};
 
 use sailvault_core::bitwarden;
 use sailvault_core::kdbx::{
-    Argon2Variant, Cipher, CompositeKey, Compression, Database, Entry, Group, KdbxError, KdfLevel,
-    KdfParameters, OuterHeader,
+    version, Argon2Variant, Cipher, CompositeKey, Compression, Database, Entry, Group, KdbxError,
+    KdfLevel, KdfParameters, OuterHeader,
 };
 
 const KDBX31: &[u8] = include_bytes!("fixtures/kdbx31-aeskdf.kdbx");
@@ -85,11 +85,12 @@ fn gui_fixtures_use_the_documented_kdf_parameters() {
 }
 
 #[test]
-fn kdbx3_is_detected_and_reported() {
+fn kdbx3_fixtures_are_version_3_1() {
     for data in [KDBX31, KDBX31_KEYFILE] {
+        assert_eq!(version(data), Ok((3, 1)));
         assert_eq!(
             OuterHeader::parse(data).map(|_| ()),
-            Err(KdbxError::Kdbx3Unsupported)
+            Err(KdbxError::UnsupportedVersion { major: 3, minor: 1 })
         );
     }
 }
@@ -167,6 +168,14 @@ fn entry<'a>(group: &Group<'a>, title: &str) -> Entry<'a> {
 #[test]
 fn every_kdbx4_fixture_exposes_the_full_content() {
     for (name, database) in kdbx4_fixtures() {
+        assert_full_content(name, &database, true);
+    }
+}
+
+/// The content of `tools/kdbx-fixtures/content.xml`. KDBX 3.1 fixtures are
+/// written without the CustomData items, which would force KDBX 4.
+fn assert_full_content(name: &str, database: &Database, custom_data: bool) {
+    {
         let root = database.root_group().unwrap();
         assert_eq!(*root.name(), "Root", "{name}");
 
@@ -231,28 +240,27 @@ fn every_kdbx4_fixture_exposes_the_full_content() {
         assert_eq!(deleted.len(), 1, "{name}");
         assert_eq!(deleted[0].uuid, uuid("cHBwcHBwcHBwcHBwcHBwcA=="));
 
-        let meta = database.meta().unwrap();
-        let custom_data: Vec<String> = meta
-            .child("CustomData")
-            .unwrap()
-            .children_named("Item")
-            .map(|item| item.child("Key").unwrap().text().to_string())
-            .collect();
-        assert!(
-            custom_data.contains(&"SailVaultFixtureMeta".to_owned()),
-            "{name}"
-        );
-        let entry_custom_data: Vec<String> = login
-            .element()
-            .child("CustomData")
-            .unwrap()
-            .children_named("Item")
-            .map(|item| item.child("Key").unwrap().text().to_string())
-            .collect();
-        assert!(
-            entry_custom_data.contains(&"SailVaultFixtureEntry".to_owned()),
-            "{name}"
-        );
+        if custom_data {
+            let meta = database.meta().unwrap();
+            let items: Vec<String> = meta
+                .child("CustomData")
+                .unwrap()
+                .children_named("Item")
+                .map(|item| item.child("Key").unwrap().text().to_string())
+                .collect();
+            assert!(items.contains(&"SailVaultFixtureMeta".to_owned()), "{name}");
+            let items: Vec<String> = login
+                .element()
+                .child("CustomData")
+                .unwrap()
+                .children_named("Item")
+                .map(|item| item.child("Key").unwrap().text().to_string())
+                .collect();
+            assert!(
+                items.contains(&"SailVaultFixtureEntry".to_owned()),
+                "{name}"
+            );
+        }
     }
 }
 
@@ -1235,4 +1243,203 @@ fn a_new_database_opens_in_keepassxc_with_its_settings() {
     assert!(info.contains("AES 256"), "{info}");
     let shown = keepassxc_cli(&["show", "-a", "Password"], &file, false, &["First"]);
     assert_eq!(shown, "first-secret\n");
+}
+
+// KDBX 3.1: read, converted to KDBX 4 and saved with Argon2id.
+
+fn kdbx31_fixtures() -> [(&'static str, &'static [u8], bool); 2] {
+    [
+        ("kdbx31-aeskdf", KDBX31, false),
+        ("kdbx31-aeskdf-keyfile", KDBX31_KEYFILE, true),
+    ]
+}
+
+/// Length of a KDBX 3 header: 12 bytes, then fields with a one-byte id and
+/// a two-byte length up to the end field.
+fn kdbx3_header_length(data: &[u8]) -> usize {
+    let mut position = 12;
+    loop {
+        let id = data[position];
+        let length = usize::from(u16::from_le_bytes([data[position + 1], data[position + 2]]));
+        position += 3 + length;
+        if id == 0 {
+            return position;
+        }
+    }
+}
+
+#[test]
+fn kdbx31_fixtures_open_as_kdbx4_with_the_full_content() {
+    for (name, data, key_file) in kdbx31_fixtures() {
+        let database = open(data, key_file);
+        assert!(database.from_kdbx3(), "{name}");
+        let header = database.header();
+        assert_eq!(header.minor_version, 0, "{name}");
+        assert_eq!(header.cipher, Cipher::Aes256, "{name}");
+        assert_eq!(header.compression, Compression::Gzip, "{name}");
+        assert_eq!(kdf(header), Kdf::Aes, "{name}");
+        assert_full_content(name, &database, false);
+        let meta = database.meta().unwrap();
+        assert!(meta.child("HeaderHash").is_none(), "{name}");
+        assert!(meta.child("Binaries").is_none(), "{name}");
+    }
+}
+
+#[test]
+fn kdbx31_times_match_the_kdbx4_fixture() {
+    let converted = open(KDBX31, false);
+    let original = open(AES_AESKDF, false);
+    let times = |database: &Database| -> Vec<Option<i64>> {
+        let root = database.root_group().unwrap();
+        let login = entry(&root, "Example login");
+        let mut times: Vec<Option<i64>> = vec![login.modification_time()];
+        times.extend(login.history().map(|item| item.modification_time()));
+        times
+    };
+    assert_eq!(times(&converted), times(&original));
+    assert!(times(&converted).iter().all(Option::is_some));
+    assert_eq!(
+        converted.deleted_objects()[0].deletion_time,
+        original.deleted_objects()[0].deletion_time
+    );
+}
+
+#[test]
+fn converted_kdbx31_saves_as_kdbx4_with_argon2id_and_keepassxc_reads_it() {
+    for (name, data, key_file) in kdbx31_fixtures() {
+        let mut database = open(data, key_file);
+        database.set_kdf_level(KdfLevel::Standard);
+        let saved = database.save().unwrap();
+        assert_eq!(version(&saved), Ok((4, 0)), "{name}");
+
+        let reopened = Database::open(&saved, key(key_file)).unwrap();
+        assert!(!reopened.from_kdbx3(), "{name}");
+        assert_eq!(kdf(reopened.header()), Kdf::Argon2id, "{name}");
+        assert!(reopened.document() == database.document(), "{name}");
+        assert!(reopened.binaries() == database.binaries(), "{name}");
+
+        let original_file = TempFile::write(&format!("{name}-original"), data);
+        let saved_file = TempFile::write(&format!("{name}-converted"), &saved);
+        let info = keepassxc_cli(&["db-info"], &saved_file, key_file, &[]);
+        assert!(info.contains("Argon2id"), "{name}: {info}");
+        let original = as_kdbx4_export(&without_export_time(&keepassxc_cli(
+            &["export", "-f", "xml"],
+            &original_file,
+            key_file,
+            &[],
+        )));
+        let exported = without_settings_changed(&without_export_time(&keepassxc_cli(
+            &["export", "-f", "xml"],
+            &saved_file,
+            key_file,
+            &[],
+        )));
+        let difference = original
+            .lines()
+            .zip(exported.lines())
+            .enumerate()
+            .find(|(_, (a, b))| a != b)
+            .map(|(line, (a, b))| format!("line {line}: {a:?} vs {b:?}"))
+            .unwrap_or_default();
+        assert!(
+            original == exported,
+            "{name}: KeePassXC export differs at {difference}"
+        );
+    }
+}
+
+#[test]
+fn kdbx31_wrong_credentials_and_tampering_are_rejected() {
+    let wrong = CompositeKey::new(Some(b"wrong"), None).unwrap();
+    assert_eq!(
+        Database::open(KDBX31, wrong).map(|_| ()),
+        Err(KdbxError::InvalidCredentials)
+    );
+    assert_eq!(
+        Database::open(KDBX31_KEYFILE, key(false)).map(|_| ()),
+        Err(KdbxError::InvalidCredentials)
+    );
+
+    // The end field's content is not read, so only the header hash in the
+    // XML notices a change there.
+    let header_length = kdbx3_header_length(KDBX31);
+    let mut header = KDBX31.to_vec();
+    header[header_length - 1] ^= 0x01;
+    assert_eq!(
+        Database::open(&header, key(false)).map(|_| ()),
+        Err(KdbxError::HeaderCorrupted)
+    );
+
+    let mut payload = KDBX31.to_vec();
+    let middle = header_length + (KDBX31.len() - header_length) / 2;
+    payload[middle] ^= 0x01;
+    assert!(Database::open(&payload, key(false)).is_err());
+
+    let truncated = &KDBX31[..KDBX31.len() - 16];
+    assert!(Database::open(truncated, key(false)).is_err());
+}
+
+/// A KDBX 3.1 export as KeePassXC writes the same content in KDBX 4: times
+/// as base64 seconds and no `Meta/Binaries`, whose attachments move to the
+/// inner header.
+fn as_kdbx4_export(xml: &str) -> String {
+    let mut lines = Vec::new();
+    let mut in_binaries = false;
+    for line in xml.lines() {
+        match line.trim() {
+            "<Binaries>" => in_binaries = true,
+            "</Binaries>" => in_binaries = false,
+            _ if in_binaries => {}
+            _ => lines.push(with_kdbx4_time(line)),
+        }
+    }
+    lines.join("\n")
+}
+
+/// `<Tag>yyyy-MM-ddTHH:mm:ssZ</Tag>` with the time as base64 seconds.
+fn with_kdbx4_time(line: &str) -> String {
+    let trimmed = line.trim_start();
+    let (Some(open_end), Some(close_start)) = (trimmed.find('>'), trimmed.rfind("</")) else {
+        return line.to_owned();
+    };
+    if close_start <= open_end {
+        return line.to_owned();
+    }
+    let time = &trimmed[open_end + 1..close_start];
+    let number = |range: std::ops::Range<usize>| time.get(range)?.parse::<i64>().ok();
+    let parsed = (|| {
+        if time.len() != 20 || !time.ends_with('Z') || &time[10..11] != "T" {
+            return None;
+        }
+        let (year, month, day) = (number(0..4)?, number(5..7)?, number(8..10)?);
+        let seconds = number(11..13)? * 3600 + number(14..16)? * 60 + number(17..19)?;
+        // Days from 1970-01-01 (Howard Hinnant's days_from_civil).
+        let shifted = if month <= 2 { year - 1 } else { year };
+        let era = shifted.div_euclid(400);
+        let year_of_era = shifted - era * 400;
+        let day_of_year = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
+        let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+        Some((era * 146_097 + day_of_era - 719_468) * 86_400 + seconds)
+    })();
+    match parsed {
+        Some(unix) => {
+            let indent = &line[..line.len() - trimmed.len()];
+            format!(
+                "{indent}{}{}{}",
+                &trimmed[..=open_end],
+                sailvault_core_kdbx_time(unix),
+                &trimmed[close_start..]
+            )
+        }
+        None => line.to_owned(),
+    }
+}
+
+/// KeePassXC writes `Meta/SettingsChanged` in KDBX 4 even when the file has
+/// none, with the export time.
+fn without_settings_changed(xml: &str) -> String {
+    xml.lines()
+        .filter(|line| !line.trim_start().starts_with("<SettingsChanged>"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }

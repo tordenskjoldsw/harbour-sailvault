@@ -2,9 +2,11 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use zeroize::Zeroizing;
 
+use super::create::KdfLevel;
 use super::error::{KdbxError, Result};
 use super::header::OuterHeader;
 use super::inner_header::{Binary, InnerHeader, ProtectedStream, STREAM_KEY_LENGTH};
+use super::kdbx3;
 use super::key::{CompositeKey, KEY_LENGTH};
 use super::payload::{self, PayloadKeys};
 use super::xml::{self, Element, Node};
@@ -21,12 +23,16 @@ pub struct Database {
     inner: InnerHeader,
     document: Element,
     key: CompositeKey,
+    from_kdbx3: bool,
 }
 
 impl Database {
-    /// Unlocks a KDBX 4 file. Runs the KDF, so it must not run on the UI
-    /// thread.
+    /// Unlocks a KDBX 4 file, or a KDBX 3 file, which becomes a KDBX 4
+    /// database. Runs the KDF, so it must not run on the UI thread.
     pub fn open(data: &[u8], key: CompositeKey) -> Result<Self> {
+        if super::header::version(data)?.0 == kdbx3::MAJOR_VERSION {
+            return kdbx3::open(data, key);
+        }
         let (header, header_length) = OuterHeader::parse(data)?;
         payload::verify_header_hash(data, &header, header_length)?;
         let transformed = header.kdf.transform(&key)?;
@@ -46,10 +52,35 @@ impl Database {
             inner,
             document,
             key,
+            from_kdbx3: false,
         };
         database.root_group()?;
         validate_fields(&database.document)?;
         Ok(database)
+    }
+
+    /// A database converted from a KDBX 3 file, checked like an opened one.
+    pub(super) fn converted_from_kdbx3(
+        header: OuterHeader,
+        inner: InnerHeader,
+        document: Element,
+        key: CompositeKey,
+    ) -> Result<Self> {
+        let mut database = Self::from_parts(header, inner, document, key)?;
+        database.from_kdbx3 = true;
+        Ok(database)
+    }
+
+    /// True when the database was read from a KDBX 3 file; it is saved as
+    /// KDBX 4.
+    pub fn from_kdbx3(&self) -> bool {
+        self.from_kdbx3
+    }
+
+    /// Switches the key derivation to Argon2id at `level` from the next
+    /// save on.
+    pub fn set_kdf_level(&mut self, level: KdfLevel) {
+        self.header.kdf = level.parameters();
     }
 
     /// Serializes the database as a KDBX 4 file with a fresh master seed,
@@ -449,6 +480,7 @@ impl Database {
             },
             document,
             key: CompositeKey::new(Some(b"test"), None).expect("a password is set"),
+            from_kdbx3: false,
         }
     }
 }

@@ -4,9 +4,6 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KdbxError {
     NotKdbx,
-    /// KDBX 3.x is detected but not read; the UI asks the user to convert
-    /// the database to KDBX 4 in KeePassXC.
-    Kdbx3Unsupported,
     UnsupportedVersion {
         major: u16,
         minor: u16,
@@ -17,7 +14,8 @@ pub enum KdbxError {
     UnsupportedKdf,
     KdfParametersOutOfRange,
     InvalidKeyFile,
-    /// The header HMAC does not match: wrong password or key file.
+    /// Wrong password or key file: the KDBX 4 header HMAC or the KDBX 3
+    /// start bytes do not match.
     InvalidCredentials,
     HeaderCorrupted,
     PayloadCorrupted,
@@ -45,7 +43,6 @@ impl fmt::Display for KdbxError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NotKdbx => f.write_str("not a KeePass database"),
-            Self::Kdbx3Unsupported => f.write_str("KDBX 3 databases are not supported"),
             Self::UnsupportedVersion { major, minor } => {
                 write!(f, "unsupported KDBX version {major}.{minor}")
             }

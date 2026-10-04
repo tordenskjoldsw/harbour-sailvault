@@ -31,8 +31,6 @@ Vault::Error errorFor(int status)
         return Vault::WrongCredentials;
     case SV_INVALID_KEY_FILE:
         return Vault::InvalidKeyFile;
-    case SV_KDBX3_UNSUPPORTED:
-        return Vault::Kdbx3Unsupported;
     case SV_NOT_KDBX:
         return Vault::NotKdbx;
     case SV_UNSUPPORTED_FORMAT:

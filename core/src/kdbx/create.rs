@@ -35,7 +35,7 @@ pub enum KdfLevel {
 }
 
 impl KdfLevel {
-    fn parameters(self) -> KdfParameters {
+    pub(super) fn parameters(self) -> KdfParameters {
         let (iterations, memory_bytes) = match self {
             Self::Standard => (3, 256 * MIB),
             Self::High => (4, 512 * MIB),

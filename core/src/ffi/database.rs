@@ -1,8 +1,46 @@
 use super::{bytes, status, utf8, SvBytes, SvDatabase, SV_INVALID_ARGUMENT, SV_OK};
 use super::{SV_KDF_HIGH, SV_KDF_MAXIMUM, SV_KDF_STANDARD};
-use crate::kdbx::{CompositeKey, Database, KdfLevel};
+use crate::kdbx::{self, CompositeKey, Database, KdfLevel};
 
-/// Opens a KDBX 4 database. At least one of password and key file must be
+fn level(kdf_level: u32) -> Option<KdfLevel> {
+    match kdf_level {
+        SV_KDF_STANDARD => Some(KdfLevel::Standard),
+        SV_KDF_HIGH => Some(KdfLevel::High),
+        SV_KDF_MAXIMUM => Some(KdfLevel::Maximum),
+        _ => None,
+    }
+}
+
+/// Reads the format version from the first twelve bytes of a KDBX file,
+/// without credentials: major 3 is a KDBX 3 file that opens as KDBX 4.
+///
+/// # Safety
+///
+/// `data` must be null or valid for reads of `data_length` bytes; `major`
+/// and `minor` must be valid for one write each.
+#[no_mangle]
+pub unsafe extern "C" fn sv_kdbx_version(
+    data: *const u8,
+    data_length: usize,
+    major: *mut u16,
+    minor: *mut u16,
+) -> i32 {
+    let (Some(data), Some(major), Some(minor)) =
+        (bytes(data, data_length), major.as_mut(), minor.as_mut())
+    else {
+        return SV_INVALID_ARGUMENT;
+    };
+    match kdbx::version(data) {
+        Ok((file_major, file_minor)) => {
+            *major = file_major;
+            *minor = file_minor;
+            SV_OK
+        }
+        Err(error) => status(error),
+    }
+}
+
+/// Opens a KDBX 4 database, or a KDBX 3 database as KDBX 4. At least one of password and key file must be
 /// given. Runs the KDF: call it off the UI thread.
 ///
 /// # Safety
@@ -81,11 +119,8 @@ pub unsafe extern "C" fn sv_database_create(
     ) else {
         return SV_INVALID_ARGUMENT;
     };
-    let level = match kdf_level {
-        SV_KDF_STANDARD => KdfLevel::Standard,
-        SV_KDF_HIGH => KdfLevel::High,
-        SV_KDF_MAXIMUM => KdfLevel::Maximum,
-        _ => return SV_INVALID_ARGUMENT,
+    let Some(level) = level(kdf_level) else {
+        return SV_INVALID_ARGUMENT;
     };
     let created = CompositeKey::new(Some(password), None)
         .and_then(|key| Database::create(key, name, level, now))
@@ -134,4 +169,40 @@ pub unsafe extern "C" fn sv_database_save(database: *const SvDatabase, out: *mut
         }
         Err(error) => status(error),
     }
+}
+
+/// Sets `*from_kdbx3` to whether the database was read from a KDBX 3 file.
+///
+/// # Safety
+///
+/// `database` must be a live handle; `from_kdbx3` must be valid for one
+/// write.
+#[no_mangle]
+pub unsafe extern "C" fn sv_database_from_kdbx3(
+    database: *const SvDatabase,
+    from_kdbx3: *mut bool,
+) -> i32 {
+    let (Some(database), Some(from_kdbx3)) = (database.as_ref(), from_kdbx3.as_mut()) else {
+        return SV_INVALID_ARGUMENT;
+    };
+    *from_kdbx3 = database.database.from_kdbx3();
+    SV_OK
+}
+
+/// Switches the key derivation to Argon2id at the `SV_KDF_*` `kdf_level`
+/// from the next save on.
+///
+/// # Safety
+///
+/// `database` must be a live handle that no other thread uses meanwhile.
+#[no_mangle]
+pub unsafe extern "C" fn sv_database_set_kdf_level(
+    database: *mut SvDatabase,
+    kdf_level: u32,
+) -> i32 {
+    let (Some(database), Some(level)) = (database.as_mut(), level(kdf_level)) else {
+        return SV_INVALID_ARGUMENT;
+    };
+    database.database.set_kdf_level(level);
+    SV_OK
 }
