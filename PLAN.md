@@ -478,6 +478,13 @@ Part A - merge two databases (no new permission):
 - "Merge with file" in the app: a newer copy from the computer, picked
   from Documents or Downloads, is merged into the stored database
 - Tests against `keepassxc-cli merge` with changes on both sides
+- Implemented 2026-10-04 (`core/src/kdbx/merge_database.rs`, MergePage).
+  Device test on the Jolla Phone (2026-10-04): a copy of a stored database,
+  changed on the computer with `keepassxc-cli` (new group and entry, edited
+  user name), merged from Downloads without a password prompt, with the
+  result reported and the file deleted afterwards; a copy that needs a
+  password and another key file merged into a database opened with its
+  password alone once that key file was chosen.
 
 Part B - sync with Nextcloud over WebDAV (section 8):
 
