@@ -5,6 +5,7 @@
 #include <QFileInfo>
 #include <QStandardPaths>
 
+#include "corebridge.h"
 #include "databasefile.h"
 #include "sailvault_core.h"
 
@@ -27,6 +28,21 @@ QString databaseDirectory()
 QString keyFileDirectory()
 {
     return dataDirectory(QStringLiteral("keyfiles"));
+}
+
+QString copyKeyFilePath(const QString &copyPath)
+{
+    return copyPath.left(copyPath.size() - DatabaseSuffix.size()) + KeyFileSuffix;
+}
+
+int copyFile(const QString &from, const QString &to, qint64 maxBytes)
+{
+    QByteArray data;
+    int status = readBoundedFile(from, maxBytes, data);
+    if (status == SV_OK)
+        status = createNewFile(to, data);
+    secureWipe(data);
+    return status;
 }
 
 bool makePrivateDirectory(const QString &path)
@@ -102,4 +118,47 @@ QStringList Databases::names()
             result.append(name);
     }
     return result;
+}
+
+QString Databases::copyPath(int location, const QString &fileName)
+{
+    if (!isValidName(fileName))
+        return QString();
+    const QString folder = QStandardPaths::writableLocation(
+        location == Downloads ? QStandardPaths::DownloadLocation
+                              : QStandardPaths::DocumentsLocation);
+    return folder + QLatin1Char('/') + fileName + DatabaseSuffix;
+}
+
+bool Databases::copyExists(int location, const QString &fileName, bool withKeyFile)
+{
+    const QString path = copyPath(location, fileName);
+    return !path.isEmpty()
+        && (QFileInfo::exists(path) || (withKeyFile && QFileInfo::exists(copyKeyFilePath(path))));
+}
+
+Databases::CopyResult Databases::saveCopy(const QString &name, int location,
+                                          const QString &fileName, bool withKeyFile)
+{
+    const QString path = copyPath(location, fileName);
+    if (!exists(name) || path.isEmpty() || (withKeyFile && !hasKeyFile(name)))
+        return CopyFailed;
+    if (copyExists(location, fileName, withKeyFile))
+        return CopyExists;
+    int status = copyFile(databasePath(name), path, MaxDatabaseBytes);
+    // Half a copy is no use: a database without the key file it was saved
+    // with cannot be opened.
+    if (status == SV_OK && withKeyFile) {
+        status = copyFile(keyFilePath(name), copyKeyFilePath(path), MaxKeyFileBytes);
+        if (status != SV_OK)
+            QFile::remove(path);
+    }
+    switch (status) {
+    case SV_OK:
+        return CopySaved;
+    case StatusFileExists:
+        return CopyExists;
+    default:
+        return CopyFailed;
+    }
 }

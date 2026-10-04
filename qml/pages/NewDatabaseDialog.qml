@@ -89,6 +89,17 @@ Dialog {
                 color: Theme.secondaryHighlightColor
                 text: qsTr("Use a long passphrase of several words. Nobody can open the database without it, and it cannot be recovered.")
             }
+
+            Item {
+                width: 1
+                height: Theme.paddingMedium
+            }
+
+            Paragraph {
+                font.pixelSize: Theme.fontSizeSmall
+                color: Theme.secondaryHighlightColor
+                text: qsTr("SailVault keeps the database where other apps cannot read it. To open it in KeePassXC on a computer, save a copy from the list of databases.")
+            }
         }
     }
 }

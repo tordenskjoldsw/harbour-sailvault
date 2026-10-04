@@ -78,6 +78,7 @@ DISTFILES += \
     qml/pages/HistoryPage.qml \
     qml/pages/MovePage.qml \
     qml/pages/NewDatabaseDialog.qml \
+    qml/pages/SaveCopyDialog.qml \
     qml/pages/AboutPage.qml \
     qml/pages/ThirdPartyPage.qml \
     qml/pages/thirdparty.js \

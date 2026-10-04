@@ -13,6 +13,21 @@ class Databases : public QObject
     Q_OBJECT
 
 public:
+    // Where saveCopy writes.
+    enum Location {
+        Documents,
+        Downloads
+    };
+    Q_ENUM(Location)
+
+    // Results of saveCopy.
+    enum CopyResult {
+        CopySaved,
+        CopyExists,
+        CopyFailed
+    };
+    Q_ENUM(CopyResult)
+
     explicit Databases(QObject *parent = nullptr);
 
     // Empty when the name is not valid.
@@ -31,6 +46,16 @@ public:
     Q_INVOKABLE static bool hasKeyFile(const QString &name);
     // Sorted ignoring case.
     Q_INVOKABLE static QStringList names();
+
+    // The path of a copy named fileName.kdbx in location, or empty when
+    // fileName is not a valid name. Its key file goes next to it as
+    // fileName.key.
+    Q_INVOKABLE static QString copyPath(int location, const QString &fileName);
+    Q_INVOKABLE static bool copyExists(int location, const QString &fileName, bool withKeyFile);
+    // Copies the stored database, and its key file when withKeyFile is set,
+    // to location; existing files are never replaced.
+    Q_INVOKABLE static CopyResult saveCopy(const QString &name, int location,
+                                           const QString &fileName, bool withKeyFile);
 };
 
 #endif // DATABASES_H
