@@ -17,6 +17,9 @@ then add sync through Nextcloud.
 - Open KDBX 4.0 and 4.1 databases with a master password, a key file or
   both. Supports AES-256, ChaCha20 and Twofish, and AES-KDF, Argon2d and
   Argon2id.
+- Add older KDBX 3.1 databases: SailVault stores them as KDBX 4 with the
+  stronger Argon2id key derivation, and KeePassXC opens them as before.
+  The original file stays unchanged.
 - Create, edit, move and delete entries and groups. Edits keep the previous
   version in the entry history, and deleted items go to the recycle bin,
   both as in KeePassXC.
@@ -49,10 +52,6 @@ same database after SailVault has saved it.
   reader, and I won't store anything that unlocks the database without
   your master password.
 - **No autofill.** Sailfish OS has no API for it.
-- **No KDBX 3.1 for now.** SailVault recognises 3.1 files and explains how
-  to convert them in KeePassXC: *Database* > *Database security...*, tab
-  *Encryption Settings*, choose *KDBX 4.0 (recommended)* and save. The next
-  version will convert 3.1 files itself when you add them.
 - **No Bitwarden sync.** The import reads an export file; SailVault never
   talks to a Bitwarden server.
 

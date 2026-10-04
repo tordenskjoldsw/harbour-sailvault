@@ -87,7 +87,7 @@ Lessons from the Bitwarden clients (desk research 2026-10-03), still valid:
   fields, but no codes are generated. A separate authenticator app may be a
   later, independent project.
 
-KDBX 3.1 is detected and reported, not read (section 14).
+KDBX 3.0 and 3.1 are read and converted to KDBX 4 when added (section 14).
 
 ## 5. Architecture
 
@@ -528,6 +528,14 @@ Decided:
   database. Keeping AES-KDF is not offered: a KDBX 4 file needs a client
   that reads Argon2 anyway, so AES-KDF would only lower the protection.
   The 3.1 fixtures serve the tests.
+  Implemented 2026-10-04 (`core/src/kdbx/kdbx3.rs`): format details from
+  KeePassXC's `Kdbx3Reader.cpp`, `HashedBlockStream.cpp` and
+  `KdbxXmlReader.cpp` and keepass.info. Only the Salsa20 inner stream is
+  accepted (KeePassXC reads every 3.x file with Salsa20 and writes only
+  that); the header hash is required for 3.1. Both 3.1 fixtures, converted
+  and saved with Argon2id, export from `keepassxc-cli` with the same
+  content as the originals, apart from the time format and the attachment
+  location.
 - Convenience unlock (2026-10-04): the full master password (and key file)
   is always the default. Never stored: no key wrapped with a PIN on disk
   (an offline guess takes seconds) and no key in Sailfish Secrets behind

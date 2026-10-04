@@ -1,4 +1,5 @@
-//! KDBX 4 reader and writer. Format details are verified against KeePassXC
+//! KDBX 4 reader and writer, and a KDBX 3 reader that converts to KDBX 4
+//! (`kdbx3`). Format details are verified against KeePassXC
 //! (`src/format/Kdbx4Reader.cpp`, `Kdbx4Writer.cpp`, `KdbxXmlReader.cpp`,
 //! `KdbxXmlWriter.cpp`, `keys/`).
 

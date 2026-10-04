@@ -157,12 +157,20 @@ Protected:
 - Parsing is done in Rust with the bounds listed above; malformed input
   produces an error, not undefined behavior. `unsafe` code is limited to the
   C API.
-- KDBX 3.x and unknown formats are rejected with a distinct error.
+- KDBX 3.0 and 3.1 files are read with the same bounds and converted to
+  KDBX 4 when they are added; the stored copy has the KDBX 4 protection
+  (header and block HMACs, Argon2id). Other versions and unknown formats
+  are rejected.
 
 Limits:
 
 - A file the attacker created with their own credentials opens normally if
   the user knows those credentials; the app cannot tell whose database it is.
+- KDBX 3 authenticates less while it is read: the header only through the
+  SHA-256 in the XML (required for 3.1, checked after decryption), the
+  payload only through unkeyed SHA-256 block hashes inside the encryption.
+  A modified 3.x file is still rejected or fails to decrypt, but later than
+  a KDBX 4 file would be, so more parsing code sees it first.
 - Resource limits stop a hostile file from exhausting the phone, but a file
   inside the limits can still make an unlock slow (about a minute at the
   Argon2 work cap). Argon2 memory is reserved fallibly, so a failed
