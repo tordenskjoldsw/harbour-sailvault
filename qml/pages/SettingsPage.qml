@@ -123,7 +123,7 @@ Page {
                     anchors.fill: parent
                     highlighted: mergeItem.highlighted
                     title: qsTr("Merge with file")
-                    description: qsTr("Bring in the changes of another copy, such as one from your computer")
+                    description: qsTr("Bring in the changes of another copy")
                 }
             }
 
