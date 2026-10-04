@@ -6,6 +6,7 @@
 - About page with version, license and third-party notices
 - Security and robustness fixes from a review before the Harbour submission
 - Faster list loading and import merging
+- Explain how to convert KDBX 3.1 databases in KeePassXC
 
 * Sat Oct 03 2026 Tobias Kaminski <instance_maintainer@protonmail.com> - 0.2.0-1
 - Create, edit, move and delete entries; history and recycle bin as in KeePassXC
