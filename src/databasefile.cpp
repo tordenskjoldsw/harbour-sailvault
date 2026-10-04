@@ -10,6 +10,7 @@
 
 #include <cerrno>
 #include <cstdio>
+#include <cstring>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -40,10 +41,48 @@ bool syncDirectory(const QString &path)
     return synced;
 }
 
+bool writeAll(int fd, const QByteArray &data)
+{
+    qint64 done = 0;
+    while (done < data.size()) {
+        const ssize_t length = ::write(fd, data.constData() + done,
+                                       static_cast<size_t>(data.size() - done));
+        if (length < 0 && errno == EINTR)
+            continue;
+        if (length <= 0)
+            return false;
+        done += length;
+    }
+    return true;
+}
+
+// Reads the file back from the start and compares it with data; one byte more
+// is requested to notice a longer file. The copy may hold a key file and is
+// wiped.
+bool readsBackAs(int fd, const QByteArray &data)
+{
+    QByteArray readBack(data.size() + 1, Qt::Uninitialized);
+    qint64 done = 0;
+    while (done < readBack.size()) {
+        const ssize_t length = ::pread(fd, readBack.data() + done,
+                                       static_cast<size_t>(readBack.size() - done), done);
+        if (length < 0 && errno == EINTR)
+            continue;
+        if (length <= 0)
+            break;
+        done += length;
+    }
+    const bool same = done == data.size() && ::memcmp(readBack.constData(), data.constData(),
+                                                      static_cast<size_t>(data.size())) == 0;
+    secureWipe(readBack);
+    return same;
+}
+
 // Writes data to a new temporary file and reads it back through the same
-// descriptor. A leftover file or a symlink another app planted at tempPath is
-// removed first, and O_EXCL | O_NOFOLLOW refuses anything that appears there
-// in between, so the write never follows a link.
+// descriptor. POSIX calls keep QFile's buffers from holding unwiped copies.
+// A leftover file or a symlink another app planted at tempPath is removed
+// first, and O_EXCL | O_NOFOLLOW refuses anything that appears there in
+// between, so the write never follows a link.
 bool writeTemporary(const QString &tempPath, mode_t mode, const QByteArray &data)
 {
     const QByteArray name = QFile::encodeName(tempPath);
@@ -53,16 +92,9 @@ bool writeTemporary(const QString &tempPath, mode_t mode, const QByteArray &data
                           mode);
     if (fd < 0)
         return false;
-    QFile file;
-    if (!file.open(fd, QIODevice::ReadWrite, QFileDevice::AutoCloseHandle)) {
-        ::close(fd);
-        return false;
-    }
-    const bool written = ::fchmod(fd, mode) == 0 && file.write(data) == data.size()
-        && file.flush() && ::fsync(fd) == 0 && file.seek(0)
-        && file.read(static_cast<qint64>(data.size()) + 1) == data;
-    file.close();
-    return written && file.error() == QFile::NoError;
+    const bool written = ::fchmod(fd, mode) == 0 && writeAll(fd, data) && ::fsync(fd) == 0
+        && readsBackAs(fd, data);
+    return ::close(fd) == 0 && written;
 }
 
 // Backups are named after the database with a UTC timestamp, so sorting by
