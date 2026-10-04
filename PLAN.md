@@ -99,7 +99,7 @@ KDBX 3.0 and 3.1 are read and converted to KDBX 4 when added (section 14).
 |  - QObject models exposed to QML                 |
 |  - file I/O: atomic save, backups                |
 |  - WebDAV to Nextcloud via QNetworkAccessManager |
-|  - Nextcloud app password via Sailfish Secrets   |
+|  - sync settings from an entry of the database  |
 +--------------------------------------------------+
 | Rust core (static lib, C FFI, no I/O)            |
 |  - KDBX4 codec: KDFs, ciphers, HMAC blocks, XML  |
@@ -166,7 +166,8 @@ The phone holds the primary copy, so a writer bug can destroy real data.
 - If the remote file changed, download it, merge (UUID, then
   `LastModificationTime`, history union, `LocationChanged`, apply
   `DeletedObjects`), save locally, then upload
-- The Nextcloud app password (scoped, revocable) is stored in Sailfish Secrets
+- The Nextcloud app password (revocable, but valid for all files of the
+  account) is stored in an entry of the database (section 14)
 - Known limit: if KeePassXC saves on the PC while the Nextcloud desktop
   client holds a newer version, Nextcloud creates conflict files outside
   the app's control; SailVault merges only the file at the synced path
@@ -193,9 +194,8 @@ The phone holds the primary copy, so a writer bug can destroy real data.
 
 - Name prefix `harbour-`, everything except binary, desktop file and icons under `/usr/share/harbour-sailvault`
 - Only libraries and QML imports from the Harbour allowlist; anything else is statically linked
-- Sailjail permissions, minimal, each added with a reason: expected Internet
-  (Nextcloud), Secrets (Nextcloud app password), Downloads or Documents
-  (import and export files)
+- Sailjail permissions, minimal, each added with a reason: Internet
+  (Nextcloud sync), Downloads and Documents (adding files, copies, imports)
 - No daemons, no systemd units, no D-Bus services outside the app's own namespace
 - Validator runs on every build
 - No "KeePass" or "Bitwarden" in the app name or icon; marked as an independent app
@@ -488,12 +488,17 @@ Part A - merge two databases (no new permission):
 
 Part B - sync with Nextcloud over WebDAV (section 8):
 
-- Account setup with a Nextcloud app password in Sailfish Secrets; remote
-  path of the database
+- Account setup through Nextcloud Login Flow v2 (browser login, the server
+  issues an app password), with manual entry of server, user name and app
+  password as a fallback; remote path of the database
+- The sync settings and the app password live in an entry of the database
+  itself (section 14, "Sync credentials")
+- TLS: certificates the system trusts; a self-signed certificate only after
+  the user confirmed its SHA-256 fingerprint, then pinned
 - Download with ETag, merge when the remote file changed, upload with
   `If-Match`; on open, after each save and from the pulley menu
-- Sailjail permissions `Internet` and `Secrets`; the About page, README and
-  threat model drop "no network access" and describe the network attacker
+- Sailjail permission `Internet`; the About page, README and threat model
+  drop "no network access" and describe the network attacker
 
 ### Phase 6 - Harbour submission
 
@@ -537,6 +542,23 @@ None at the moment.
 
 Decided:
 
+- Sync credentials (2026-10-04): the Nextcloud server, user name, app
+  password, remote path and pinned certificate are stored in an entry of
+  the database, marked by entry CustomData, not in Sailfish Secrets and not
+  taken from the system's Nextcloud account. Reasons (research of
+  2026-10-04): the system account is only readable by privileged apps
+  ("Only privileged applications are able to access account information",
+  Sailfish Accounts and SSO docs), which Harbour does not allow; Sailfish
+  Secrets reads without a dialog with `DeviceLockKeepUnlocked`, but its
+  daemon derives the device-lock key from an empty lock code, so at rest
+  only file permissions protect it. In the database the password has the
+  master password and Argon2id in front of it, and no `Secrets` permission
+  is needed. Trade-off: the entry travels with the database (encrypted) to
+  the computer and the server, and anyone who opens a shared database sees
+  it; the setup says so. Login: Nextcloud Login Flow v2 by default, manual
+  app password as a fallback. TLS: system-trusted certificates, or a
+  self-signed one pinned by its SHA-256 fingerprint after the user
+  confirmed it; never "ignore errors".
 - Sync (2026-10-04): SailVault merges and syncs with Nextcloud itself, and
   both come before the Harbour submission (Phase 5 Part A, then Part B).
   Changing a password on the phone and finding it on the computer, and the
@@ -544,9 +566,9 @@ Decided:
   changes are lost, and without sync in the app every change needs a
   manual file transfer. KeePassXC's FAQ recommends exactly this setup: the
   database in a synced folder, a mobile KeePass app on the phone. The cost
-  is accepted and documented: the `Internet` and `Secrets` permissions, a
-  network attacker in the threat model, and the Nextcloud app password,
-  which only the device lock protects.
+  is accepted and documented: the `Internet` permission and a network
+  attacker in the threat model (the app password is stored as decided under
+  "Sync credentials").
 - KDBX 3.1 (2026-10-04, revised the same day): 0.3.0 detects 3.1 files
   and explains the conversion in KeePassXC (Database > Database
   security..., Encryption Settings, KDBX 4.0, as in the KeePassXC FAQ).
