@@ -34,13 +34,25 @@ Page {
         id: remorse
     }
 
+    // A certificate or a configuration to confirm interrupts: syncing stops
+    // until the user decides. Only the top page asks, a configuration once.
+    function askForSyncDecision() {
+        if (page.status !== PageStatus.Active || sync.state !== Sync.Failed)
+            return
+        if (sync.problem === Sync.CertificateUnknown)
+            pageStack.push(Qt.resolvedUrl("CertificateDialog.qml"))
+        else if (sync.problem === Sync.Unconfirmed && sync.takeConfirmationRequest())
+            pageStack.push(Qt.resolvedUrl("SyncConfirmDialog.qml"))
+    }
+
+    onStatusChanged: {
+        if (status === PageStatus.Active && sync.problem === Sync.Unconfirmed)
+            askForSyncDecision()
+    }
+
     Connections {
         target: sync
-        onStateChanged: {
-            if (sync.state === Sync.Failed && sync.problem === Sync.CertificateUnknown
-                    && page.status === PageStatus.Active)
-                pageStack.push(Qt.resolvedUrl("CertificateDialog.qml"))
-        }
+        onStateChanged: page.askForSyncDecision()
     }
 
     Connections {

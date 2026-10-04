@@ -14,6 +14,7 @@ QtObject {
         case Sync.InvalidServer: return qsTr("Enter the https address of your Nextcloud")
         case Sync.LoginExpired: return qsTr("The login in the browser was not completed in time")
         case Sync.ServerProblem: return qsTr("Nextcloud reported a problem")
+        case Sync.Unconfirmed: return qsTr("Sync waits for your confirmation in Settings")
         default: return ""
         }
     }

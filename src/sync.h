@@ -18,6 +18,11 @@ class Vault;
 // after unlocking, after each save (shortly delayed) and on request. The
 // settings and the app password come from the database's sync entry.
 //
+// A configuration runs only once it is confirmed on this device: a digest
+// of server, login, path and pin in the settings says so. Setting sync up
+// here confirms it; one that arrived otherwise, such as with a copy from
+// another phone, waits for the user's confirmation before any request.
+//
 // A sync downloads the file if its ETag changed, merges it, and uploads the
 // result only if this copy has changes the server lacks, conditional on the
 // ETag it merged; a changed file on the server starts over, at most three
@@ -58,7 +63,9 @@ public:
         NotDatabase,
         ServerProblem,
         InvalidServer,
-        LoginExpired
+        LoginExpired,
+        // The configuration was not set up or confirmed on this device.
+        Unconfirmed
     };
     Q_ENUM(Problem)
 
@@ -89,6 +96,12 @@ public:
     Q_INVOKABLE QString storedServer() const;
     Q_INVOKABLE QString storedPath() const;
     Q_INVOKABLE QString storedLoginName() const;
+    // The pinned certificate as colon-separated hex, or empty.
+    Q_INVOKABLE QString storedCertificate() const;
+    // Confirms the stored configuration on this device and syncs.
+    Q_INVOKABLE void confirmConfiguration();
+    // True once per unconfirmed configuration, for the page that asks.
+    Q_INVOKABLE bool takeConfirmationRequest();
     // Moves the sync to another file on the same server with the stored
     // login; the next sync uses it.
     Q_INVOKABLE void changePath(const QString &path);
@@ -138,6 +151,8 @@ private:
     void finish(Problem problem);
     Problem problemOf(NextcloudClient::Result result, const QByteArray &pin);
     void remember();
+    void confirm(const QByteArray &digest);
+    bool confirmed() const;
     QString settingsGroup() const;
 
     void checkSetup();
@@ -163,6 +178,9 @@ private:
     QString m_remote;
     QString m_userId;
     QByteArray m_pin;
+    // Digest of the loaded configuration, compared with the confirmed one.
+    QByteArray m_configuration;
+    bool m_confirmationRequested = false;
     QByteArray m_etag;
     QByteArray m_digest;
     // The remote ETag being merged, and the digest of this copy before.

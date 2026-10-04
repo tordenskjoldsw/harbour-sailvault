@@ -100,7 +100,9 @@ Page {
 
                 height: Theme.itemSizeMedium
                 enabled: !vault.saving && !vault.merging
-                onClicked: pageStack.push(Qt.resolvedUrl("SyncSetupPage.qml"))
+                onClicked: pageStack.push(Qt.resolvedUrl(
+                    sync.problem === Sync.Unconfirmed ? "SyncConfirmDialog.qml"
+                                                      : "SyncSetupPage.qml"))
 
                 TwoLineLabel {
                     anchors.fill: parent

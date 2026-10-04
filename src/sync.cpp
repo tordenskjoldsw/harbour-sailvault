@@ -1,5 +1,6 @@
 #include "sync.h"
 
+#include <QCryptographicHash>
 #include <QDesktopServices>
 #include <QNetworkConfigurationManager>
 #include <QSettings>
@@ -35,6 +36,29 @@ QUrl serverUrl(const QString &text)
         || !url.userInfo().isEmpty() || url.hasQuery() || url.hasFragment())
         return QUrl();
     return url;
+}
+
+// Identifies a configuration without its password: each field is
+// length-prefixed, so different fields cannot run together.
+QByteArray configurationDigest(const QByteArray &server, const QByteArray &loginName,
+                               const QByteArray &path, const QByteArray &pin)
+{
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    for (const QByteArray &field : {server, loginName, path, pin}) {
+        const quint32 length = static_cast<quint32>(field.size());
+        hash.addData(reinterpret_cast<const char *>(&length), sizeof(length));
+        hash.addData(field);
+    }
+    return hash.result();
+}
+
+QString colonHex(const QByteArray &hex)
+{
+    QStringList pairs;
+    const QByteArray upper = hex.toUpper();
+    for (int index = 0; index + 1 < upper.size(); index += 2)
+        pairs.append(QString::fromLatin1(upper.mid(index, 2)));
+    return pairs.join(QLatin1Char(':'));
 }
 
 QString remotePath(const QString &text)
@@ -133,11 +157,45 @@ Sync::Problem Sync::setupProblem() const
 
 QString Sync::certificateFingerprint() const
 {
-    QStringList pairs;
-    const QByteArray hex = m_fingerprint.toUpper();
-    for (int index = 0; index + 1 < hex.size(); index += 2)
-        pairs.append(QString::fromLatin1(hex.mid(index, 2)));
-    return pairs.join(QLatin1Char(':'));
+    return colonHex(m_fingerprint);
+}
+
+QString Sync::storedCertificate() const
+{
+    return colonHex(m_vault->syncSetting(SV_SYNC_CERTIFICATE));
+}
+
+void Sync::confirmConfiguration()
+{
+    if (!loadAccount())
+        return;
+    confirm(m_configuration);
+    sync();
+}
+
+bool Sync::takeConfirmationRequest()
+{
+    if (m_problem != Unconfirmed || m_confirmationRequested)
+        return false;
+    m_confirmationRequested = true;
+    return true;
+}
+
+void Sync::confirm(const QByteArray &digest)
+{
+    QSettings settings(settingsPath(), QSettings::IniFormat);
+    settings.beginGroup(settingsGroup());
+    settings.setValue(QStringLiteral("confirmed"), digest.toHex());
+    m_confirmationRequested = false;
+}
+
+bool Sync::confirmed() const
+{
+    QSettings settings(settingsPath(), QSettings::IniFormat);
+    settings.beginGroup(settingsGroup());
+    return !m_configuration.isEmpty()
+        && QByteArray::fromHex(settings.value(QStringLiteral("confirmed")).toByteArray())
+               == m_configuration;
 }
 
 bool Sync::certificateReplaced() const
@@ -173,10 +231,13 @@ void Sync::changePath(const QString &path)
     abortSync();
     QByteArray password = m_vault->syncSetting(SV_SYNC_APP_PASSWORD);
     // Saving the entry starts the next sync.
+    const QByteArray pin = m_vault->syncSetting(SV_SYNC_CERTIFICATE);
     const bool stored = m_vault->storeSyncSettings(storedServer(), storedLoginName(), password,
-                                                   remote,
-                                                   m_vault->syncSetting(SV_SYNC_CERTIFICATE));
+                                                   remote, pin);
     secureWipe(password);
+    if (stored)
+        confirm(configurationDigest(m_vault->syncSetting(SV_SYNC_SERVER),
+                                    m_vault->syncSetting(SV_SYNC_USER), remote.toUtf8(), pin));
     setSetupState(stored ? SetupDone : SetupFailed, stored ? NoProblem : ServerProblem);
 }
 
@@ -228,6 +289,8 @@ void Sync::stop()
     m_pendingData.clear();
     m_userId.clear();
     m_remote.clear();
+    m_configuration.clear();
+    m_confirmationRequested = false;
     wipeSetup();
     setSetupState(SetupIdle);
     updateConfigured();
@@ -256,13 +319,18 @@ QString Sync::settingsGroup() const
 bool Sync::loadAccount()
 {
     QByteArray password = m_vault->syncSetting(SV_SYNC_APP_PASSWORD);
+    const QByteArray serverText = m_vault->syncSetting(SV_SYNC_SERVER);
+    const QByteArray loginText = m_vault->syncSetting(SV_SYNC_USER);
+    const QByteArray pathText = m_vault->syncSetting(SV_SYNC_PATH);
     NextcloudClient::Account account;
-    account.server = QUrl(QString::fromUtf8(m_vault->syncSetting(SV_SYNC_SERVER)));
-    account.loginName = QString::fromUtf8(m_vault->syncSetting(SV_SYNC_USER));
+    account.server = QUrl(QString::fromUtf8(serverText));
+    account.loginName = QString::fromUtf8(loginText);
     account.appPassword = password;
     account.pinnedCertificate = m_vault->syncSetting(SV_SYNC_CERTIFICATE);
     secureWipe(password);
-    const QString path = QString::fromUtf8(m_vault->syncSetting(SV_SYNC_PATH));
+    m_configuration = configurationDigest(serverText, loginText, pathText,
+                                          account.pinnedCertificate);
+    const QString path = QString::fromUtf8(pathText);
     if (!serverUrl(account.server.toString()).isValid() || account.loginName.isEmpty()
         || account.appPassword.isEmpty() || path.isEmpty()) {
         secureWipe(account.appPassword);
@@ -315,6 +383,17 @@ void Sync::sync()
         if (m_state != Off) {
             m_state = Off;
             m_problem = NoProblem;
+            emit stateChanged();
+        }
+        return;
+    }
+    // Not a single request for a configuration this device has not
+    // confirmed: it may have arrived inside a merged file.
+    if (!confirmed()) {
+        m_client->clearAccount();
+        if (m_state != Failed || m_problem != Unconfirmed) {
+            m_state = Failed;
+            m_problem = Unconfirmed;
             emit stateChanged();
         }
         return;
@@ -610,11 +689,14 @@ void Sync::checkSetup()
             failSetup(problemOf(result, m_setup.pin), [this]() { checkSetup(); });
             return;
         }
-        if (!m_vault->storeSyncSettings(m_setup.server.toString(), m_setup.loginName,
-                                        m_setup.appPassword, m_setup.path, m_setup.pin)) {
+        const QString server = m_setup.server.toString();
+        if (!m_vault->storeSyncSettings(server, m_setup.loginName, m_setup.appPassword,
+                                        m_setup.path, m_setup.pin)) {
             failSetup(ServerProblem);
             return;
         }
+        confirm(configurationDigest(server.toUtf8(), m_setup.loginName.toUtf8(),
+                                    m_setup.path.toUtf8(), m_setup.pin));
         Q_UNUSED(id)
         m_remote.clear();
         wipeSetup();
@@ -666,11 +748,13 @@ void Sync::trustCertificate()
     if (m_state != Failed || m_problem != CertificateUnknown)
         return;
     QByteArray password = m_vault->syncSetting(SV_SYNC_APP_PASSWORD);
-    // The new pin is saved, and the save starts the next sync.
-    m_vault->storeSyncSettings(QString::fromUtf8(m_vault->syncSetting(SV_SYNC_SERVER)),
-                               QString::fromUtf8(m_vault->syncSetting(SV_SYNC_USER)), password,
-                               QString::fromUtf8(m_vault->syncSetting(SV_SYNC_PATH)),
-                               m_fingerprint);
+    const QByteArray server = m_vault->syncSetting(SV_SYNC_SERVER);
+    const QByteArray loginName = m_vault->syncSetting(SV_SYNC_USER);
+    const QByteArray path = m_vault->syncSetting(SV_SYNC_PATH);
+    // The new pin is saved and confirmed, and the save starts the next sync.
+    if (m_vault->storeSyncSettings(QString::fromUtf8(server), QString::fromUtf8(loginName),
+                                   password, QString::fromUtf8(path), m_fingerprint))
+        confirm(configurationDigest(server, loginName, path, m_fingerprint));
     secureWipe(password);
 }
 
