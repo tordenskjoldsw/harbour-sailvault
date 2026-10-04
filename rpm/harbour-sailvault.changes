@@ -1,3 +1,12 @@
+* Sun Oct 04 2026 Tobias Kaminski <instance_maintainer@protonmail.com> - 0.3.0-1
+- Create new databases with Argon2id at three protection levels
+- Keep databases and key files in the app's private storage; add existing
+  files by unlocking them once, save copies to Documents or Downloads,
+  delete stored databases
+- About page with version, license and third-party notices
+- Security and robustness fixes from a review before the Harbour submission
+- Faster list loading and import merging
+
 * Sat Oct 03 2026 Tobias Kaminski <instance_maintainer@protonmail.com> - 0.2.0-1
 - Create, edit, move and delete entries; history and recycle bin as in KeePassXC
 - Create, rename and move groups
