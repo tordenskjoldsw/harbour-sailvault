@@ -49,8 +49,10 @@ same database after SailVault has saved it.
   reader, and I won't store anything that unlocks the database without
   your master password.
 - **No autofill.** Sailfish OS has no API for it.
-- **No KDBX 3.1.** SailVault recognises 3.1 files and asks you to convert
-  them to KDBX 4 in KeePassXC.
+- **No KDBX 3.1 for now.** SailVault recognises 3.1 files and explains how
+  to convert them in KeePassXC: *Database* > *Database security...*, tab
+  *Encryption Settings*, choose *KDBX 4.0 (recommended)* and save. The next
+  version will convert 3.1 files itself when you add them.
 - **No Bitwarden sync.** The import reads an export file; SailVault never
   talks to a Bitwarden server.
 

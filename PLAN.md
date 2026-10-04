@@ -5,9 +5,10 @@ on 2026-10-03. Since then: new databases created in the app, an About page
 with the license notices, the pre-Harbour review
 (`docs/security-review-2026-10-harbour.md`) with all its findings fixed,
 and databases and key files kept in the app's private storage; all tested
-on the Jolla Phone; released as 0.3.0 on 2026-10-04. Next: submit it to
-Harbour (Phase 6, ahead of Phase 5). The scope of Phase 5 (Nextcloud sync) is still to be
-discussed.
+on the Jolla Phone; released as 0.3.0 on 2026-10-04. Next: 0.4.0
+converts KDBX 3.1 files when they are added (section 14), and 0.3.0 is
+submitted to Harbour (Phase 6, ahead of Phase 5). The scope of Phase 5
+(Nextcloud sync) is still to be discussed.
 
 ## 1. Goal
 
@@ -512,14 +513,18 @@ None at the moment.
 
 Decided:
 
-- KDBX 3.1 (2026-10-04): KDBX 4 only for now; 3.1 files are detected and
-  get the message "Please convert to KDBX 4 in KeePassXC". A 3.1 reader
-  that saves as KDBX 4.0 comes only if users ask for it. 3.1 differs
-  internally (block format, Salsa20 for protected fields, attachments in
-  the metadata), which is a lot of new parsing code for few users: the
-  KeePassXC GUI has written KDBX 4 by default for years, and 3.1 files come
-  from old KeePass versions or `keepassxc-cli db-create`. The 3.1 fixtures
-  stay for the detection test and a later reader.
+- KDBX 3.1 (2026-10-04, revised the same day): 0.3.0 detects 3.1 files
+  and explains the conversion in KeePassXC (Database > Database
+  security..., Encryption Settings, KDBX 4.0, as in the KeePassXC FAQ).
+  0.4.0 reads 3.1 when a file is added and stores it as KDBX 4; the
+  original stays untouched. Reason: KeePassXC 2.7.12 still saves a
+  database with AES-KDF and no KDBX 4 features as 3.1, so long-time users
+  may well have 3.1 files, and a detour through the PC is poor usability.
+  Cost: a second parser for untrusted files (block format, Salsa20 for
+  protected fields, attachments in the metadata, ISO times), with the same
+  bounds as the KDBX 4 reader and the `HeaderHash` check. Whether the
+  conversion also replaces AES-KDF with Argon2id is still to be decided.
+  The 3.1 fixtures serve the tests.
 - Convenience unlock (2026-10-04): the full master password (and key file)
   is always the default. Never stored: no key wrapped with a PIN on disk
   (an offline guess takes seconds) and no key in Sailfish Secrets behind
