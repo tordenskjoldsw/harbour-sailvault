@@ -46,8 +46,13 @@ Phone. (No aarch64 tablet exists; the app supports both orientations.)
 ## Visual assets
 
 - Icon: `icons/172x172/harbour-sailvault.png`
-- Screenshots: 1-3, at least 1080 px wide, fake data only
-- Cover image (optional): 1080x540
+- Screenshots: 1-3, at least 1080 px wide, fake data only. Taken on the
+  Jolla Phone (1032 px wide, volume up and down together) with a demo
+  database of made-up entries, then scaled to 1080 px with Lanczos.
+  Smaller copies for the README are in `docs/images/`.
+- Cover image (optional): 1080x540, `docs/images/cover.png`: the icon
+  rendered from `icons/harbour-sailvault.svg`, the name and a screenshot,
+  in Open Sans, no third-party names
 
 ## Contact details
 

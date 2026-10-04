@@ -1,5 +1,7 @@
 # SailVault
 
+![SailVault: password manager for Sailfish OS](docs/images/cover.png)
+
 A password manager for Sailfish OS that keeps your passwords in a standard
 KeePass (KDBX 4) file. No account, no server, no lock-in: the same file
 opens in KeePassXC on your computer.
@@ -11,6 +13,14 @@ written for Sailfish OS 5.2 and tested on the Jolla Phone (aarch64).
 **Status:** version 0.5.3. Reading, editing, importing, merging and sync
 through Nextcloud are done and tested on the device. It is submitted to the
 Jolla Store (Harbour) and waits for review.
+
+<p align="center">
+  <img src="docs/images/screenshot-1-entries.jpg" width="30%" alt="Entry list with groups and entries">
+  <img src="docs/images/screenshot-2-entry.jpg" width="30%" alt="An entry with its password hidden">
+  <img src="docs/images/screenshot-3-settings.jpg" width="30%" alt="Settings with sync, merge and import">
+</p>
+
+The screenshots show a demo database with made-up data.
 
 ## Features
 
