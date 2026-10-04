@@ -29,6 +29,9 @@ then add sync through Nextcloud.
 - Password generator.
 - Create a new database with Argon2id at one of three strengths, all
   measured on the Jolla Phone (about 1, 2.5 and 5 seconds to unlock).
+- Keep databases and key files in SailVault's private storage, out of
+  reach of other apps. Save a copy to Documents or Downloads to open it
+  on your computer.
 - Import Bitwarden and Vaultwarden JSON exports, unencrypted or
   password-protected. Running the import again with a newer export merges
   the changes instead of creating duplicates.
@@ -64,8 +67,10 @@ asks for the full master password every time.
 - Every save goes to a temporary file, is decrypted again to verify it and
   only then replaces the database. The last three versions are kept as
   backups in the app's private directory.
-- The sandbox gives SailVault access to Documents and Downloads, and
-  nothing else.
+- Databases and key files live in SailVault's private directory, which
+  other sandboxed apps cannot read. The sandbox gives SailVault access to
+  Documents and Downloads, and nothing else; it uses them to add files,
+  save copies and read imports.
 
 The [threat model](docs/threat-model.md) explains what SailVault protects
 against, what it does not, and the known limits (for example, Qt strings
@@ -79,6 +84,19 @@ Found a vulnerability? Please report it privately, as described in
 SailVault is not in the Jolla Store yet. Until it is, build the RPM
 yourself (see below) and install it with `sfdk deploy` or `pkcon
 install-local`.
+
+## Using a database from KeePassXC
+
+1. Copy the `.kdbx` file, and your key file if you use one, to Documents
+   or Downloads on the phone.
+2. In SailVault, choose **Add existing database** from the pulley menu,
+   pick the file and unlock it. SailVault keeps its own copy and offers to
+   delete the originals.
+3. To take the database back to your computer, open the list of databases,
+   long-press it and choose **Save copy**.
+
+Until sync arrives, the copy on the phone and the one on your computer are
+separate files: changes made on both sides are not merged.
 
 ## Moving from Bitwarden or Vaultwarden
 

@@ -1,8 +1,9 @@
 # SailVault threat model
 
-Status: 2026-10-03, Phase 4 (the app creates, edits, moves and deletes
+Status: 2026-10-04, Phase 4 (the app creates, edits, moves and deletes
 entries, imports Bitwarden exports and writes the database), after the
-security review fixes (`docs/security-review-2026-10.md`). Covers the code
+security review fixes (`docs/security-review-2026-10.md`), with databases
+and key files kept in the app's private storage. Covers the code
 in this repository at that state. Phase 5 (Nextcloud sync) changes the
 model; see "Changes in later phases".
 Points marked **unverified** have not been checked on Sailfish OS or the
@@ -14,10 +15,12 @@ device yet.
 |-------|----------------|
 | Database content (entries, passwords, notes, attachments) | Encrypted in the KDBX file; decrypted only in RAM while unlocked |
 | Master password | Typed into the unlock page; never stored |
-| Key file | A file the user picks; read into RAM during unlock |
+| Database file | `~/.local/share/de.tordenskjold/sailvault/databases/<name>.kdbx`, owner-only permissions |
+| Key file | `~/.local/share/de.tordenskjold/sailvault/keyfiles/<name>.key`, unencrypted, owner-only permissions; read into RAM during unlock |
 | Clipboard content | The system clipboard, for up to 30 seconds after a copy |
 | Backups | `~/.local/share/de.tordenskjold/sailvault/backups/`: the three newest versions the app replaced, encrypted like the database |
-| Last database and key file path | `~/.config/de.tordenskjold/sailvault/settings.ini` (paths only, no secrets) |
+| Name of the last database | `~/.config/de.tordenskjold/sailvault/settings.ini` (no secrets) |
+| Copies the user saves, originals not yet deleted | Documents or Downloads, encrypted like the database; key files unencrypted |
 
 ## Architecture and trust boundaries
 
@@ -60,7 +63,8 @@ Protected:
 - The KDBX file is encrypted with the master password (and key file, if
   used) through the KDF stored in the file. Nothing that unlocks it is
   stored on the device.
-- No decrypted data is written to disk. Settings contain only file paths.
+- No decrypted data is written to disk. Settings contain only the name of
+  the last database.
   A save writes the encrypted file to a new temporary file next to the
   database (created exclusively, never through a symlink, and read back
   through the same descriptor) and renames it over the original; the
@@ -76,8 +80,9 @@ Limits:
   and 3 iterations and a master password of at least 15 characters; for files
   from KeePassXC the user chose the settings there, and the app opens weak
   settings without warning.
-- A key file stored next to the database in Documents adds no protection
-  against someone who has the phone's files.
+- A key file kept on the phone next to the database adds no protection
+  against someone who has the phone's files. It protects a copy of the
+  database that leaves the phone without it.
 - Backups are protected by the credentials in effect when they were
   written. A later credential change does not re-protect them; deleting
   them on a credential change is planned (`PLAN.md`, section 7).
@@ -117,7 +122,11 @@ Limits:
 Protected:
 
 - Sailjail isolates the app's memory and private directories from other
-  sandboxed apps.
+  sandboxed apps. The database and key file live there, so apps with the
+  `Documents` or `Downloads` permission can neither read nor replace nor
+  delete them. A database from outside the app is added by unlocking it
+  once; only then are the database and the key file that opened it copied
+  in, and the app offers to delete the originals.
 - The clipboard is cleared 30 seconds after a copy (counting sleep time),
   on lock and on exit, but only if it still holds the copied value, so the
   app never clears what another app put there. To compare, the app asks the
@@ -131,9 +140,10 @@ Limits:
   copied value. Clearing works from the background and on exit (tested on
   the Jolla Phone, 5.2.0.18). Whether Sailfish OS keeps a clipboard history
   (for example in the keyboard) is **unverified**.
-- Apps with the `Documents` or `Downloads` permission can read the KDBX file
-  and a key file stored there. The KDBX file is encrypted; the key file is
-  not.
+- Apps with the `Documents` or `Downloads` permission can read a file there:
+  an original the user keeps after adding it, or a copy the user saves to
+  move it to a computer. A database copy is encrypted; a key file copy is
+  not. Deleting a file on flash storage does not erase its blocks.
 - Unsandboxed apps (OpenRepos, Chum, `Sandboxing=Disabled`) and the user with
   `devel-su` are not restricted by Sailjail.
 
