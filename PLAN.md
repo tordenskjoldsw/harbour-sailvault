@@ -153,8 +153,16 @@ The phone holds the primary copy, so a writer bug can destroy real data.
 
 ## 8. Sync design
 
-- The app syncs the KDBX file with Nextcloud over WebDAV itself, only while
-  it runs: on open, after save, and on pull-down
+- The app syncs the KDBX file in its private storage with Nextcloud over
+  WebDAV itself, only while it runs: on open, after save, and on pull-down.
+  Harbour allows no background service, and no Harbour app can sync a
+  folder for SailVault in the background either.
+- Harbour check (2026-10-04, against
+  https://docs.sailfishos.org/Develop/Apps/Harbour/Allowed_APIs/):
+  `libQt5Network.so.5` and OpenSSL 3 (`libssl.so.3`, `libcrypto.so.3`) are
+  allowed; Sailfish Secrets is allowed (Phase 1); Sailjail has the
+  `Internet` and `Secrets` permissions. GhostCloud (`harbour-owncloud`,
+  in the Jolla Store) is a WebDAV and Nextcloud client.
 - Conditional requests: download with ETag, upload with `If-Match`
 - If the remote file changed, download it, merge (UUID, then
   `LastModificationTime`, history union, `LocationChanged`, apply
@@ -526,6 +534,18 @@ Proposed in review (2026-10-03), not decided:
 
 Decided:
 
+- Database storage (2026-10-04, before the first Harbour release):
+  databases and key files live in the app's private data directory
+  (`databases/<name>.kdbx`, `keyfiles/<name>.key`), which Sailjail keeps
+  from other sandboxed apps. Files in Documents or Downloads can be read,
+  replaced and deleted by every app with that permission, and key files
+  are not encrypted. A file from outside is added by unlocking it once;
+  only then are the database and the key file that opened it copied in,
+  and the app offers to delete the originals. Copies for a computer are
+  saved to Documents or Downloads on request. Several databases are kept,
+  chosen from a list; deleting one removes its key file and backups.
+  Decided now because moving existing users later would need a migration.
+  Supersedes "File location for Phase 3"; the permissions stay.
 - Versioning (2026-10-03): Semantic Versioning. A new feature raises the
   minor version, a release with fixes only the patch version; 1.0.0 comes
   after the first Harbour round and outside feedback, not before. Releases
@@ -582,9 +602,10 @@ Decided:
   deleted on credential changes. Fewer copies limit exposure to old
   passwords, three are enough to roll back a faulty save.
 - TOTP (2026-10-03): SailVault generates no TOTP codes; see section 4.
-- File location for Phase 3 (2026-10-03): the user picks the KDBX file with
-  the Sailfish file picker from Documents or Downloads; Sailjail permissions
-  `Documents` and `Downloads`, not the broader `UserDirs`.
+- File location for Phase 3 (2026-10-03, superseded by "Database storage"):
+  the user picks the KDBX file with the Sailfish file picker from Documents
+  or Downloads; Sailjail permissions `Documents` and `Downloads`, not the
+  broader `UserDirs`.
 - Auto-lock (2026-10-03): 5 minutes idle, 1 minute in the background,
   manual lock from pulley menu and cover.
 - Direction (2026-10-03): KDBX4 password manager with Bitwarden import
