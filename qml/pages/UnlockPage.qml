@@ -43,7 +43,7 @@ Page {
         switch (error) {
         case Vault.WrongCredentials: return qsTr("Wrong password or key file")
         case Vault.InvalidKeyFile: return qsTr("The key file is not valid")
-        case Vault.Kdbx3Unsupported: return qsTr("This database uses the older KDBX 3 format. Please convert it to KDBX 4 in KeePassXC.")
+        case Vault.Kdbx3Unsupported: return qsTr("This database uses the older KDBX 3.1 format. To convert it, open it in KeePassXC, choose Database > Database security..., select KDBX 4.0 under Encryption Settings and save. Then add the file again.")
         case Vault.NotKdbx: return qsTr("This file is not a KeePass database")
         case Vault.UnsupportedFormat: return qsTr("This database uses an unsupported format")
         case Vault.Corrupted: return qsTr("The database is damaged")
