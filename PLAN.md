@@ -1,15 +1,14 @@
 # SailVault - Project Plan
 
-Status: 2026-10-03 - Phase 3 (read-only MVP) complete; next: Harbour
-submission or Phase 4, see "Proposed in review" in section 14.
-Earlier on 2026-10-03: direction changed from a Bitwarden client to a KeePass
-(KDBX4) password manager with Bitwarden import. Phase 1 (device spike) is
-complete and carries over. The cleanup of the Bitwarden server client is
-done and Phase 2 (KDBX4 read core) has started.
-Phase 2 is complete (2026-10-03): the KDBX4 reader opens every
-KeePassXC-made fixture, and the KDFs are measured on the Jolla Phone.
-Next step: Phase 3 (read-only MVP). The KDBX 3.1 decision (section 14) is still open; 3.1 files are
-detected and reported until then.
+Status: 2026-10-04 - Phases 1 to 4 are complete and were released as 0.2.0
+on 2026-10-03. Since then: new databases created in the app, an About page
+with the license notices, the pre-Harbour review
+(`docs/security-review-2026-10-harbour.md`) with all its findings fixed,
+and databases and key files kept in the app's private storage; all tested
+on the Jolla Phone. Next: release 0.3.0 and submit it to Harbour (Phase 6,
+ahead of Phase 5). The scope of Phase 5 (Nextcloud sync) is still to be
+discussed. KDBX 3.1 files are detected and reported; the decision
+(section 14) is open.
 
 ## 1. Goal
 
