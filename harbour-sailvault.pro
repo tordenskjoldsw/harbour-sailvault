@@ -1,6 +1,7 @@
 TARGET = harbour-sailvault
 
 CONFIG += sailfishapp
+QT += network
 
 HEADERS += \
     src/autolock.h \
@@ -11,6 +12,7 @@ HEADERS += \
     src/databases.h \
     src/entrylistmodel.h \
     src/importer.h \
+    src/nextcloud.h \
     src/vault.h \
     src/vaulttasks.h
 
@@ -22,6 +24,7 @@ SOURCES += \
     src/entrylistmodel.cpp \
     src/importer.cpp \
     src/main.cpp \
+    src/nextcloud.cpp \
     src/vault.cpp \
     src/vaulttasks.cpp
 
