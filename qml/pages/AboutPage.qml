@@ -63,7 +63,7 @@ Page {
             Repeater {
                 model: [
                     qsTr("I built SailVault to keep my passwords on my Sailfish phone in a standard KeePass file: no account, no server, no lock-in. The same file opens in KeePassXC on my computer."),
-                    qsTr("Security comes first. SailVault has no network access, never writes decrypted data to disk and asks for the full master password every time. It does not generate TOTP codes: keeping them next to the passwords would turn two factors into one."),
+                    qsTr("Security comes first. SailVault connects to nothing but your own Nextcloud, and only once you set up sync. It never writes decrypted data to disk and asks for the full master password every time. It does not generate TOTP codes: keeping them next to the passwords would turn two factors into one."),
                     qsTr("SailVault is free software under the MIT license. Read the code, check what I claim here and tell me what you find.")
                 ]
 

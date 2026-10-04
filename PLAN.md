@@ -499,6 +499,19 @@ Part B - sync with Nextcloud over WebDAV (section 8):
   `If-Match`; on open, after each save and from the pulley menu
 - Sailjail permission `Internet`; the About page, README and threat model
   drop "no network access" and describe the network attacker
+- Implemented 2026-10-04 (`src/nextcloud.cpp`, `src/sync.cpp`,
+  `core/src/kdbx/sync_settings.rs`, SyncSetupPage). Status codes, ETags,
+  conditional requests and the OCS user id were checked against a local
+  Nextcloud container; Nextcloud answers an upload into a missing folder
+  with 404, not 409, and missing folders are created with MKCOL.
+  Device test on the Jolla Phone against the maintainer's Nextcloud
+  (2026-10-04): setup through Login Flow v2 in the browser and with a
+  manual app password; the settings page shows the stored values; a new
+  path in two missing folders was created; a new entry on the phone was
+  uploaded; an entry added in KeePassXC on the computer and uploaded
+  through Nextcloud arrived on the phone at the next unlock; in flight
+  mode the header reported no connection, and it synced again after
+  flight mode was switched off.
 
 ### Phase 6 - Harbour submission
 

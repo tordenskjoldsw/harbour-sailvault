@@ -1,11 +1,11 @@
 # SailVault threat model
 
-Status: 2026-10-04, Phase 4 (the app creates, edits, moves and deletes
-entries, imports Bitwarden exports and writes the database), after the
-security review fixes (`docs/security-review-2026-10.md`), with databases
-and key files kept in the app's private storage. Covers the code
-in this repository at that state. Phase 5 (Nextcloud sync) changes the
-model; see "Changes in later phases".
+Status: 2026-10-04, Phase 5 (the app creates, edits, moves and deletes
+entries, imports Bitwarden exports, merges copies of the database and
+syncs with Nextcloud), after the security review fixes
+(`docs/security-review-2026-10.md`), with databases and key files kept in
+the app's private storage. Covers the code in this repository at that
+state.
 Points marked **unverified** have not been checked on Sailfish OS or the
 device yet.
 
@@ -19,7 +19,9 @@ device yet.
 | Key file | `~/.local/share/de.tordenskjold/sailvault/keyfiles/<name>.key`, unencrypted, owner-only permissions; read into RAM during unlock |
 | Clipboard content | The system clipboard, for up to 30 seconds after a copy |
 | Backups | `~/.local/share/de.tordenskjold/sailvault/backups/`: the three newest versions the app replaced, encrypted like the database |
-| Name of the last database | `~/.config/de.tordenskjold/sailvault/settings.ini` (no secrets) |
+| Name of the last database, ETag and file digest of the last sync | `~/.config/de.tordenskjold/sailvault/settings.ini` (no secrets) |
+| Nextcloud app password, server, login name, path, pinned certificate | The entry "Nextcloud sync (SailVault)" of the database, encrypted like every entry; in RAM while a sync runs, also in Qt buffers that cannot be wiped |
+| Copy of the database on Nextcloud | The user's Nextcloud, encrypted like the database |
 | Copies the user saves, originals not yet deleted | Documents or Downloads, encrypted like the database; key files unencrypted |
 
 ## Architecture and trust boundaries
@@ -51,8 +53,8 @@ Rust core                 KDBX4 parsing and writing, KDF, encryption, search
   New entries cross it once, on the way in. Every string from the core is
   zeroized by `sv_string_free`.
 - QML never holds the database. It receives what is on screen.
-- The app runs in the Sailjail sandbox with the permissions `Documents` and
-  `Downloads` and no network permission.
+- The app runs in the Sailjail sandbox with the permissions `Documents`,
+  `Downloads` and `Internet`. Only the sync uses the network.
 
 ## Attackers and protections
 
@@ -205,10 +207,43 @@ Limits:
 - Account-restricted exports cannot be imported; the app asks for a
   password-protected export instead.
 
-### 6. Network attacker
+### 6. Network attacker and the Nextcloud server
 
-Not applicable before Phase 5: the app has no network permission and makes no
-network requests.
+Protected:
+
+- Requests go over https only, through Qt and OpenSSL with the certificates
+  the system trusts. A self-signed certificate is accepted only after the
+  user confirmed its SHA-256 fingerprint, and then only exactly that
+  certificate, for the errors a self-signed certificate raises; a changed
+  pinned certificate stops the sync with a warning. Certificate errors are
+  never ignored otherwise.
+- Redirects are not followed, since Qt 5.6 would send the credentials to
+  any redirect target; cookies are not kept.
+- The app password is sent as Basic auth on each request and never logged.
+  The Login Flow v2 poll token, which yields the app password, goes only to
+  the server the user entered, and the flow is refused if the server
+  points its poll or login address elsewhere.
+- Nextcloud only receives the encrypted KDBX file. A downloaded file is
+  untrusted input with the reader's bounds, and it is merged only if it
+  opens with the credentials of the open database. An older file served
+  again merges without removing newer changes.
+
+Limits:
+
+- A Nextcloud app password opens all files of the account, not only the
+  database. Anyone who can open the database sees it in the sync entry,
+  also in copies on the computer and on the server; it can be revoked in
+  Nextcloud.
+- The server, its admin or anyone who breaks into it gets the encrypted
+  file and can guess master passwords offline; the KDF parameters decide
+  the cost. File size and sync times are visible to the server.
+- A user who confirms a wrong fingerprint lets an attacker in the middle
+  read the app password and the encrypted file.
+- The app password exists in Qt buffers during a sync and cannot be wiped
+  there, like other Qt strings.
+- Deletions from the other copy are applied when the item did not change
+  afterwards; a server that serves a file with forged deletion records
+  could only do so with the credentials of the database.
 
 ## Known limits of the implementation
 
@@ -271,10 +306,8 @@ network requests.
 
 ## Changes in later phases
 
-- **Phase 5 (Nextcloud sync):** adds the `Internet` permission, a network
-  attacker (TLS through Qt and the system CA store) and the Nextcloud app
-  password, stored in Sailfish Secrets with device-lock protection only
-  (Phase 1 result). Nextcloud sees the encrypted file, never its content.
+- None planned at the moment; a quick unlock (Phase 7, opt-in, RAM only)
+  would add a section here.
 
 ## Reporting
 

@@ -38,6 +38,12 @@ then add sync through Nextcloud.
 - Import Bitwarden and Vaultwarden JSON exports, unencrypted or
   password-protected. Running the import again with a newer export merges
   the changes instead of creating duplicates.
+- Sync with your own Nextcloud: log in through the browser, and SailVault
+  keeps the file on the server and on the phone in step, merging changes
+  made on both sides the way KeePassXC does. Without a network, it works
+  on and syncs later.
+- Merge a copy of the database from a file, for example one from your
+  computer, without Nextcloud.
 
 SailVault writes back everything it reads, including data it does not
 use itself (attachments, custom data, plugin data), so KeePassXC sees the
@@ -57,8 +63,9 @@ same database after SailVault has saved it.
 
 ## Security
 
-SailVault has no network access. It never writes decrypted data to disk and
-asks for the full master password every time.
+SailVault connects to nothing but your own Nextcloud, and only once you set
+up sync. It never writes decrypted data to disk and asks for the full master
+password every time.
 
 - Decryption, key handling and parsing run in a Rust core that does no
   file or network I/O. Keys and decrypted values are wiped from memory
@@ -70,8 +77,14 @@ asks for the full master password every time.
   backups in the app's private directory.
 - Databases and key files live in SailVault's private directory, which
   other sandboxed apps cannot read. The sandbox gives SailVault access to
-  Documents and Downloads, and nothing else; it uses them to add files,
-  save copies and read imports.
+  Documents, Downloads and the internet, and nothing else; it uses them to
+  add files, save copies, read imports and sync.
+- Sync uses https only. A self-signed server certificate is accepted only
+  after you confirmed its fingerprint, and then only that certificate. The
+  Nextcloud app password is stored in the database itself, as the entry
+  "Nextcloud sync (SailVault)", so the master password protects it; you
+  can revoke it in Nextcloud at any time. Nextcloud only ever receives the
+  encrypted file.
 
 The [threat model](docs/threat-model.md) explains what SailVault protects
 against, what it does not, and the known limits (for example, Qt strings
@@ -96,8 +109,10 @@ install-local`.
 3. To take the database back to your computer, open the list of databases,
    long-press it and choose **Save copy**.
 
-Until sync arrives, the copy on the phone and the one on your computer are
-separate files: changes made on both sides are not merged.
+To keep both in step, set up sync with Nextcloud from the pulley menu of
+the entry list and open the same file in KeePassXC through the Nextcloud
+client on your computer. Without Nextcloud, **Merge with file** brings the
+changes of a newer copy from your computer into the phone's database.
 
 ## Moving from Bitwarden or Vaultwarden
 
