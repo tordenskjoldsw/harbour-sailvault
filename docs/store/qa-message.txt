@@ -1,0 +1,5 @@
+SailVault needs no account. To try it, pull down on the first page and choose "New database" (the master password needs at least 15 characters), then add entries from the pulley menu.
+
+Permissions: Documents and Downloads are used to add existing .kdbx databases and key files, save copies and read Bitwarden JSON exports the user picks. Internet is used only for the optional Nextcloud sync (Settings > Sync with Nextcloud), which needs the user's own Nextcloud server; the app works fully without it. The sync login opens the Nextcloud login page in the browser (Nextcloud Login Flow v2).
+
+Test databases with fake data are in the repository under core/tests/fixtures (password: sailvault-fixture).

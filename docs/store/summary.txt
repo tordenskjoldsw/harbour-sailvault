@@ -1,0 +1,1 @@
+Password manager for KeePass (KDBX 4) databases: works offline, syncs with your own Nextcloud and opens in KeePassXC on your computer. Imports Bitwarden exports.

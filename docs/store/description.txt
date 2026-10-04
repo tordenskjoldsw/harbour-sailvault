@@ -1,0 +1,27 @@
+SailVault keeps your passwords on your Sailfish phone in a standard KDBX 4 file, the format of KeePass and KeePassXC. No account, no server product, no lock-in: the same file opens in KeePassXC on your computer.
+
+Features
+- Open KDBX 4 databases with a master password, a key file or both (AES-256, ChaCha20 and Twofish; AES-KDF, Argon2d and Argon2id). Older KDBX 3.1 files are converted to KDBX 4 with Argon2id when you add them; the original file stays unchanged.
+- Create, edit, move and delete entries and groups, with entry history and recycle bin as in KeePassXC. Search titles, user names, URLs, notes and tags.
+- Create new databases with Argon2id at three protection levels.
+- Sync with your own Nextcloud: log in through the browser, and SailVault keeps the phone and the server in step, merging changes made on both sides. It works offline and syncs when the connection is back.
+- Merge a copy of the database from a file, for example one from your computer.
+- Import Bitwarden and Vaultwarden JSON exports, unencrypted or password-protected; a later import merges instead of creating duplicates.
+- Password generator. Copied fields are cleared from the clipboard after 30 seconds.
+- Locks after five minutes without use and after one minute in the background.
+
+Security
+- Decryption and key handling run in a Rust core; keys and decrypted data are wiped when the database locks. Nothing decrypted is ever written to disk.
+- The full master password is needed every time. Nothing is stored that unlocks the database without it.
+- Databases and key files live in SailVault's private storage, out of reach of other apps.
+- Every save goes to a temporary file, is verified by decrypting it again and only then replaces the database. The last three versions are kept as backups.
+- Network access only for the Nextcloud sync you set up: https only, self-signed certificates only after you confirm their fingerprint. The Nextcloud app password is stored inside your encrypted database.
+- No TOTP codes: keeping them next to the passwords would turn two factors into one. TOTP fields from KeePassXC are kept and shown as hidden fields.
+
+Permissions
+- Documents and Downloads: to add databases, save copies and read imports.
+- Internet: only for the Nextcloud sync you set up.
+
+SailVault is free software under the MIT license. The source code, the threat model and the security reviews are on GitHub.
+
+SailVault is an independent app. It is not affiliated with KeePass, KeePassXC, Bitwarden or Nextcloud.
