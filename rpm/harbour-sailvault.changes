@@ -1,3 +1,12 @@
+* Sun Oct 04 2026 Tobias Kaminski <instance_maintainer@protonmail.com> - 0.5.0-1
+- Sync with your own Nextcloud: log in through the browser or with an app
+  password, missing folders are created, changes from both sides are
+  merged, offline changes sync when the connection is back
+- Self-signed server certificates only after confirming their fingerprint
+- Merge a copy of the database from a file, with its own password and key
+  file if needed
+- New permission: Internet, used only for Nextcloud sync
+
 * Sun Oct 04 2026 Tobias Kaminski <instance_maintainer@protonmail.com> - 0.4.0-1
 - Add KDBX 3.1 databases: they are stored as KDBX 4 with Argon2id at a
   chosen protection level; the original file stays unchanged
