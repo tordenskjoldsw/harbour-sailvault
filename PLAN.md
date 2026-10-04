@@ -5,9 +5,9 @@ Status: 2026-10-04 - Phases 1 to 5 are complete. Released: 0.2.0
 pre-Harbour review fixes), 0.4.0 (KDBX 3.1 conversion), 0.5.0 (merging
 copies and Nextcloud sync), 0.5.1 (a shorter pulley menu with a settings
 page), 0.5.2 (fixes from the security review before the submission) and
-0.5.3 (fixes found while preparing the store listing),
-all tested on the Jolla Phone. Next: the
-Harbour submission (Phase 6).
+0.5.3 (fixes found while preparing the store listing), all tested on the
+Jolla Phone. 0.5.3 was submitted to Harbour on 2026-10-04 (Phase 6) and
+waits for QA.
 
 ## 1. Goal
 
@@ -515,6 +515,11 @@ Part B - sync with Nextcloud over WebDAV (section 8):
 ### Phase 6 - Harbour submission
 
 - Submit; fix QA findings before growing the feature set (criterion 1)
+- Submitted 2026-10-04: 0.5.3 for aarch64 and armv7hl (both clean in
+  `sfdk check`; armv7hl not tested on a device), category Utilities,
+  phone only, three screenshots and a cover image from a demo database
+  with made-up data. Texts in `docs/store/`, settings in
+  `docs/store-listing.md`, privacy policy in `PRIVACY.md`.
 
 ### Phase 7 - Differentiation
 

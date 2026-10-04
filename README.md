@@ -9,8 +9,8 @@ files, and I wanted my passwords on my phone in a format I control. It is
 written for Sailfish OS 5.2 and tested on the Jolla Phone (aarch64).
 
 **Status:** version 0.5.3. Reading, editing, importing, merging and sync
-through Nextcloud are done and tested on the device. Next, I will submit it
-to the Jolla Store (Harbour).
+through Nextcloud are done and tested on the device. It is submitted to the
+Jolla Store (Harbour) and waits for review.
 
 ## Features
 
