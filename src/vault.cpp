@@ -699,17 +699,29 @@ void Vault::onSaveFinished(int attempt, int status, const QByteArray &digest,
     resumePendingLock();
 }
 
-void Vault::mergeFile(const QString &path, const QString &password)
+void Vault::mergeFile(const QString &path)
 {
     if (busy() || path.isEmpty() || !database())
         return;
+    startMerge(path, new MergeTask(this, m_attempt, m_database.get(), path));
+}
+
+void Vault::mergeFileWith(const QString &path, const QString &password,
+                          const QString &keyFilePath, bool useStoredKeyFile)
+{
+    const QString keyFile = useStoredKeyFile && Databases::hasKeyFile(m_databaseName)
+        ? Databases::keyFilePath(m_databaseName) : keyFilePath;
+    if (busy() || path.isEmpty() || !database() || (password.isEmpty() && keyFile.isEmpty()))
+        return;
+    startMerge(path, new MergeTask(this, m_attempt, path, password.toUtf8(), keyFile));
+}
+
+void Vault::startMerge(const QString &path, MergeTask *task)
+{
     m_mergePath = path;
     m_mergedPath.clear();
-    const QString keyFile = !password.isEmpty() && Databases::hasKeyFile(m_databaseName)
-        ? Databases::keyFilePath(m_databaseName) : QString();
     setMerging(true);
-    QThreadPool::globalInstance()->start(new MergeTask(this, m_attempt, m_database.get(), path,
-                                                       password.toUtf8(), keyFile));
+    QThreadPool::globalInstance()->start(task);
 }
 
 void Vault::onMergeOpened(int attempt, int status, qulonglong handle)

@@ -114,11 +114,19 @@ void SaveTask::run()
                               Q_ARG(QByteArray, digest), Q_ARG(bool, replacedChangedFile));
 }
 
-MergeTask::MergeTask(Vault *vault, int attempt, const SvDatabase *database, const QString &path,
-                     QByteArray password, const QString &keyFilePath)
+MergeTask::MergeTask(Vault *vault, int attempt, const SvDatabase *database, const QString &path)
     : m_vault(vault)
     , m_attempt(attempt)
     , m_database(database)
+    , m_path(path)
+{
+}
+
+MergeTask::MergeTask(Vault *vault, int attempt, const QString &path, QByteArray password,
+                     const QString &keyFilePath)
+    : m_vault(vault)
+    , m_attempt(attempt)
+    , m_database(nullptr)
     , m_path(path)
     , m_password(std::move(password))
     , m_keyFilePath(keyFilePath)
@@ -135,7 +143,7 @@ void MergeTask::run()
     SvDatabase *opened = nullptr;
     QByteArray data;
     int status;
-    if (m_password.isEmpty()) {
+    if (m_database) {
         status = readBoundedFile(m_path, MaxDatabaseBytes, data);
         if (status == SV_OK)
             status = sv_database_open_like(m_database, bytePointer(data),

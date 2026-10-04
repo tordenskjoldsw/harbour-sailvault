@@ -57,14 +57,14 @@ private:
 };
 
 // Opens another copy of the database for a merge: with the credentials
-// the open database holds, or with password and keyFilePath when a
-// password is given. The vault keeps the handle alive and read-only until
-// the result arrives.
+// the open database holds, which keeps its handle alive and read-only until
+// the result arrives, or with the file's own password and key file.
 class MergeTask : public QRunnable
 {
 public:
-    MergeTask(Vault *vault, int attempt, const SvDatabase *database, const QString &path,
-              QByteArray password, const QString &keyFilePath);
+    MergeTask(Vault *vault, int attempt, const SvDatabase *database, const QString &path);
+    MergeTask(Vault *vault, int attempt, const QString &path, QByteArray password,
+              const QString &keyFilePath);
     ~MergeTask() override;
 
     void run() override;

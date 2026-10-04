@@ -1,5 +1,6 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
+import Sailfish.Pickers 1.0
 import harbour.sailvault 1.0
 import "../components"
 
@@ -13,6 +14,11 @@ Page {
     readonly property bool merging: vault.merging
     property bool needsPassword
     property bool triedPassword
+    // A KDBX file does not say whether a key file opens it, so the choice
+    // is offered: the stored one of this database by default, if it has one.
+    property bool useStoredKeyFile: databases.hasKeyFile(vault.databaseName)
+    property string keyFilePath
+    readonly property bool hasKeyFile: useStoredKeyFile || keyFilePath.length > 0
     property bool finished
     property string resultText
     property string errorText
@@ -50,10 +56,10 @@ Page {
     }
 
     function mergeWithPassword() {
-        if (passwordField.text.length > 0 && !merging) {
+        if ((passwordField.text.length > 0 || hasKeyFile) && !merging) {
             needsPassword = false
             triedPassword = true
-            vault.mergeFile(path, passwordField.text)
+            vault.mergeFileWith(path, passwordField.text, keyFilePath, useStoredKeyFile)
             passwordField.text = ""
         }
     }
@@ -61,10 +67,21 @@ Page {
     allowedOrientations: Orientation.All
     backNavigation: !merging
 
-    Component.onCompleted: vault.mergeFile(path, "")
+    Component.onCompleted: vault.mergeFile(path)
 
     RemorsePopup {
         id: remorse
+    }
+
+    Component {
+        id: keyFilePicker
+
+        FilePickerPage {
+            onSelectedContentPropertiesChanged: {
+                page.keyFilePath = selectedContentProperties.filePath
+                page.useStoredKeyFile = false
+            }
+        }
     }
 
     Connections {
@@ -80,6 +97,18 @@ Page {
     SilicaFlickable {
         anchors.fill: parent
         contentHeight: column.height + Theme.paddingLarge
+
+        PullDownMenu {
+            visible: page.needsPassword && page.hasKeyFile
+
+            MenuItem {
+                text: qsTr("Remove key file")
+                onClicked: {
+                    page.keyFilePath = ""
+                    page.useStoredKeyFile = false
+                }
+            }
+        }
 
         Column {
             id: column
@@ -101,7 +130,7 @@ Page {
 
             Paragraph {
                 visible: page.needsPassword
-                text: qsTr("This file does not open with the master password of this database. Enter the master password of the file.")
+                text: qsTr("This file does not open with the credentials of this database. Enter the master password of the file and choose its key file if it uses one.")
             }
 
             PasswordInput {
@@ -109,16 +138,24 @@ Page {
 
                 visible: page.needsPassword
                 label: qsTr("Master password of the file")
-                errorText: page.triedPassword ? qsTr("Wrong password") : ""
+                errorText: page.triedPassword ? qsTr("Wrong password or key file") : ""
                 focus: visible
-                EnterKey.enabled: text.length > 0
+                EnterKey.enabled: text.length > 0 || page.hasKeyFile
                 EnterKey.onClicked: page.mergeWithPassword()
+            }
+
+            ValueButton {
+                visible: page.needsPassword
+                label: qsTr("Key file")
+                value: page.keyFilePath.length > 0 ? page.fileName(page.keyFilePath)
+                     : page.useStoredKeyFile ? qsTr("Stored key file") : qsTr("None")
+                onClicked: pageStack.push(keyFilePicker)
             }
 
             Button {
                 anchors.horizontalCenter: parent.horizontalCenter
                 visible: page.needsPassword
-                enabled: passwordField.text.length > 0
+                enabled: passwordField.text.length > 0 || page.hasKeyFile
                 text: qsTr("Merge")
                 onClicked: page.mergeWithPassword()
             }

@@ -26,6 +26,8 @@
 // An edit changes the database in memory and starts a save at once. While
 // the save runs on a pool thread the handle is read-only for everyone, and
 // a lock request waits for the save to finish.
+class MergeTask;
+
 class Vault : public QObject
 {
     Q_OBJECT
@@ -125,11 +127,14 @@ public:
     // Deletes the addedOriginals, and nothing else.
     Q_INVOKABLE bool removeAddedOriginals();
     // Merges another copy of the database, such as the file from the
-    // computer, and saves. An empty password opens it with the credentials
-    // this database was unlocked with; otherwise password and the stored key
-    // file are used. Reports mergeFinished, mergeNeedsPassword or
+    // computer, opened with the credentials this database was unlocked
+    // with, and saves. Reports mergeFinished, mergeNeedsPassword or
     // mergeFailed.
-    Q_INVOKABLE void mergeFile(const QString &path, const QString &password);
+    Q_INVOKABLE void mergeFile(const QString &path);
+    // The same with the file's own credentials: password, empty for none,
+    // and the key file at keyFilePath, or the stored one of this database.
+    Q_INVOKABLE void mergeFileWith(const QString &path, const QString &password,
+                                   const QString &keyFilePath, bool useStoredKeyFile);
     // Deletes the file the last merge read, and nothing else.
     Q_INVOKABLE bool removeMergedFile();
     // Deletes a stored database with its key file and backups; refused
@@ -227,6 +232,7 @@ private:
     void setError(Error error);
     void setSaving(bool saving);
     void setMerging(bool merging);
+    void startMerge(const QString &path, MergeTask *task);
     // A save or merge task reads the handle; edits and locks wait.
     bool busy() const;
     // Runs a lock requested while busy.
