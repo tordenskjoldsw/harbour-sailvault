@@ -36,6 +36,7 @@ class Vault : public QObject
     Q_PROPERTY(QString databaseName READ databaseName WRITE setDatabaseName NOTIFY databaseNameChanged)
     Q_PROPERTY(QString sourcePath READ sourcePath WRITE setSourcePath NOTIFY sourcePathChanged)
     Q_PROPERTY(QString sourceKeyFilePath READ sourceKeyFilePath WRITE setSourceKeyFilePath NOTIFY sourceKeyFilePathChanged)
+    Q_PROPERTY(bool sourceFromKdbx3 READ sourceFromKdbx3 NOTIFY sourcePathChanged)
     Q_PROPERTY(QStringList addedOriginals READ addedOriginals NOTIFY addedOriginalsChanged)
     Q_PROPERTY(int clipboardClearSeconds READ clipboardClearSeconds CONSTANT)
 
@@ -96,6 +97,8 @@ public:
     void setSourcePath(const QString &path);
     QString sourceKeyFilePath() const;
     void setSourceKeyFilePath(const QString &path);
+    // The source is a KDBX 3 file, which addDatabase stores as KDBX 4.
+    bool sourceFromKdbx3() const;
     // The source files of the database added by the last unlock, until it
     // locks.
     QStringList addedOriginals() const;
@@ -110,8 +113,9 @@ public:
 
     Q_INVOKABLE void unlock(const QString &password);
     // Unlocks the source files and stores copies under name, which then
-    // becomes the database; an existing database is never replaced.
-    Q_INVOKABLE void addDatabase(const QString &name, const QString &password);
+    // becomes the database; an existing database is never replaced. A KDBX
+    // 3 source is stored as KDBX 4 with the key derivation kdfLevel.
+    Q_INVOKABLE void addDatabase(const QString &name, const QString &password, int kdfLevel);
     // Creates an empty database under name, protected by password with the
     // key derivation kdfLevel, and unlocks it; an existing database is never
     // replaced.
@@ -197,6 +201,7 @@ private:
     // sources when it adds one; returns the task's attempt.
     int startUnlocking(const QString &name, const QStringList &sources = QStringList());
     void setAddedOriginals(const QStringList &paths);
+    void clearSource();
     // Marks the in-memory change and starts the save.
     void commitChange();
     void lockAutomatically();
@@ -227,6 +232,7 @@ private:
     QStringList m_unlockingSources;
     QStringList m_addedOriginals;
     QString m_sourcePath;
+    bool m_sourceFromKdbx3 = false;
     QString m_sourceKeyFilePath;
     AutoLock m_autoLock;
     ClipboardGuard m_clipboard;

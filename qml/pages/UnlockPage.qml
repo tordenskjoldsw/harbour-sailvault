@@ -67,7 +67,7 @@ Page {
         if (!canUnlock || unlocking)
             return
         if (adding)
-            vault.addDatabase(addName, passwordField.text)
+            vault.addDatabase(addName, passwordField.text, kdfBox.kdfLevel)
         else
             vault.unlock(passwordField.text)
         passwordField.text = ""
@@ -194,6 +194,19 @@ Page {
                              ? qsTr("Not a valid name") : ""
                 EnterKey.iconSource: "image://theme/icon-m-enter-next"
                 EnterKey.onClicked: passwordField.focus = true
+            }
+
+            Paragraph {
+                visible: page.adding && vault.sourceFromKdbx3
+                font.pixelSize: Theme.fontSizeSmall
+                color: Theme.secondaryHighlightColor
+                text: qsTr("This file uses the older KDBX 3.1 format. SailVault stores it as KDBX 4 with the stronger Argon2id key derivation; KeePassXC opens it as before. The original file stays unchanged.")
+            }
+
+            ProtectionComboBox {
+                id: kdfBox
+
+                visible: page.adding && vault.sourceFromKdbx3
             }
 
             ValueButton {

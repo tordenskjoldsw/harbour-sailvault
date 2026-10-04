@@ -66,6 +66,7 @@ DISTFILES += \
     qml/harbour-sailvault.qml \
     qml/components/Paragraph.qml \
     qml/components/PasswordInput.qml \
+    qml/components/ProtectionComboBox.qml \
     qml/components/TwoLineLabel.qml \
     qml/cover/CoverPage.qml \
     qml/pages/AddedPage.qml \

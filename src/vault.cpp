@@ -52,6 +52,22 @@ Vault::Error errorFor(int status)
     }
 }
 
+bool isKdbx3File(const QString &path)
+{
+    QByteArray start;
+    uint16_t major = 0;
+    uint16_t minor = 0;
+    return readFileStart(path, 12, start) == SV_OK
+        && sv_kdbx_version(bytePointer(start), static_cast<size_t>(start.size()), &major, &minor)
+               == SV_OK
+        && major == 3;
+}
+
+bool isKdfLevel(int level)
+{
+    return level == Vault::KdfStandard || level == Vault::KdfHigh || level == Vault::KdfMaximum;
+}
+
 uint32_t characterClass(bool selected, int flag)
 {
     return selected ? static_cast<uint32_t>(flag) : 0u;
@@ -119,6 +135,7 @@ Vault::Vault(QObject *parent)
     // offered for adding.
     if (m_databaseName.isEmpty()) {
         m_sourcePath = settings.value(QStringLiteral("databasePath")).toString();
+        m_sourceFromKdbx3 = !m_sourcePath.isEmpty() && isKdbx3File(m_sourcePath);
         m_sourceKeyFilePath = settings.value(QStringLiteral("keyFilePath")).toString();
     }
 
@@ -183,8 +200,14 @@ void Vault::setSourcePath(const QString &path)
     if (m_state != Locked || m_sourcePath == path)
         return;
     m_sourcePath = path;
+    m_sourceFromKdbx3 = !path.isEmpty() && isKdbx3File(path);
     setError(NoError);
     emit sourcePathChanged();
+}
+
+bool Vault::sourceFromKdbx3() const
+{
+    return m_sourceFromKdbx3;
 }
 
 QString Vault::sourceKeyFilePath() const
@@ -258,23 +281,24 @@ void Vault::unlock(const QString &password)
                                                         keyFile, password.toUtf8()));
 }
 
-void Vault::addDatabase(const QString &name, const QString &password)
+void Vault::addDatabase(const QString &name, const QString &password, int kdfLevel)
 {
-    if (m_state != Locked || m_sourcePath.isEmpty() || !Databases::isValidName(name))
+    if (m_state != Locked || m_sourcePath.isEmpty() || !Databases::isValidName(name)
+        || !isKdfLevel(kdfLevel))
         return;
     QStringList sources(m_sourcePath);
     if (!m_sourceKeyFilePath.isEmpty())
         sources.append(m_sourceKeyFilePath);
     const int attempt = startUnlocking(name, sources);
     QThreadPool::globalInstance()->start(new AddTask(this, m_unlockCancelled, attempt, m_sourcePath,
-                                                     m_sourceKeyFilePath, name,
-                                                     password.toUtf8()));
+                                                     m_sourceKeyFilePath, name, password.toUtf8(),
+                                                     static_cast<uint32_t>(kdfLevel)));
 }
 
 void Vault::createDatabase(const QString &name, const QString &password, int kdfLevel)
 {
     if (m_state != Locked || !Databases::isValidName(name) || password.isEmpty()
-        || (kdfLevel != KdfStandard && kdfLevel != KdfHigh && kdfLevel != KdfMaximum))
+        || !isKdfLevel(kdfLevel))
         return;
     const int attempt = startUnlocking(name);
     QThreadPool::globalInstance()->start(new CreateTask(this, m_unlockCancelled, attempt, name,
@@ -309,14 +333,7 @@ void Vault::onUnlockFinished(int attempt, int status, qulonglong handle, const Q
     }
     // An added database is stored now; a pending add is abandoned once
     // another database opens.
-    if (!m_sourcePath.isEmpty()) {
-        m_sourcePath.clear();
-        emit sourcePathChanged();
-    }
-    if (!m_sourceKeyFilePath.isEmpty()) {
-        m_sourceKeyFilePath.clear();
-        emit sourceKeyFilePathChanged();
-    }
+    clearSource();
     setAddedOriginals(m_unlockingSources);
     saveSettings();
     setState(Unlocked);
@@ -735,6 +752,19 @@ void Vault::setAddedOriginals(const QStringList &paths)
         return;
     m_addedOriginals = paths;
     emit addedOriginalsChanged();
+}
+
+void Vault::clearSource()
+{
+    if (!m_sourcePath.isEmpty()) {
+        m_sourcePath.clear();
+        m_sourceFromKdbx3 = false;
+        emit sourcePathChanged();
+    }
+    if (!m_sourceKeyFilePath.isEmpty()) {
+        m_sourceKeyFilePath.clear();
+        emit sourceKeyFilePathChanged();
+    }
 }
 
 void Vault::saveSettings() const

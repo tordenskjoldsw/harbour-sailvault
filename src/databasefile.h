@@ -21,6 +21,8 @@ const qint64 MaxKeyFileBytes = 1024 * 1024;
 // size seen at open time, so a file swapped while reading cannot grow the
 // buffer and no partial copies are left behind by reallocation.
 int readBoundedFile(const QString &path, qint64 maxBytes, QByteArray &out);
+// Reads at most the first length bytes of a regular file.
+int readFileStart(const QString &path, int length, QByteArray &out);
 
 QByteArray fileDigest(const QByteArray &data);
 

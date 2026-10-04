@@ -116,7 +116,7 @@ void SaveTask::run()
 
 AddTask::AddTask(Vault *vault, std::shared_ptr<std::atomic_bool> cancelled, int attempt,
                  const QString &databasePath, const QString &keyFilePath, const QString &name,
-                 QByteArray password)
+                 QByteArray password, uint32_t kdfLevel)
     : m_vault(vault)
     , m_cancelled(std::move(cancelled))
     , m_attempt(attempt)
@@ -124,6 +124,7 @@ AddTask::AddTask(Vault *vault, std::shared_ptr<std::atomic_bool> cancelled, int 
     , m_keyFilePath(keyFilePath)
     , m_name(name)
     , m_password(std::move(password))
+    , m_kdfLevel(kdfLevel)
 {
 }
 
@@ -140,6 +141,16 @@ void AddTask::run()
     int status = readAndOpen(m_databasePath, m_keyFilePath, m_password, &opened, data, keyFile);
     CoreDatabase database(opened);
     secureWipe(m_password);
+    bool fromKdbx3 = false;
+    if (status == SV_OK)
+        status = sv_database_from_kdbx3(database.get(), &fromKdbx3);
+    CoreBytes converted;
+    if (status == SV_OK && fromKdbx3) {
+        status = sv_database_set_kdf_level(database.get(), m_kdfLevel);
+        if (status == SV_OK)
+            status = sv_database_save(database.get(), converted.out());
+    }
+    const QByteArray file = fromKdbx3 ? converted.view() : data;
     // Only a database the credentials open is stored, together with the key
     // file that opened it. The key file goes first: a database without it
     // could not be opened, a leftover key file is removed by the next claim.
@@ -149,8 +160,8 @@ void AddTask::run()
         status = createNewFile(Databases::keyFilePath(m_name), keyFile);
     secureWipe(keyFile);
     if (status == SV_OK)
-        status = createNewFile(Databases::databasePath(m_name), data);
-    deliver(m_vault, *m_cancelled, m_attempt, status, std::move(database), fileDigest(data));
+        status = createNewFile(Databases::databasePath(m_name), file);
+    deliver(m_vault, *m_cancelled, m_attempt, status, std::move(database), fileDigest(file));
 }
 
 CreateTask::CreateTask(Vault *vault, std::shared_ptr<std::atomic_bool> cancelled, int attempt,

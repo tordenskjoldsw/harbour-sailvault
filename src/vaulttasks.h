@@ -57,20 +57,20 @@ private:
 };
 
 // Reads a database file and its key file from outside the app, unlocks
-// them and stores copies under name. The unlocked handle is handed over like
-// an unlock does.
+// them and stores copies under name; a KDBX 3 file is stored as the KDBX 4
+// file it becomes, with Argon2id at kdfLevel. The unlocked handle is handed
+// over like an unlock does.
 class AddTask : public QRunnable
 {
 public:
     AddTask(Vault *vault, std::shared_ptr<std::atomic_bool> cancelled, int attempt,
             const QString &databasePath, const QString &keyFilePath, const QString &name,
-            QByteArray password);
+            QByteArray password, uint32_t kdfLevel);
     ~AddTask() override;
 
     void run() override;
 
 private:
-    int add(SvDatabase **database, QByteArray &digest);
 
     Vault *m_vault;
     std::shared_ptr<std::atomic_bool> m_cancelled;
@@ -79,6 +79,7 @@ private:
     QString m_keyFilePath;
     QString m_name;
     QByteArray m_password;
+    uint32_t m_kdfLevel;
 };
 
 // Creates the database and stores its file under name, then hands over the

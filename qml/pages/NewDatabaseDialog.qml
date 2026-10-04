@@ -1,6 +1,5 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
-import harbour.sailvault 1.0
 import "../components"
 
 // Asks for the name and the master password of a new database. The caller
@@ -15,8 +14,7 @@ Dialog {
     readonly property bool validName: databases.isValidName(name)
     readonly property bool exists: databases.exists(name)
     property alias password: passwordField.text
-    readonly property int kdfLevel: [Vault.KdfStandard, Vault.KdfHigh,
-                                     Vault.KdfMaximum][kdfBox.currentIndex]
+    readonly property int kdfLevel: kdfBox.kdfLevel
 
     canAccept: validName && !exists
                && passwordField.text.length >= minimumPasswordLength
@@ -52,16 +50,8 @@ Dialog {
                 EnterKey.onClicked: passwordField.focus = true
             }
 
-            ComboBox {
+            ProtectionComboBox {
                 id: kdfBox
-
-                label: qsTr("Protection")
-                description: qsTr("Higher levels make each guess of the master password cost an attacker more. The time applies to every unlock and save on this phone.")
-                menu: ContextMenu {
-                    MenuItem { text: qsTr("Standard (about 1 s)") }
-                    MenuItem { text: qsTr("High (about 2.5 s)") }
-                    MenuItem { text: qsTr("Maximum (about 5 s)") }
-                }
             }
 
             PasswordInput {

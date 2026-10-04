@@ -133,41 +133,70 @@ bool backUp(const QString &databasePath, const QByteArray &current, const QStrin
     return syncDirectory(backupDir);
 }
 
+// Only regular files are read: a FIFO planted under a picked name would
+// block, and O_NONBLOCK keeps the open itself from blocking on one.
+int openRegularFile(const QString &path, struct stat &info)
+{
+    const int fd = ::open(QFile::encodeName(path).constData(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+    if (fd >= 0 && (::fstat(fd, &info) != 0 || !S_ISREG(info.st_mode))) {
+        ::close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+bool readFully(int fd, char *data, qint64 length)
+{
+    qint64 done = 0;
+    while (done < length) {
+        const ssize_t read = ::read(fd, data + done, static_cast<size_t>(length - done));
+        if (read < 0 && errno == EINTR)
+            continue;
+        if (read <= 0)
+            return false;
+        done += read;
+    }
+    return true;
+}
+
 } // namespace
 
 // POSIX calls instead of QFile, whose read buffer keeps an unwiped copy of
-// small files such as key files. Only regular files are read: a FIFO
-// planted under a picked name would block, and O_NONBLOCK keeps the open
-// itself from blocking on one.
+// small files such as key files.
 int readBoundedFile(const QString &path, qint64 maxBytes, QByteArray &out)
 {
-    const int fd = ::open(QFile::encodeName(path).constData(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+    struct stat info;
+    const int fd = openRegularFile(path, info);
     if (fd < 0)
         return StatusFileUnreadable;
-    struct stat info;
     int status = SV_OK;
-    if (::fstat(fd, &info) != 0 || !S_ISREG(info.st_mode)) {
-        status = StatusFileUnreadable;
-    } else if (info.st_size > maxBytes) {
+    if (info.st_size > maxBytes) {
         status = StatusTooLarge;
     } else {
         out = QByteArray(static_cast<int>(info.st_size), Qt::Uninitialized);
-        qint64 done = 0;
-        while (done < info.st_size) {
-            const ssize_t length = ::read(fd, out.data() + done,
-                                          static_cast<size_t>(info.st_size - done));
-            if (length < 0 && errno == EINTR)
-                continue;
-            if (length <= 0) {
-                secureWipe(out);
-                status = StatusFileUnreadable;
-                break;
-            }
-            done += length;
+        if (!readFully(fd, out.data(), info.st_size)) {
+            secureWipe(out);
+            status = StatusFileUnreadable;
         }
     }
     ::close(fd);
     return status;
+}
+
+int readFileStart(const QString &path, int length, QByteArray &out)
+{
+    struct stat info;
+    const int fd = openRegularFile(path, info);
+    if (fd < 0)
+        return StatusFileUnreadable;
+    out = QByteArray(static_cast<int>(qMin<qint64>(length, info.st_size)), Qt::Uninitialized);
+    const bool read = readFully(fd, out.data(), out.size());
+    ::close(fd);
+    if (!read) {
+        out.clear();
+        return StatusFileUnreadable;
+    }
+    return SV_OK;
 }
 
 QByteArray fileDigest(const QByteArray &data)
