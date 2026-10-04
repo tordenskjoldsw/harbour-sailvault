@@ -56,6 +56,28 @@ private:
     QByteArray m_expectedDigest;
 };
 
+// Opens another copy of the database for a merge: with the credentials
+// the open database holds, or with password and keyFilePath when a
+// password is given. The vault keeps the handle alive and read-only until
+// the result arrives.
+class MergeTask : public QRunnable
+{
+public:
+    MergeTask(Vault *vault, int attempt, const SvDatabase *database, const QString &path,
+              QByteArray password, const QString &keyFilePath);
+    ~MergeTask() override;
+
+    void run() override;
+
+private:
+    Vault *m_vault;
+    int m_attempt;
+    const SvDatabase *m_database;
+    QString m_path;
+    QByteArray m_password;
+    QString m_keyFilePath;
+};
+
 // Reads a database file and its key file from outside the app, unlocks
 // them and stores copies under name; a KDBX 3 file is stored as the KDBX 4
 // file it becomes, with Argon2id at kdfLevel. The unlocked handle is handed

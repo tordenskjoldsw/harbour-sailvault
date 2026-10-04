@@ -77,6 +77,7 @@ DISTFILES += \
     qml/pages/EntryPage.qml \
     qml/pages/EntryDialog.qml \
     qml/pages/HistoryPage.qml \
+    qml/pages/MergePage.qml \
     qml/pages/MovePage.qml \
     qml/pages/NewDatabaseDialog.qml \
     qml/pages/SaveCopyDialog.qml \

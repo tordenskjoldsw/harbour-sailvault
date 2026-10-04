@@ -32,6 +32,7 @@ class Vault : public QObject
     Q_PROPERTY(State state READ state NOTIFY stateChanged)
     Q_PROPERTY(Error error READ error NOTIFY errorChanged)
     Q_PROPERTY(bool saving READ saving NOTIFY savingChanged)
+    Q_PROPERTY(bool merging READ merging NOTIFY mergingChanged)
     Q_PROPERTY(bool dirty READ dirty NOTIFY dirtyChanged)
     Q_PROPERTY(QString databaseName READ databaseName WRITE setDatabaseName NOTIFY databaseNameChanged)
     Q_PROPERTY(QString sourcePath READ sourcePath WRITE setSourcePath NOTIFY sourcePathChanged)
@@ -87,6 +88,7 @@ public:
     State state() const;
     Error error() const;
     bool saving() const;
+    bool merging() const;
     // Changes in memory that no save has written yet.
     bool dirty() const;
     // The stored database that unlock opens (see Databases).
@@ -122,6 +124,14 @@ public:
     Q_INVOKABLE void createDatabase(const QString &name, const QString &password, int kdfLevel);
     // Deletes the addedOriginals, and nothing else.
     Q_INVOKABLE bool removeAddedOriginals();
+    // Merges another copy of the database, such as the file from the
+    // computer, and saves. An empty password opens it with the credentials
+    // this database was unlocked with; otherwise password and the stored key
+    // file are used. Reports mergeFinished, mergeNeedsPassword or
+    // mergeFailed.
+    Q_INVOKABLE void mergeFile(const QString &path, const QString &password);
+    // Deletes the file the last merge read, and nothing else.
+    Q_INVOKABLE bool removeMergedFile();
     // Deletes a stored database with its key file and backups; refused
     // unless locked.
     Q_INVOKABLE bool removeDatabase(const QString &name);
@@ -179,6 +189,10 @@ signals:
     // The entries or groups changed; lists reload.
     void contentChanged();
     void saveFailed();
+    void mergingChanged();
+    void mergeFinished(int added, int modified, int moved, int deleted);
+    void mergeNeedsPassword();
+    void mergeFailed(int error);
     // The file had been changed by another program since it was unlocked;
     // that version is kept in the backups.
     void savedOverChangedFile();
@@ -187,6 +201,7 @@ private slots:
     void onUnlockFinished(int attempt, int status, qulonglong handle, const QByteArray &digest);
     void onSaveFinished(int attempt, int status, const QByteArray &digest,
                         bool replacedChangedFile);
+    void onMergeOpened(int attempt, int status, qulonglong handle);
 
 private:
     // One edit of the database; sets changed when it changed anything.
@@ -211,6 +226,11 @@ private:
     void setState(State state);
     void setError(Error error);
     void setSaving(bool saving);
+    void setMerging(bool merging);
+    // A save or merge task reads the handle; edits and locks wait.
+    bool busy() const;
+    // Runs a lock requested while busy.
+    void resumePendingLock();
     void setDirty(bool dirty);
     void saveSettings() const;
 
@@ -220,6 +240,9 @@ private:
     State m_state = Locked;
     Error m_error = NoError;
     bool m_saving = false;
+    bool m_merging = false;
+    QString m_mergePath;
+    QString m_mergedPath;
     bool m_dirty = false;
     // A lock requested during a save waits for it.
     enum class PendingLock { None, Manual, Automatic };

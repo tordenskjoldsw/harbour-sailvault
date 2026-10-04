@@ -114,6 +114,47 @@ void SaveTask::run()
                               Q_ARG(QByteArray, digest), Q_ARG(bool, replacedChangedFile));
 }
 
+MergeTask::MergeTask(Vault *vault, int attempt, const SvDatabase *database, const QString &path,
+                     QByteArray password, const QString &keyFilePath)
+    : m_vault(vault)
+    , m_attempt(attempt)
+    , m_database(database)
+    , m_path(path)
+    , m_password(std::move(password))
+    , m_keyFilePath(keyFilePath)
+{
+}
+
+MergeTask::~MergeTask()
+{
+    secureWipe(m_password);
+}
+
+void MergeTask::run()
+{
+    SvDatabase *opened = nullptr;
+    QByteArray data;
+    int status;
+    if (m_password.isEmpty()) {
+        status = readBoundedFile(m_path, MaxDatabaseBytes, data);
+        if (status == SV_OK)
+            status = sv_database_open_like(m_database, bytePointer(data),
+                                           static_cast<size_t>(data.size()), &opened);
+    } else {
+        QByteArray keyFile;
+        status = readAndOpen(m_path, m_keyFilePath, m_password, &opened, data, keyFile);
+        secureWipe(keyFile);
+    }
+    CoreDatabase database(opened);
+    secureWipe(m_password);
+    // The vault waits for this result before it locks, so delivery cannot
+    // fail; a database that is no longer wanted is freed by the slot.
+    if (QMetaObject::invokeMethod(m_vault, "onMergeOpened", Qt::QueuedConnection,
+                                  Q_ARG(int, m_attempt), Q_ARG(int, status),
+                                  Q_ARG(qulonglong, reinterpret_cast<qulonglong>(database.get()))))
+        database.release();
+}
+
 AddTask::AddTask(Vault *vault, std::shared_ptr<std::atomic_bool> cancelled, int attempt,
                  const QString &databasePath, const QString &keyFilePath, const QString &name,
                  QByteArray password, uint32_t kdfLevel)

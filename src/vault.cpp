@@ -170,6 +170,16 @@ bool Vault::saving() const
     return m_saving;
 }
 
+bool Vault::merging() const
+{
+    return m_merging;
+}
+
+bool Vault::busy() const
+{
+    return m_saving || m_merging;
+}
+
 bool Vault::dirty() const
 {
     return m_dirty;
@@ -344,8 +354,8 @@ void Vault::lock()
 {
     m_autoLock.stop();
     m_clipboard.clear();
-    if (m_saving) {
-        // The save task still reads the handle; onSaveFinished locks.
+    if (busy()) {
+        // The task still reads the handle; its result handler locks.
         if (m_pendingLock == PendingLock::None)
             m_pendingLock = PendingLock::Manual;
         return;
@@ -360,6 +370,7 @@ void Vault::lock()
     m_database.reset();
     m_fileDigest.clear();
     setAddedOriginals(QStringList());
+    m_mergedPath.clear();
     // An earlier save error no longer applies; changes it kept from being
     // written are gone now, which the unlock page reports.
     setError(m_dirty ? ChangesDiscarded : NoError);
@@ -383,7 +394,7 @@ void Vault::lockAutomatically()
 {
     if (m_state != Unlocked)
         return;
-    if (m_saving) {
+    if (busy()) {
         m_pendingLock = PendingLock::Automatic;
         return;
     }
@@ -640,7 +651,7 @@ bool Vault::deleteItem(const QString &itemId)
 
 bool Vault::change(const Edit &edit)
 {
-    if (m_saving || !database())
+    if (busy() || !database())
         return false;
     m_clipboard.keepCopiedValue();
     bool changed = false;
@@ -660,7 +671,7 @@ void Vault::commitChange()
 
 void Vault::save()
 {
-    if (m_state != Unlocked || m_saving || !m_dirty || !m_database)
+    if (m_state != Unlocked || busy() || !m_dirty || !m_database)
         return;
     setSaving(true);
     QThreadPool::globalInstance()->start(
@@ -685,6 +696,62 @@ void Vault::onSaveFinished(int attempt, int status, const QByteArray &digest,
     // After the result is applied: the end of a save lets a pending import
     // merge, which starts the next save against the new digest.
     setSaving(false);
+    resumePendingLock();
+}
+
+void Vault::mergeFile(const QString &path, const QString &password)
+{
+    if (busy() || path.isEmpty() || !database())
+        return;
+    m_mergePath = path;
+    m_mergedPath.clear();
+    const QString keyFile = !password.isEmpty() && Databases::hasKeyFile(m_databaseName)
+        ? Databases::keyFilePath(m_databaseName) : QString();
+    setMerging(true);
+    QThreadPool::globalInstance()->start(new MergeTask(this, m_attempt, m_database.get(), path,
+                                                       password.toUtf8(), keyFile));
+}
+
+void Vault::onMergeOpened(int attempt, int status, qulonglong handle)
+{
+    CoreDatabase source(reinterpret_cast<SvDatabase *>(handle));
+    setMerging(false);
+    // A lock requested meanwhile wins over the merge.
+    if (attempt == m_attempt && m_state == Unlocked && m_pendingLock == PendingLock::None) {
+        SvMergeChanges changes{0, 0, 0, 0, false};
+        if (status == SV_OK) {
+            m_clipboard.keepCopiedValue();
+            status = sv_database_merge(m_database.get(), source.get(), &changes);
+        }
+        if (status == SV_INVALID_CREDENTIALS) {
+            emit mergeNeedsPassword();
+        } else if (status != SV_OK) {
+            emit mergeFailed(errorFor(status));
+        } else {
+            m_mergedPath = m_mergePath;
+            if (changes.added || changes.modified || changes.moved || changes.deleted
+                || changes.metadata)
+                commitChange();
+            emit mergeFinished(static_cast<int>(changes.added), static_cast<int>(changes.modified),
+                               static_cast<int>(changes.moved), static_cast<int>(changes.deleted));
+        }
+    }
+    source.reset();
+    resumePendingLock();
+}
+
+bool Vault::removeMergedFile()
+{
+    const bool removed = !m_mergedPath.isEmpty() && QFile::remove(m_mergedPath);
+    m_mergedPath.clear();
+    return removed;
+}
+
+void Vault::resumePendingLock()
+{
+    // A save the merge started handles the lock when it finishes.
+    if (busy())
+        return;
     const PendingLock pending = m_pendingLock;
     m_pendingLock = PendingLock::None;
     switch (pending) {
@@ -728,6 +795,14 @@ void Vault::setError(Error error)
         return;
     m_error = error;
     emit errorChanged();
+}
+
+void Vault::setMerging(bool merging)
+{
+    if (m_merging == merging)
+        return;
+    m_merging = merging;
+    emit mergingChanged();
 }
 
 void Vault::setSaving(bool saving)

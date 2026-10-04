@@ -12,15 +12,22 @@ Page {
     // Nothing new is added in the recycle bin, as in KeePassXC.
     property bool inRecycleBin: vault.inRecycleBin(groupId)
     property string recycleBinId: vault.recycleBinId()
-    // The file picker closes itself after a selection; the import page opens
-    // once this page is back.
+    // The file pickers close themselves after a selection; the import or
+    // merge page opens once this page is back.
     property string pendingImportPath
+    property string pendingMergePath
 
     onStatusChanged: {
-        if (status === PageStatus.Active && pendingImportPath.length > 0) {
+        if (status !== PageStatus.Active)
+            return
+        if (pendingImportPath.length > 0) {
             var path = pendingImportPath
             pendingImportPath = ""
             pageStack.push(Qt.resolvedUrl("ImportPage.qml"), { "path": path })
+        } else if (pendingMergePath.length > 0) {
+            var mergePath = pendingMergePath
+            pendingMergePath = ""
+            pageStack.push(Qt.resolvedUrl("MergePage.qml"), { "path": mergePath })
         }
     }
 
@@ -53,6 +60,15 @@ Page {
         FilePickerPage {
             nameFilters: ["*.json"]
             onSelectedContentPropertiesChanged: page.pendingImportPath = selectedContentProperties.filePath
+        }
+    }
+
+    Component {
+        id: mergePicker
+
+        FilePickerPage {
+            nameFilters: ["*.kdbx"]
+            onSelectedContentPropertiesChanged: page.pendingMergePath = selectedContentProperties.filePath
         }
     }
 
@@ -109,6 +125,12 @@ Page {
             MenuItem {
                 text: qsTr("Lock")
                 onClicked: vault.lock()
+            }
+            MenuItem {
+                text: qsTr("Merge with file")
+                visible: page.groupId.length === 0
+                enabled: !vault.saving && !vault.merging
+                onClicked: pageStack.push(mergePicker)
             }
             MenuItem {
                 text: qsTr("Import from Bitwarden")
