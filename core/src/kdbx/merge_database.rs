@@ -18,6 +18,10 @@
 //!
 //! Unlike KeePassXC, the combined history is always kept and trimmed to this
 //! database's limits.
+//!
+//! A copy unlocked with other credentials is someone else's database, such
+//! as a shared one: entries taken from it lose the sync marker, so it can
+//! never set where this database syncs to.
 
 use std::collections::{HashMap, HashSet};
 
@@ -29,6 +33,7 @@ use super::layout::{
     child_or_append, history_item, insert_entry, is_element, set_entry_previous_parent,
     set_group_previous_parent, time_text,
 };
+use super::sync_settings::remove_sync_marker;
 use super::time::parse_kdbx_time;
 use super::tree::{
     descend, descend_mut, entry_path, group_height, group_path, parent_uuid, remove_at,
@@ -65,6 +70,7 @@ impl Database {
             binary_map: HashMap::new(),
             limits: self.history_limits(),
             previous_parent: self.header().minor_version >= 1 || other.header().minor_version >= 1,
+            strip_sync_marker: !self.has_key_of(other),
             changes: MergeChanges::default(),
         };
         merge.groups(other.document())?;
@@ -92,6 +98,7 @@ struct Merge<'a> {
     binary_map: HashMap<usize, usize>,
     limits: HistoryLimits,
     previous_parent: bool,
+    strip_sync_marker: bool,
     changes: MergeChanges,
 }
 
@@ -474,6 +481,9 @@ impl Merge<'_> {
     fn adopt(&mut self, element: &Element) -> Element {
         let mut copy = element.clone();
         self.remap_attachments(&mut copy);
+        if self.strip_sync_marker {
+            remove_sync_marker(&mut copy);
+        }
         copy
     }
 

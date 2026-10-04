@@ -109,6 +109,36 @@ fn is_sync_entry(entry: &Entry<'_>) -> bool {
     })
 }
 
+/// Removes the marker from an entry and its history items, dropping a
+/// CustomData element it leaves empty.
+pub(super) fn remove_sync_marker(entry: &mut Element) {
+    for child in &mut entry.children {
+        let Node::Element(child) = child else {
+            continue;
+        };
+        match child.name.as_str() {
+            "CustomData" => child.children.retain(|item| match item {
+                Node::Element(item) => item
+                    .child("Key")
+                    .map_or(true, |key| *key.text() != *MARKER_KEY),
+                Node::Text(_) => true,
+            }),
+            "History" => {
+                for item in &mut child.children {
+                    if let Node::Element(item) = item {
+                        remove_sync_marker(item);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    entry.children.retain(|child| match child {
+        Node::Element(data) if data.name == "CustomData" => data.elements().next().is_some(),
+        _ => true,
+    });
+}
+
 /// Adds the marker where KeePassXC writes entry CustomData: before the
 /// history.
 fn mark(entry: &mut Element) {
@@ -185,6 +215,37 @@ mod tests {
         // Setting up again creates a new entry.
         let again = database.set_sync_settings(&settings("y"), NOW + 2).unwrap();
         assert_ne!(again, uuid);
+    }
+
+    fn database_with(password: &[u8]) -> Database {
+        let key = CompositeKey::new(Some(password), None).unwrap();
+        Database::create(key, "Test", KdfLevel::Standard, NOW).unwrap()
+    }
+
+    #[test]
+    fn a_merged_foreign_database_cannot_bring_sync_settings() {
+        let mut foreign = database_with(b"someone else");
+        let uuid = foreign.set_sync_settings(&settings("theirs"), NOW).unwrap();
+        foreign
+            .update_entry(&uuid, &[("Notes", "edited")], NOW + 1)
+            .unwrap();
+        let mut mine = database_with(b"mine");
+        mine.merge_from(&foreign).unwrap();
+        let merged = mine.entry(&uuid).expect("the entry itself is merged");
+        assert!(merged.element().child("CustomData").is_none());
+        assert!(merged
+            .history()
+            .all(|item| item.element().child("CustomData").is_none()));
+        assert!(mine.sync_entry().is_none());
+    }
+
+    #[test]
+    fn a_merged_copy_of_the_same_database_keeps_its_sync_settings() {
+        let mut other_phone = database_with(b"mine");
+        other_phone.set_sync_settings(&settings("x"), NOW).unwrap();
+        let mut mine = database_with(b"mine");
+        mine.merge_from(&other_phone).unwrap();
+        assert!(mine.sync_entry().is_some());
     }
 
     #[test]

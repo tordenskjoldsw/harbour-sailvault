@@ -47,6 +47,13 @@ impl Database {
         Self::open(data, self.key.clone())
     }
 
+    /// Whether `other` was unlocked with the same credentials. Both keys are
+    /// local and the result is not observable from outside, so a plain
+    /// comparison is fine.
+    pub(super) fn has_key_of(&self, other: &Database) -> bool {
+        self.key.as_bytes() == other.key.as_bytes()
+    }
+
     /// A database from its parts, checked like an opened one.
     pub(super) fn from_parts(
         header: OuterHeader,
