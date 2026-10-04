@@ -5,10 +5,9 @@ on 2026-10-03. Since then: new databases created in the app, an About page
 with the license notices, the pre-Harbour review
 (`docs/security-review-2026-10-harbour.md`) with all its findings fixed,
 and databases and key files kept in the app's private storage; all tested
-on the Jolla Phone. Next: release 0.3.0 and submit it to Harbour (Phase 6,
-ahead of Phase 5). The scope of Phase 5 (Nextcloud sync) is still to be
-discussed. KDBX 3.1 files are detected and reported; the decision
-(section 14) is open.
+on the Jolla Phone; released as 0.3.0 on 2026-10-04. Next: submit it to
+Harbour (Phase 6, ahead of Phase 5). The scope of Phase 5 (Nextcloud sync) is still to be
+discussed.
 
 ## 1. Goal
 
@@ -87,7 +86,7 @@ Lessons from the Bitwarden clients (desk research 2026-10-03), still valid:
   fields, but no codes are generated. A separate authenticator app may be a
   later, independent project.
 
-Reading KDBX 3.1 is an open decision, see section 14.
+KDBX 3.1 is detected and reported, not read (section 14).
 
 ## 5. Architecture
 
@@ -134,7 +133,7 @@ Fingerprint: not reachable from a Harbour app. The Phase 1 spike showed that
 Sailfish Secrets only offers a Confirm dialog for DeviceLock collections on
 the Jolla Phone; direct access to the fingerprint daemon or polkit is not
 allowed in Harbour. Details: `docs/spike-results.md`. A convenience unlock
-may be reconsidered after the MVP (section 14).
+is only possible as an opt-in quick unlock in RAM (section 14).
 
 ## 7. Data safety design
 
@@ -479,6 +478,7 @@ for files changed on the phone.
 
 - Attachments UI, key file management
 - Warning with a time estimate for slow KDF parameters (section 14)
+- Optional quick unlock with a PIN, in RAM only (section 14)
 - Published threat model, reproducible CI builds, signed releases
 - Translations
 
@@ -508,29 +508,29 @@ for files changed on the phone.
 
 ## 14. Open decisions
 
-- **KDBX 3.1 support** (needed before the reader is written):
-  - (a) KDBX4 only. 3.1 files get a clear message: "Please convert to KDBX 4
-    in KeePassXC".
-  - (b) Read 3.1 too and save as KDBX 4.0, which KeePassXC opens without
-    trouble.
-  - Who has 3.1 files: anyone whose database uses AES-KDF and no KDBX4-only
-    features (for example created with `keepassxc-cli db-create`) or comes
-    from an older KeePass version; KeePassXC keeps the old format then. The KeePassXC GUI defaults to
-    KDBX4, so most KeePassXC users have KDBX4 files.
-  - Cost of (b): 3.1 differs internally (block format, stream encryption of
-    protected fields, attachment storage). Extra work, easier switch.
-  - Recommendation: (a) now, (b) later as its own step. The 3.1 fixtures
-    already exist for that.
-- Convenience unlock after the MVP: none, PIN, or the Secrets Confirm dialog
-
-Proposed in review (2026-10-03), not decided:
-
-- Decide the convenience unlock before Phase 3 instead of after the MVP. It
-  affects how key material is held in RAM, and typing the full master
-  password on every unlock pushes users toward weaker passwords.
+None at the moment.
 
 Decided:
 
+- KDBX 3.1 (2026-10-04): KDBX 4 only for now; 3.1 files are detected and
+  get the message "Please convert to KDBX 4 in KeePassXC". A 3.1 reader
+  that saves as KDBX 4.0 comes only if users ask for it. 3.1 differs
+  internally (block format, Salsa20 for protected fields, attachments in
+  the metadata), which is a lot of new parsing code for few users: the
+  KeePassXC GUI has written KDBX 4 by default for years, and 3.1 files come
+  from old KeePass versions or `keepassxc-cli db-create`. The 3.1 fixtures
+  stay for the detection test and a later reader.
+- Convenience unlock (2026-10-04): the full master password (and key file)
+  is always the default. Never stored: no key wrapped with a PIN on disk
+  (an offline guess takes seconds) and no key in Sailfish Secrets behind
+  the device code (it would unlock without the master password, and
+  Secrets passes data over D-Bus where it cannot be wiped). A quick unlock
+  may come later (Phase 7) only as an explicit opt-in, off by default and
+  in RAM only: on lock the decrypted content is wiped and only the derived
+  key stays in the core; a short PIN reopens; one wrong attempt, a time
+  limit or quitting the app wipes the key and asks for the master password
+  again. Remaining risk: code running in the app's process or reading its
+  memory gets the key.
 - KDF parameter bounds (2026-10-04): the hard limits stay. Argon2 memory
   above 1 GiB risks running out of memory on the phone; the other limits
   (1000 iterations, 64 GiB of memory times iterations, 1e9 AES-KDF rounds)
