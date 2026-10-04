@@ -5,10 +5,11 @@ on 2026-10-03. Since then: new databases created in the app, an About page
 with the license notices, the pre-Harbour review
 (`docs/security-review-2026-10-harbour.md`) with all its findings fixed,
 and databases and key files kept in the app's private storage; all tested
-on the Jolla Phone; released as 0.3.0 on 2026-10-04. Next: 0.4.0
-converts KDBX 3.1 files when they are added (section 14), and 0.3.0 is
-submitted to Harbour (Phase 6, ahead of Phase 5). The scope of Phase 5
-(Nextcloud sync) is still to be discussed.
+on the Jolla Phone; released as 0.3.0 on 2026-10-04. 0.4.0 (2026-10-04)
+converts KDBX 3.1 files to KDBX 4 with Argon2id when they are added
+(section 14), also device-tested. Next: submit to Harbour (Phase 6, ahead
+of Phase 5). The scope of Phase 5 (Nextcloud sync) is still to be
+discussed.
 
 ## 1. Goal
 
