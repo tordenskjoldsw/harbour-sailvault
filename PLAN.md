@@ -536,6 +536,13 @@ Decided:
   and saved with Argon2id, export from `keepassxc-cli` with the same
   content as the originals, apart from the time format and the attachment
   location.
+  Device test on the Jolla Phone (2026-10-04): both 3.1 fixtures were added
+  from Downloads, one with its key file; the page named the format and
+  offered the protection level, a wrong password stored nothing, and both
+  reopen after a lock. The stored files, fetched from the phone, are KDBX
+  4.0 with Argon2id (3 rounds, 256 MiB); `keepassxc-cli` opens them, the
+  key file copy is identical to the original, and the attachment exports
+  unchanged. The app has no attachment view yet (Phase 7).
 - Convenience unlock (2026-10-04): the full master password (and key file)
   is always the default. Never stored: no key wrapped with a PIN on disk
   (an offline guess takes seconds) and no key in Sailfish Secrets behind
