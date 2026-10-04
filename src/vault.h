@@ -32,18 +32,12 @@ class Vault : public QObject
     Q_PROPERTY(Error error READ error NOTIFY errorChanged)
     Q_PROPERTY(bool saving READ saving NOTIFY savingChanged)
     Q_PROPERTY(bool dirty READ dirty NOTIFY dirtyChanged)
-    Q_PROPERTY(QString databasePath READ databasePath WRITE setDatabasePath NOTIFY databasePathChanged)
-    Q_PROPERTY(QString keyFilePath READ keyFilePath WRITE setKeyFilePath NOTIFY keyFilePathChanged)
+    Q_PROPERTY(QString databaseName READ databaseName WRITE setDatabaseName NOTIFY databaseNameChanged)
+    Q_PROPERTY(QString sourcePath READ sourcePath WRITE setSourcePath NOTIFY sourcePathChanged)
+    Q_PROPERTY(QString sourceKeyFilePath READ sourceKeyFilePath WRITE setSourceKeyFilePath NOTIFY sourceKeyFilePathChanged)
     Q_PROPERTY(int clipboardClearSeconds READ clipboardClearSeconds CONSTANT)
 
 public:
-    // Where a new database file is created.
-    enum Location {
-        Documents,
-        Downloads
-    };
-    Q_ENUM(Location)
-
     enum State {
         Locked,
         Unlocking,
@@ -93,10 +87,14 @@ public:
     bool saving() const;
     // Changes in memory that no save has written yet.
     bool dirty() const;
-    QString databasePath() const;
-    void setDatabasePath(const QString &path);
-    QString keyFilePath() const;
-    void setKeyFilePath(const QString &path);
+    // The stored database that unlock opens (see Databases).
+    QString databaseName() const;
+    void setDatabaseName(const QString &name);
+    // A database file and key file outside the app that addDatabase stores.
+    QString sourcePath() const;
+    void setSourcePath(const QString &path);
+    QString sourceKeyFilePath() const;
+    void setSourceKeyFilePath(const QString &path);
     int clipboardClearSeconds() const;
 
     // Null when locked, when a lock deadline has passed or while a requested
@@ -107,14 +105,13 @@ public:
     bool addImport(const SvImport *import, int &added, int &updated);
 
     Q_INVOKABLE void unlock(const QString &password);
-    // Creates an empty database file name.kdbx in location, protected by
-    // password with the key derivation kdfLevel, and unlocks it; an existing
-    // file is never replaced.
-    Q_INVOKABLE void createDatabase(int location, const QString &name, const QString &password,
-                                    int kdfLevel);
-    // The path createDatabase would write, or empty for an invalid name.
-    Q_INVOKABLE QString newDatabasePath(int location, const QString &name) const;
-    Q_INVOKABLE bool databaseExists(int location, const QString &name) const;
+    // Unlocks the source files and stores copies under name, which then
+    // becomes the database; an existing database is never replaced.
+    Q_INVOKABLE void addDatabase(const QString &name, const QString &password);
+    // Creates an empty database under name, protected by password with the
+    // key derivation kdfLevel, and unlocks it; an existing database is never
+    // replaced.
+    Q_INVOKABLE void createDatabase(const QString &name, const QString &password, int kdfLevel);
     Q_INVOKABLE void lock();
     Q_INVOKABLE void clearError();
     // version -1 is the current state of an entry, 0 and up its history
@@ -161,8 +158,9 @@ signals:
     void errorChanged();
     void savingChanged();
     void dirtyChanged();
-    void databasePathChanged();
-    void keyFilePathChanged();
+    void databaseNameChanged();
+    void sourcePathChanged();
+    void sourceKeyFilePathChanged();
     void lockedAutomatically();
     // The entries or groups changed; lists reload.
     void contentChanged();
@@ -173,8 +171,6 @@ signals:
 
 private slots:
     void onUnlockFinished(int attempt, int status, qulonglong handle, const QByteArray &digest);
-    void onCreateFinished(int attempt, int status, qulonglong handle, const QByteArray &digest,
-                          const QString &path);
     void onSaveFinished(int attempt, int status, const QByteArray &digest,
                         bool replacedChangedFile);
 
@@ -187,10 +183,9 @@ private:
     bool change(const Edit &edit);
     MoveResult move(const Edit &edit);
     QString readField(const QString &entryId, const QString &key, int version) const;
-    // Whether the result of an unlock or create attempt is still wanted and
-    // succeeded; a failure is reported and locks.
-    bool acceptsResult(int attempt, int status);
-    void finishUnlock(CoreDatabase database, const QByteArray &digest);
+    // Enters Unlocking for a task that opens the database name; returns the
+    // task's attempt.
+    int startUnlocking(const QString &name);
     // Marks the in-memory change and starts the save.
     void commitChange();
     void lockAutomatically();
@@ -215,8 +210,11 @@ private:
     PendingLock m_pendingLock = PendingLock::None;
     // SHA-256 of the file as it was unlocked or last saved.
     QByteArray m_fileDigest;
-    QString m_databasePath;
-    QString m_keyFilePath;
+    QString m_databaseName;
+    // The database the running unlock, add or create task opens.
+    QString m_unlockingName;
+    QString m_sourcePath;
+    QString m_sourceKeyFilePath;
     AutoLock m_autoLock;
     ClipboardGuard m_clipboard;
 };

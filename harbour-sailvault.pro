@@ -8,6 +8,7 @@ HEADERS += \
     src/clipboardguard.h \
     src/corebridge.h \
     src/databasefile.h \
+    src/databases.h \
     src/entrylistmodel.h \
     src/importer.h \
     src/vault.h \
@@ -17,6 +18,7 @@ SOURCES += \
     src/autolock.cpp \
     src/clipboardguard.cpp \
     src/databasefile.cpp \
+    src/databases.cpp \
     src/entrylistmodel.cpp \
     src/importer.cpp \
     src/main.cpp \
@@ -66,6 +68,7 @@ DISTFILES += \
     qml/components/PasswordInput.qml \
     qml/components/TwoLineLabel.qml \
     qml/cover/CoverPage.qml \
+    qml/pages/DatabasesPage.qml \
     qml/pages/EntryListPage.qml \
     qml/pages/GroupDialog.qml \
     qml/pages/ImportPage.qml \

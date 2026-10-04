@@ -196,7 +196,7 @@ int writeDatabaseFile(const QString &path, const QByteArray &data, const QString
     return SV_OK;
 }
 
-int createDatabaseFile(const QString &path, const QByteArray &data)
+int createNewFile(const QString &path, const QByteArray &data)
 {
     const QByteArray name = QFile::encodeName(path);
     if (::access(name.constData(), F_OK) == 0)

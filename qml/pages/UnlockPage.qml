@@ -10,13 +10,32 @@ Page {
     readonly property bool isUnlockPage: true
     readonly property bool unlocking: vault.state === Vault.Unlocking
     property bool creating
+    // A file from outside the app is unlocked and stored, instead of a
+    // stored database.
+    readonly property bool adding: vault.sourcePath.length > 0
+    property var storedNames: databases.names()
+    readonly property string addName: nameField.text.trim()
+    readonly property bool addNameTaken: databases.exists(addName)
+    readonly property bool canUnlock: adding ? databases.isValidName(addName) && !addNameTaken
+                                             : vault.databaseName.length > 0
     readonly property bool passwordError: vault.error === Vault.WrongCredentials
-    readonly property bool keyFileError: vault.error === Vault.InvalidKeyFile
+    readonly property bool keyFileError: adding && vault.error === Vault.InvalidKeyFile
     readonly property bool databaseError: vault.error !== Vault.NoError && !passwordError
                                           && !keyFileError
 
     function fileName(path) {
         return path.substring(path.lastIndexOf("/") + 1)
+    }
+
+    function baseName(path) {
+        var name = fileName(path)
+        var dot = name.lastIndexOf(".")
+        return dot > 0 ? name.substring(0, dot) : name
+    }
+
+    function cancelAdding() {
+        vault.sourcePath = ""
+        vault.sourceKeyFilePath = ""
     }
 
     function errorText(error) {
@@ -30,7 +49,7 @@ Page {
         case Vault.TooLarge: return qsTr("The database or its settings exceed the supported limits")
         case Vault.FileUnreadable: return qsTr("The file cannot be read")
         case Vault.FileUnwritable: return qsTr("The file cannot be written")
-        case Vault.FileExists: return qsTr("A file with this name already exists")
+        case Vault.FileExists: return qsTr("A database with this name already exists")
         case Vault.ChangesDiscarded: return qsTr("Changes that could not be saved were discarded when the database locked")
         default: return ""
         }
@@ -40,16 +59,18 @@ Page {
         var dialog = pageStack.push(Qt.resolvedUrl("NewDatabaseDialog.qml"))
         dialog.accepted.connect(function() {
             page.creating = true
-            vault.createDatabase(dialog.location, dialog.fileName, dialog.password,
-                                 dialog.kdfLevel)
+            vault.createDatabase(dialog.name, dialog.password, dialog.kdfLevel)
         })
     }
 
     function unlock() {
-        if (vault.databasePath.length > 0 && !unlocking) {
+        if (!canUnlock || unlocking)
+            return
+        if (adding)
+            vault.addDatabase(addName, passwordField.text)
+        else
             vault.unlock(passwordField.text)
-            passwordField.text = ""
-        }
+        passwordField.text = ""
     }
 
     allowedOrientations: Orientation.All
@@ -57,12 +78,18 @@ Page {
     // Swiping back from the entry list leaves the database, so it locks
     // instead of staying open behind a page that looks locked.
     onStatusChanged: {
-        if (status === PageStatus.Active && vault.state === Vault.Unlocked)
-            vault.lock()
+        if (status === PageStatus.Active) {
+            if (vault.state === Vault.Unlocked)
+                vault.lock()
+            storedNames = databases.names()
+        }
     }
+
+    Component.onCompleted: nameField.text = baseName(vault.sourcePath)
 
     Connections {
         target: vault
+        onSourcePathChanged: nameField.text = page.baseName(vault.sourcePath)
         onStateChanged: {
             if (vault.state !== Vault.Unlocking)
                 page.creating = false
@@ -74,17 +101,17 @@ Page {
     }
 
     Component {
-        id: databasePicker
+        id: sourcePicker
         FilePickerPage {
             nameFilters: ["*.kdbx"]
-            onSelectedContentPropertiesChanged: vault.databasePath = selectedContentProperties.filePath
+            onSelectedContentPropertiesChanged: vault.sourcePath = selectedContentProperties.filePath
         }
     }
 
     Component {
         id: keyFilePicker
         FilePickerPage {
-            onSelectedContentPropertiesChanged: vault.keyFilePath = selectedContentProperties.filePath
+            onSelectedContentPropertiesChanged: vault.sourceKeyFilePath = selectedContentProperties.filePath
         }
     }
 
@@ -104,9 +131,18 @@ Page {
                 onClicked: page.createDatabase()
             }
             MenuItem {
-                visible: vault.keyFilePath.length > 0
+                text: qsTr("Add existing database")
+                onClicked: pageStack.push(sourcePicker)
+            }
+            MenuItem {
+                visible: page.adding
+                text: qsTr("Cancel adding")
+                onClicked: page.cancelAdding()
+            }
+            MenuItem {
+                visible: page.adding && vault.sourceKeyFilePath.length > 0
                 text: qsTr("Remove key file")
-                onClicked: vault.keyFilePath = ""
+                onClicked: vault.sourceKeyFilePath = ""
             }
         }
 
@@ -123,18 +159,41 @@ Page {
             }
 
             ValueButton {
+                visible: page.adding || page.storedNames.length > 0
                 label: qsTr("Database")
-                value: vault.databasePath.length > 0 ? page.fileName(vault.databasePath)
-                                                     : qsTr("Select")
-                descriptionColor: Theme.errorColor
-                description: page.databaseError ? page.errorText(vault.error) : ""
-                onClicked: pageStack.push(databasePicker)
+                value: page.adding ? page.fileName(vault.sourcePath)
+                                   : vault.databaseName.length > 0 ? vault.databaseName
+                                                                   : qsTr("Select")
+                descriptionColor: page.databaseError ? Theme.errorColor
+                                                     : Theme.secondaryHighlightColor
+                description: page.databaseError ? page.errorText(vault.error)
+                           : page.adding ? qsTr("SailVault keeps its own copy, which other apps cannot read")
+                           : databases.hasKeyFile(vault.databaseName) ? qsTr("Opens with its stored key file")
+                           : ""
+                onClicked: pageStack.push(page.adding ? sourcePicker
+                                                      : Qt.resolvedUrl("DatabasesPage.qml"))
+            }
+
+            TextField {
+                id: nameField
+
+                visible: page.adding
+                width: parent.width
+                label: qsTr("Name in SailVault")
+                placeholderText: label
+                errorHighlight: page.addName.length > 0 && !page.canUnlock
+                description: page.addNameTaken ? qsTr("A database with this name already exists")
+                           : page.addName.length > 0 && !databases.isValidName(page.addName)
+                             ? qsTr("Not a valid name") : ""
+                EnterKey.iconSource: "image://theme/icon-m-enter-next"
+                EnterKey.onClicked: passwordField.focus = true
             }
 
             ValueButton {
+                visible: page.adding
                 label: qsTr("Key file")
-                value: vault.keyFilePath.length > 0 ? page.fileName(vault.keyFilePath)
-                                                    : qsTr("None")
+                value: vault.sourceKeyFilePath.length > 0 ? page.fileName(vault.sourceKeyFilePath)
+                                                          : qsTr("None")
                 descriptionColor: Theme.errorColor
                 description: page.keyFileError ? page.errorText(vault.error) : ""
                 onClicked: pageStack.push(keyFilePicker)
@@ -145,7 +204,7 @@ Page {
 
                 label: qsTr("Master password")
                 errorText: page.passwordError ? page.errorText(vault.error) : ""
-                EnterKey.enabled: vault.databasePath.length > 0
+                EnterKey.enabled: page.canUnlock
                 EnterKey.onClicked: page.unlock()
                 onTextChanged: {
                     if (text.length > 0)
@@ -155,22 +214,30 @@ Page {
 
             Button {
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: qsTr("Unlock")
-                enabled: vault.databasePath.length > 0
+                text: page.adding ? qsTr("Add and unlock") : qsTr("Unlock")
+                enabled: page.canUnlock
                 onClicked: page.unlock()
             }
 
             Button {
                 anchors.horizontalCenter: parent.horizontalCenter
-                visible: vault.databasePath.length === 0
+                visible: !page.adding && page.storedNames.length === 0
                 text: qsTr("New database")
                 onClicked: page.createDatabase()
+            }
+
+            Button {
+                anchors.horizontalCenter: parent.horizontalCenter
+                visible: !page.adding && page.storedNames.length === 0
+                text: qsTr("Add existing database")
+                onClicked: pageStack.push(sourcePicker)
             }
         }
     }
 
     BusyLabel {
         running: page.unlocking
-        text: page.creating ? qsTr("Creating database") : qsTr("Unlocking")
+        text: page.creating ? qsTr("Creating database")
+                            : page.adding ? qsTr("Adding database") : qsTr("Unlocking")
     }
 }

@@ -3,24 +3,22 @@ import Sailfish.Silica 1.0
 import harbour.sailvault 1.0
 import "../components"
 
-// Asks for the file name, the folder and the master password of a new
-// database. The caller creates it from these properties when accepted.
+// Asks for the name and the master password of a new database. The caller
+// creates it from these properties when accepted.
 Dialog {
     id: dialog
 
     // NIST SP 800-63B rev. 4 asks for 15 characters when a password is the
     // only factor, as the master password is here.
     readonly property int minimumPasswordLength: 15
-    readonly property string fileName: nameField.text.trim()
-    readonly property int location: locationBox.currentIndex === 1 ? Vault.Downloads
-                                                                    : Vault.Documents
-    readonly property string path: vault.newDatabasePath(location, fileName)
-    readonly property bool exists: vault.databaseExists(location, fileName)
+    readonly property string name: nameField.text.trim()
+    readonly property bool validName: databases.isValidName(name)
+    readonly property bool exists: databases.exists(name)
     property alias password: passwordField.text
     readonly property int kdfLevel: [Vault.KdfStandard, Vault.KdfHigh,
                                      Vault.KdfMaximum][kdfBox.currentIndex]
 
-    canAccept: path.length > 0 && !exists
+    canAccept: validName && !exists
                && passwordField.text.length >= minimumPasswordLength
                && repeatField.text === passwordField.text
     allowedOrientations: Orientation.All
@@ -43,25 +41,15 @@ Dialog {
                 id: nameField
 
                 width: parent.width
-                label: qsTr("File name")
+                label: qsTr("Name")
                 placeholderText: label
                 text: qsTr("Passwords")
-                errorHighlight: dialog.fileName.length > 0 && (dialog.path.length === 0 || dialog.exists)
-                description: dialog.exists ? qsTr("A file with this name already exists")
-                           : dialog.fileName.length > 0 && dialog.path.length === 0
-                             ? qsTr("Not a valid file name") : dialog.fileName + ".kdbx"
+                errorHighlight: dialog.name.length > 0 && (!dialog.validName || dialog.exists)
+                description: dialog.exists ? qsTr("A database with this name already exists")
+                           : dialog.name.length > 0 && !dialog.validName ? qsTr("Not a valid name")
+                           : ""
                 EnterKey.iconSource: "image://theme/icon-m-enter-next"
                 EnterKey.onClicked: passwordField.focus = true
-            }
-
-            ComboBox {
-                id: locationBox
-
-                label: qsTr("Folder")
-                menu: ContextMenu {
-                    MenuItem { text: qsTr("Documents") }
-                    MenuItem { text: qsTr("Downloads") }
-                }
             }
 
             ComboBox {

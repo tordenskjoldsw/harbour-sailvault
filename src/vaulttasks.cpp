@@ -1,20 +1,59 @@
 #include "vaulttasks.h"
 
+#include <QFile>
 #include <QMetaObject>
-#include <QStandardPaths>
 
 #include "corebridge.h"
 #include "databasefile.h"
+#include "databases.h"
 #include "vault.h"
 
 namespace {
 
-// Backups live in the app's private data directory, never next to the
-// database, which may be shared or synced.
-QString backupDirectory()
+int openWith(const QByteArray &data, const QByteArray &keyFile, const QByteArray &password,
+             bool hasPassword, SvDatabase **database)
 {
-    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
-        + QStringLiteral("/backups");
+    return sv_database_open(bytePointer(data), static_cast<size_t>(data.size()),
+                            bytePointer(password), static_cast<size_t>(password.size()),
+                            hasPassword, bytePointer(keyFile), static_cast<size_t>(keyFile.size()),
+                            database);
+}
+
+// Reads the database and the key file, if there is one, and runs the KDF.
+// The caller wipes keyFile.
+int readAndOpen(const QString &databasePath, const QString &keyFilePath,
+                const QByteArray &password, SvDatabase **database, QByteArray &data,
+                QByteArray &keyFile)
+{
+    int status = readBoundedFile(databasePath, MaxDatabaseBytes, data);
+    if (status == SV_OK && !keyFilePath.isEmpty())
+        status = readBoundedFile(keyFilePath, MaxKeyFileBytes, keyFile);
+    if (status != SV_OK)
+        return status;
+    // KDBX distinguishes "no password" from an empty one. Like KeePassXC,
+    // an empty field means no password, and a failed attempt is retried
+    // with an empty password.
+    status = openWith(data, keyFile, password, !password.isEmpty(), database);
+    if (status == SV_INVALID_CREDENTIALS && password.isEmpty())
+        status = openWith(data, keyFile, password, true, database);
+    return status;
+}
+
+// Hands the unlocked handle to the vault, or frees it when the result is no
+// longer wanted. A later save compares the file against digest to notice
+// changes by other programs.
+void deliver(Vault *vault, const std::atomic_bool &cancelled, int attempt, int status,
+             CoreDatabase database, const QByteArray &digest)
+{
+    if (status != SV_OK)
+        database.reset();
+    const bool delivered = !cancelled
+        && QMetaObject::invokeMethod(vault, "onUnlockFinished", Qt::QueuedConnection,
+                                     Q_ARG(int, attempt), Q_ARG(int, status),
+                                     Q_ARG(qulonglong, reinterpret_cast<qulonglong>(database.get())),
+                                     Q_ARG(QByteArray, status == SV_OK ? digest : QByteArray()));
+    if (delivered)
+        database.release();
 }
 
 } // namespace
@@ -39,53 +78,14 @@ UnlockTask::~UnlockTask()
 void UnlockTask::run()
 {
     SvDatabase *opened = nullptr;
-    QByteArray digest;
-    const int status = open(&opened, digest);
+    QByteArray data;
+    QByteArray keyFile;
+    const int status = readAndOpen(m_databasePath, m_keyFilePath, m_password, &opened, data,
+                                   keyFile);
     CoreDatabase database(opened);
     secureWipe(m_password);
-
-    const bool delivered = !*m_cancelled
-        && QMetaObject::invokeMethod(m_vault, "onUnlockFinished", Qt::QueuedConnection,
-                                     Q_ARG(int, m_attempt), Q_ARG(int, status),
-                                     Q_ARG(qulonglong, reinterpret_cast<qulonglong>(database.get())),
-                                     Q_ARG(QByteArray, digest));
-    if (delivered)
-        database.release();
-}
-
-int UnlockTask::open(SvDatabase **database, QByteArray &digest)
-{
-    QByteArray data;
-    int status = readBoundedFile(m_databasePath, MaxDatabaseBytes, data);
-    if (status != SV_OK)
-        return status;
-    QByteArray keyFile;
-    if (!m_keyFilePath.isEmpty()) {
-        status = readBoundedFile(m_keyFilePath, MaxKeyFileBytes, keyFile);
-        if (status != SV_OK)
-            return status;
-    }
-    // KDBX distinguishes "no password" from an empty one. Like KeePassXC,
-    // an empty field means no password, and a failed attempt is retried
-    // with an empty password.
-    status = openWith(data, keyFile, !m_password.isEmpty(), database);
-    if (status == SV_INVALID_CREDENTIALS && m_password.isEmpty())
-        status = openWith(data, keyFile, true, database);
     secureWipe(keyFile);
-    // A later save compares the file against this digest to notice
-    // changes by other programs.
-    if (status == SV_OK)
-        digest = fileDigest(data);
-    return status;
-}
-
-int UnlockTask::openWith(const QByteArray &data, const QByteArray &keyFile, bool hasPassword,
-                         SvDatabase **database) const
-{
-    return sv_database_open(bytePointer(data), static_cast<size_t>(data.size()),
-                            bytePointer(m_password), static_cast<size_t>(m_password.size()),
-                            hasPassword, bytePointer(keyFile), static_cast<size_t>(keyFile.size()),
-                            database);
+    deliver(m_vault, *m_cancelled, m_attempt, status, std::move(database), fileDigest(data));
 }
 
 SaveTask::SaveTask(Vault *vault, int attempt, const SvDatabase *database,
@@ -105,7 +105,7 @@ void SaveTask::run()
     QByteArray digest;
     bool replacedChangedFile = false;
     if (status == SV_OK) {
-        status = writeDatabaseFile(m_databasePath, file.view(), backupDirectory(),
+        status = writeDatabaseFile(m_databasePath, file.view(), Databases::backupDirectory(),
                                    m_expectedDigest, replacedChangedFile);
         digest = fileDigest(file.view());
     }
@@ -114,14 +114,51 @@ void SaveTask::run()
                               Q_ARG(QByteArray, digest), Q_ARG(bool, replacedChangedFile));
 }
 
-CreateTask::CreateTask(Vault *vault, std::shared_ptr<std::atomic_bool> cancelled, int attempt,
-                       const QString &path, const QString &name, QByteArray password,
-                       uint32_t kdfLevel)
+AddTask::AddTask(Vault *vault, std::shared_ptr<std::atomic_bool> cancelled, int attempt,
+                 const QString &databasePath, const QString &keyFilePath, const QString &name,
+                 QByteArray password)
     : m_vault(vault)
     , m_cancelled(std::move(cancelled))
     , m_attempt(attempt)
-    , m_path(path)
-    , m_name(name.toUtf8())
+    , m_databasePath(databasePath)
+    , m_keyFilePath(keyFilePath)
+    , m_name(name)
+    , m_password(std::move(password))
+{
+}
+
+AddTask::~AddTask()
+{
+    secureWipe(m_password);
+}
+
+void AddTask::run()
+{
+    SvDatabase *opened = nullptr;
+    QByteArray data;
+    QByteArray keyFile;
+    int status = readAndOpen(m_databasePath, m_keyFilePath, m_password, &opened, data, keyFile);
+    CoreDatabase database(opened);
+    secureWipe(m_password);
+    // Only a database the credentials open is stored, together with the key
+    // file that opened it. The key file goes first: a database without it
+    // could not be opened, a leftover key file is removed by the next claim.
+    if (status == SV_OK)
+        status = Databases::claim(m_name);
+    if (status == SV_OK && !keyFile.isEmpty())
+        status = createNewFile(Databases::keyFilePath(m_name), keyFile);
+    secureWipe(keyFile);
+    if (status == SV_OK)
+        status = createNewFile(Databases::databasePath(m_name), data);
+    deliver(m_vault, *m_cancelled, m_attempt, status, std::move(database), fileDigest(data));
+}
+
+CreateTask::CreateTask(Vault *vault, std::shared_ptr<std::atomic_bool> cancelled, int attempt,
+                       const QString &name, QByteArray password, uint32_t kdfLevel)
+    : m_vault(vault)
+    , m_cancelled(std::move(cancelled))
+    , m_attempt(attempt)
+    , m_name(name)
     , m_password(std::move(password))
     , m_kdfLevel(kdfLevel)
 {
@@ -136,24 +173,16 @@ void CreateTask::run()
 {
     SvDatabase *created = nullptr;
     CoreBytes file;
+    const QByteArray name = m_name.toUtf8();
     int status = sv_database_create(bytePointer(m_password), static_cast<size_t>(m_password.size()),
-                                    bytePointer(m_name), static_cast<size_t>(m_name.size()),
+                                    bytePointer(name), static_cast<size_t>(name.size()),
                                     m_kdfLevel, unixSeconds(), &created, file.out());
     CoreDatabase database(created);
     secureWipe(m_password);
-    QByteArray digest;
-    if (status == SV_OK) {
-        status = createDatabaseFile(m_path, file.view());
-        digest = fileDigest(file.view());
-    }
-    if (status != SV_OK)
-        database.reset();
-
-    const bool delivered = !*m_cancelled
-        && QMetaObject::invokeMethod(m_vault, "onCreateFinished", Qt::QueuedConnection,
-                                     Q_ARG(int, m_attempt), Q_ARG(int, status),
-                                     Q_ARG(qulonglong, reinterpret_cast<qulonglong>(database.get())),
-                                     Q_ARG(QByteArray, digest), Q_ARG(QString, m_path));
-    if (delivered)
-        database.release();
+    if (status == SV_OK)
+        status = Databases::claim(m_name);
+    if (status == SV_OK)
+        status = createNewFile(Databases::databasePath(m_name), file.view());
+    deliver(m_vault, *m_cancelled, m_attempt, status, std::move(database),
+            fileDigest(file.view()));
 }

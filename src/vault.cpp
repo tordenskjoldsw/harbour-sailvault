@@ -3,7 +3,6 @@
 #include <QByteArray>
 #include <QCoreApplication>
 #include <QDateTime>
-#include <QFileInfo>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QThreadPool>
@@ -11,6 +10,7 @@
 
 #include "corebridge.h"
 #include "databasefile.h"
+#include "databases.h"
 #include "vaulttasks.h"
 
 namespace {
@@ -113,8 +113,15 @@ Vault::Vault(QObject *parent)
     , m_unlockCancelled(std::make_shared<std::atomic_bool>(false))
 {
     const QSettings settings(settingsPath(), QSettings::IniFormat);
-    m_databasePath = settings.value(QStringLiteral("databasePath")).toString();
-    m_keyFilePath = settings.value(QStringLiteral("keyFilePath")).toString();
+    const QString name = settings.value(QStringLiteral("databaseName")).toString();
+    if (Databases::exists(name))
+        m_databaseName = name;
+    // Versions before 0.3.0 opened the files where they were; they are
+    // offered for adding.
+    if (m_databaseName.isEmpty()) {
+        m_sourcePath = settings.value(QStringLiteral("databasePath")).toString();
+        m_sourceKeyFilePath = settings.value(QStringLiteral("keyFilePath")).toString();
+    }
 
     connect(&m_autoLock, &AutoLock::expired, this, &Vault::lockAutomatically);
     connect(qApp, &QCoreApplication::aboutToQuit, this, &Vault::lock);
@@ -152,33 +159,47 @@ bool Vault::dirty() const
     return m_dirty;
 }
 
-QString Vault::databasePath() const
+QString Vault::databaseName() const
 {
-    return m_databasePath;
+    return m_databaseName;
 }
 
-void Vault::setDatabasePath(const QString &path)
+void Vault::setDatabaseName(const QString &name)
 {
-    // Saves write to this path, so it changes only while locked.
-    if (m_state != Locked || m_databasePath == path)
+    // Saves write to this database, so it changes only while locked.
+    if (m_state != Locked || m_databaseName == name || (!name.isEmpty() && !Databases::exists(name)))
         return;
-    m_databasePath = path;
+    m_databaseName = name;
     setError(NoError);
-    emit databasePathChanged();
+    emit databaseNameChanged();
 }
 
-QString Vault::keyFilePath() const
+QString Vault::sourcePath() const
 {
-    return m_keyFilePath;
+    return m_sourcePath;
 }
 
-void Vault::setKeyFilePath(const QString &path)
+void Vault::setSourcePath(const QString &path)
 {
-    if (m_state != Locked || m_keyFilePath == path)
+    if (m_state != Locked || m_sourcePath == path)
         return;
-    m_keyFilePath = path;
+    m_sourcePath = path;
     setError(NoError);
-    emit keyFilePathChanged();
+    emit sourcePathChanged();
+}
+
+QString Vault::sourceKeyFilePath() const
+{
+    return m_sourceKeyFilePath;
+}
+
+void Vault::setSourceKeyFilePath(const QString &path)
+{
+    if (m_state != Locked || m_sourceKeyFilePath == path)
+        return;
+    m_sourceKeyFilePath = path;
+    setError(NoError);
+    emit sourceKeyFilePathChanged();
 }
 
 int Vault::clipboardClearSeconds() const
@@ -195,87 +216,75 @@ const SvDatabase *Vault::database()
 
 void Vault::unlock(const QString &password)
 {
-    if (m_state != Locked || m_databasePath.isEmpty())
+    if (m_state != Locked || !Databases::exists(m_databaseName))
         return;
+    const QString keyFile = Databases::hasKeyFile(m_databaseName)
+        ? Databases::keyFilePath(m_databaseName) : QString();
+    const int attempt = startUnlocking(m_databaseName);
+    // The task owns the only copy of the password bytes and wipes it.
+    QThreadPool::globalInstance()->start(new UnlockTask(this, m_unlockCancelled, attempt,
+                                                        Databases::databasePath(m_databaseName),
+                                                        keyFile, password.toUtf8()));
+}
+
+void Vault::addDatabase(const QString &name, const QString &password)
+{
+    if (m_state != Locked || m_sourcePath.isEmpty() || !Databases::isValidName(name))
+        return;
+    const int attempt = startUnlocking(name);
+    QThreadPool::globalInstance()->start(new AddTask(this, m_unlockCancelled, attempt, m_sourcePath,
+                                                     m_sourceKeyFilePath, name,
+                                                     password.toUtf8()));
+}
+
+void Vault::createDatabase(const QString &name, const QString &password, int kdfLevel)
+{
+    if (m_state != Locked || !Databases::isValidName(name) || password.isEmpty()
+        || (kdfLevel != KdfStandard && kdfLevel != KdfHigh && kdfLevel != KdfMaximum))
+        return;
+    const int attempt = startUnlocking(name);
+    QThreadPool::globalInstance()->start(new CreateTask(this, m_unlockCancelled, attempt, name,
+                                                        password.toUtf8(),
+                                                        static_cast<uint32_t>(kdfLevel)));
+}
+
+int Vault::startUnlocking(const QString &name)
+{
+    m_unlockingName = name;
     setError(NoError);
     setState(Unlocking);
-    // The task owns the only copy of the password bytes and wipes it.
-    QThreadPool::globalInstance()->start(new UnlockTask(this, m_unlockCancelled, ++m_attempt,
-                                                        m_databasePath, m_keyFilePath,
-                                                        password.toUtf8()));
+    return ++m_attempt;
 }
 
 void Vault::onUnlockFinished(int attempt, int status, qulonglong handle, const QByteArray &digest)
 {
     CoreDatabase database(reinterpret_cast<SvDatabase *>(handle));
-    if (acceptsResult(attempt, status))
-        finishUnlock(std::move(database), digest);
-}
-
-bool Vault::acceptsResult(int attempt, int status)
-{
     if (m_state != Unlocking || attempt != m_attempt)
-        return false;
+        return;
     if (status != SV_OK) {
         setError(errorFor(status));
         setState(Locked);
-        return false;
+        return;
     }
-    return true;
-}
-
-void Vault::finishUnlock(CoreDatabase database, const QByteArray &digest)
-{
     m_database = std::move(database);
     m_fileDigest = digest;
+    if (m_databaseName != m_unlockingName) {
+        m_databaseName = m_unlockingName;
+        emit databaseNameChanged();
+    }
+    // An added database is stored now; a pending add is abandoned once
+    // another database opens.
+    if (!m_sourcePath.isEmpty()) {
+        m_sourcePath.clear();
+        emit sourcePathChanged();
+    }
+    if (!m_sourceKeyFilePath.isEmpty()) {
+        m_sourceKeyFilePath.clear();
+        emit sourceKeyFilePathChanged();
+    }
     saveSettings();
     setState(Unlocked);
     m_autoLock.start();
-}
-
-QString Vault::newDatabasePath(int location, const QString &name) const
-{
-    const QString fileName = name.trimmed();
-    if (fileName.isEmpty() || fileName.startsWith(QLatin1Char('.'))
-        || fileName.contains(QLatin1Char('/')) || fileName.size() > 100)
-        return QString();
-    const QString folder = QStandardPaths::writableLocation(
-        location == Downloads ? QStandardPaths::DownloadLocation
-                              : QStandardPaths::DocumentsLocation);
-    return folder + QLatin1Char('/') + fileName + QStringLiteral(".kdbx");
-}
-
-bool Vault::databaseExists(int location, const QString &name) const
-{
-    const QString path = newDatabasePath(location, name);
-    return !path.isEmpty() && QFileInfo::exists(path);
-}
-
-void Vault::createDatabase(int location, const QString &name, const QString &password,
-                           int kdfLevel)
-{
-    const QString path = newDatabasePath(location, name);
-    if (m_state != Locked || path.isEmpty() || password.isEmpty()
-        || (kdfLevel != KdfStandard && kdfLevel != KdfHigh && kdfLevel != KdfMaximum))
-        return;
-    setError(NoError);
-    setState(Unlocking);
-    QThreadPool::globalInstance()->start(new CreateTask(this, m_unlockCancelled, ++m_attempt, path,
-                                                        name.trimmed(), password.toUtf8(),
-                                                        static_cast<uint32_t>(kdfLevel)));
-}
-
-void Vault::onCreateFinished(int attempt, int status, qulonglong handle,
-                             const QByteArray &digest, const QString &path)
-{
-    CoreDatabase database(reinterpret_cast<SvDatabase *>(handle));
-    if (!acceptsResult(attempt, status))
-        return;
-    m_databasePath = path;
-    m_keyFilePath.clear();
-    emit databasePathChanged();
-    emit keyFilePathChanged();
-    finishUnlock(std::move(database), digest);
 }
 
 void Vault::lock()
@@ -601,7 +610,8 @@ void Vault::save()
         return;
     setSaving(true);
     QThreadPool::globalInstance()->start(
-        new SaveTask(this, m_attempt, m_database.get(), m_databasePath, m_fileDigest));
+        new SaveTask(this, m_attempt, m_database.get(), Databases::databasePath(m_databaseName),
+                     m_fileDigest));
 }
 
 void Vault::onSaveFinished(int attempt, int status, const QByteArray &digest,
@@ -685,6 +695,7 @@ void Vault::setDirty(bool dirty)
 void Vault::saveSettings() const
 {
     QSettings settings(settingsPath(), QSettings::IniFormat);
-    settings.setValue(QStringLiteral("databasePath"), m_databasePath);
-    settings.setValue(QStringLiteral("keyFilePath"), m_keyFilePath);
+    settings.setValue(QStringLiteral("databaseName"), m_databaseName);
+    settings.remove(QStringLiteral("databasePath"));
+    settings.remove(QStringLiteral("keyFilePath"));
 }

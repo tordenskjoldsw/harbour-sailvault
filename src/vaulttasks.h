@@ -29,8 +29,6 @@ public:
 
 private:
     int open(SvDatabase **database, QByteArray &digest);
-    int openWith(const QByteArray &data, const QByteArray &keyFile, bool hasPassword,
-                 SvDatabase **database) const;
 
     Vault *m_vault;
     std::shared_ptr<std::atomic_bool> m_cancelled;
@@ -58,13 +56,38 @@ private:
     QByteArray m_expectedDigest;
 };
 
-// Creates the database and its file and hands over the unlocked handle like
+// Reads a database file and its key file from outside the app, unlocks
+// them and stores copies under name. The unlocked handle is handed over like
 // an unlock does.
+class AddTask : public QRunnable
+{
+public:
+    AddTask(Vault *vault, std::shared_ptr<std::atomic_bool> cancelled, int attempt,
+            const QString &databasePath, const QString &keyFilePath, const QString &name,
+            QByteArray password);
+    ~AddTask() override;
+
+    void run() override;
+
+private:
+    int add(SvDatabase **database, QByteArray &digest);
+
+    Vault *m_vault;
+    std::shared_ptr<std::atomic_bool> m_cancelled;
+    int m_attempt;
+    QString m_databasePath;
+    QString m_keyFilePath;
+    QString m_name;
+    QByteArray m_password;
+};
+
+// Creates the database and stores its file under name, then hands over the
+// unlocked handle like an unlock does.
 class CreateTask : public QRunnable
 {
 public:
     CreateTask(Vault *vault, std::shared_ptr<std::atomic_bool> cancelled, int attempt,
-               const QString &path, const QString &name, QByteArray password, uint32_t kdfLevel);
+               const QString &name, QByteArray password, uint32_t kdfLevel);
     ~CreateTask() override;
 
     void run() override;
@@ -73,8 +96,7 @@ private:
     Vault *m_vault;
     std::shared_ptr<std::atomic_bool> m_cancelled;
     int m_attempt;
-    QString m_path;
-    QByteArray m_name;
+    QString m_name;
     QByteArray m_password;
     uint32_t m_kdfLevel;
 };

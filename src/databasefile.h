@@ -33,9 +33,10 @@ QByteArray fileDigest(const QByteArray &data);
 int writeDatabaseFile(const QString &path, const QByteArray &data, const QString &backupDir,
                       const QByteArray &expectedDigest, bool &replacedChangedFile);
 
-// Writes a new database file that must not exist yet: the data goes to a
-// temporary file, is synced and read back, then is linked to path, which
-// fails instead of replacing a file that appeared meanwhile.
-int createDatabaseFile(const QString &path, const QByteArray &data);
+// Writes a new file, readable by the owner only, that must not exist yet:
+// the data goes to a temporary file, is synced and read back, then is
+// linked to path, which fails instead of replacing a file that appeared
+// meanwhile.
+int createNewFile(const QString &path, const QByteArray &data);
 
 #endif // DATABASEFILE_H

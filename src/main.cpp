@@ -11,6 +11,7 @@
 #include <sailfishapp.h>
 
 #include "boottime.h"
+#include "databases.h"
 #include "entrylistmodel.h"
 #include "importer.h"
 #include "vault.h"
@@ -40,12 +41,16 @@ int main(int argc, char *argv[])
     qmlRegisterType<EntryListModel>("harbour.sailvault", 1, 0, "EntryListModel");
     qmlRegisterUncreatableType<Vault>("harbour.sailvault", 1, 0, "Vault",
                                       QStringLiteral("Use the vault context property"));
+    qmlRegisterUncreatableType<Databases>("harbour.sailvault", 1, 0, "Databases",
+                                          QStringLiteral("Use the databases context property"));
     qmlRegisterUncreatableType<Importer>("harbour.sailvault", 1, 0, "Importer",
                                          QStringLiteral("Use the importer context property"));
 
+    Databases databases;
     Vault vault;
     Importer importer(&vault);
     QScopedPointer<QQuickView> view(SailfishApp::createView());
+    view->rootContext()->setContextProperty(QStringLiteral("databases"), &databases);
     view->rootContext()->setContextProperty(QStringLiteral("vault"), &vault);
     view->rootContext()->setContextProperty(QStringLiteral("importer"), &importer);
     // Development builds carry SemVer build metadata after "+" (branch, time
