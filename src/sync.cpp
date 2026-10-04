@@ -137,7 +137,7 @@ bool Sync::certificateReplaced() const
 
 QString Sync::defaultPath() const
 {
-    return QLatin1Char('/') + m_vault->databaseName() + QStringLiteral(".kdbx");
+    return QStringLiteral("/SailVault/") + m_vault->databaseName() + QStringLiteral(".kdbx");
 }
 
 void Sync::onVaultStateChanged()
@@ -271,6 +271,7 @@ void Sync::sync()
     }
     m_running = true;
     m_attempts = 0;
+    m_foldersCreated = false;
     m_mergedEtag.clear();
     m_digestBeforeMerge.clear();
     m_state = Syncing;
@@ -380,6 +381,20 @@ void Sync::upload()
                              m_etag = etag;
                              m_digest = digest;
                              finish(NoProblem);
+                         } else if ((result == NextcloudClient::FolderMissing
+                                     || result == NextcloudClient::NotFound)
+                                    && !m_foldersCreated) {
+                             // Nextcloud answers 404 for a missing folder,
+                             // the WebDAV library alone 409.
+                             m_foldersCreated = true;
+                             QStringList folders;
+                             const QStringList parts = m_path.split(QLatin1Char('/'),
+                                                                    QString::SkipEmptyParts);
+                             for (int count = 1; count < parts.size(); ++count)
+                                 folders.append(QLatin1Char('/')
+                                                + QStringList(parts.mid(0, count))
+                                                      .join(QLatin1Char('/')));
+                             createFolders(folders);
                          } else if (result == NextcloudClient::PreconditionFailed
                                     && ++m_attempts < MaxAttempts) {
                              // Changed on the server meanwhile: merge that first.
@@ -387,9 +402,31 @@ void Sync::upload()
                              m_digestBeforeMerge.clear();
                              download();
                          } else {
-                             finish(problemOf(result, m_pin));
+                             finish(result == NextcloudClient::NotFound
+                                        ? FolderMissing
+                                        : problemOf(result, m_pin));
                          }
                      });
+}
+
+// Creates the missing folders of the path from the top, then uploads again.
+void Sync::createFolders(const QStringList &folders)
+{
+    if (folders.isEmpty()) {
+        upload();
+        return;
+    }
+    const int generation = m_generation;
+    m_client->createFolder(m_userId, folders.first(),
+                           [this, generation, folders](NextcloudClient::Result result) {
+                               if (generation != m_generation)
+                                   return;
+                               if (result != NextcloudClient::Ok) {
+                                   finish(problemOf(result, m_pin));
+                                   return;
+                               }
+                               createFolders(folders.mid(1));
+                           });
 }
 
 void Sync::finish(Problem problem)

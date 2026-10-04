@@ -241,6 +241,17 @@ void NextcloudClient::upload(const QString &userId, const QString &path, const Q
     });
 }
 
+void NextcloudClient::createFolder(const QString &userId, const QString &path, const Done &done)
+{
+    QNetworkRequest request = this->request(fileUrl(userId, path), true);
+    track(m_network->sendCustomRequest(request, QByteArrayLiteral("MKCOL")),
+          [this, done](QNetworkReply *reply) {
+              const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+              // 405: there is already something at this path.
+              done(status == 405 ? Ok : resultOf(reply));
+          });
+}
+
 void NextcloudClient::startLogin(const LoginStarted &started, const LoginGranted &granted)
 {
     cancelLogin();

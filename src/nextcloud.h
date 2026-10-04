@@ -77,6 +77,9 @@ public:
     // fails with PreconditionFailed if it exists.
     void upload(const QString &userId, const QString &path, const QByteArray &data,
                 const QByteArray &ifMatch, const Uploaded &done);
+    // Creates the folder at path, whose parent must exist; a folder that is
+    // already there counts as created.
+    void createFolder(const QString &userId, const QString &path, const Done &done);
 
     // Login Flow v2: asks the server of the account for a login URL to open
     // in the browser, then polls until the user granted access, the flow

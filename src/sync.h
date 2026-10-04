@@ -122,6 +122,7 @@ private:
     void onMerged(bool changed);
     void uploadIfNeeded();
     void upload();
+    void createFolders(const QStringList &folders);
     void finish(Problem problem);
     Problem problemOf(NextcloudClient::Result result, const QByteArray &pin);
     void remember();
@@ -144,6 +145,7 @@ private:
     bool m_running = false;
     bool m_again = false;
     int m_attempts = 0;
+    bool m_foldersCreated = false;
     QString m_path;
     QString m_remote;
     QString m_userId;

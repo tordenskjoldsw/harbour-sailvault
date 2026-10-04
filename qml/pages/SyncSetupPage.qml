@@ -78,7 +78,7 @@ Page {
                 label: qsTr("File on Nextcloud")
                 placeholderText: label
                 text: sync.defaultPath()
-                description: qsTr("The folder must exist. A missing file is created.")
+                description: qsTr("Missing folders and the file are created.")
                 inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
                 EnterKey.iconSource: "image://theme/icon-m-enter-close"
                 EnterKey.onClicked: focus = false
