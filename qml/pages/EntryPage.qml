@@ -60,6 +60,11 @@ Page {
                 page.entryTitle = vault.fieldValue(page.entryId, "Title")
                 page.inRecycleBin = vault.inRecycleBin(page.entryId)
                 page.historyLength = vault.historyLength(page.entryId)
+                // The repeater keeps its delegates when the new list equals
+                // the old one, which holds only keys, so edited values would
+                // stay stale; emptying it first rebuilds every field and
+                // hides a revealed one again.
+                fieldsRepeater.model = []
                 fieldsRepeater.model = page.orderedFields()
             }
         }
