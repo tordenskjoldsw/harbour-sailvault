@@ -10,6 +10,7 @@
 
 #include "nextcloud.h"
 
+class QNetworkConfigurationManager;
 class QTimer;
 class Vault;
 
@@ -144,6 +145,7 @@ private:
     Vault *m_vault;
     NextcloudClient *m_client;
     QTimer *m_delay;
+    QNetworkConfigurationManager *m_connectivity;
     bool m_configured = false;
     State m_state = Off;
     Problem m_problem = NoProblem;

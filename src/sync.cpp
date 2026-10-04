@@ -1,6 +1,7 @@
 #include "sync.h"
 
 #include <QDesktopServices>
+#include <QNetworkConfigurationManager>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QStringList>
@@ -49,7 +50,16 @@ Sync::Sync(Vault *vault, QObject *parent)
     , m_vault(vault)
     , m_client(new NextcloudClient(this))
     , m_delay(new QTimer(this))
+    , m_connectivity(new QNetworkConfigurationManager(this))
 {
+    // Only a trigger: a sync that failed for want of a connection runs again
+    // once one is back. Syncs never wait for this report, which may be
+    // wrong inside the sandbox.
+    connect(m_connectivity, &QNetworkConfigurationManager::onlineStateChanged, this,
+            [this](bool online) {
+                if (online && m_state == Failed && m_problem == Offline)
+                    m_delay->start();
+            });
     m_delay->setSingleShot(true);
     m_delay->setInterval(SaveDelayMs);
     connect(m_delay, &QTimer::timeout, this, &Sync::sync);
