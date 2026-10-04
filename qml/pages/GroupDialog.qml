@@ -13,7 +13,7 @@ Dialog {
     readonly property bool renaming: groupId.length > 0
 
     canAccept: nameField.text.trim().length > 0 && vault.state === Vault.Unlocked
-               && !vault.saving
+               && !vault.saving && !vault.merging
     allowedOrientations: Orientation.All
 
     onAccepted: {

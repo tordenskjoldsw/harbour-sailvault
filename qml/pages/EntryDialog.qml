@@ -10,10 +10,10 @@ Dialog {
     property string entryId
     readonly property bool editing: entryId.length > 0
 
-    // The vault takes no change while a save runs; accepting then would
-    // drop the input.
+    // The vault takes no change while a save or merge runs; accepting then
+    // would drop the input.
     canAccept: titleField.text.trim().length > 0 && vault.state === Vault.Unlocked
-               && !vault.saving
+               && !vault.saving && !vault.merging
     allowedOrientations: Orientation.All
 
     // A lock empties the dialog even if the page stack cannot close it at
