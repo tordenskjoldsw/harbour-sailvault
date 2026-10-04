@@ -4,6 +4,7 @@
 #include <QByteArray>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -35,6 +36,7 @@ class Vault : public QObject
     Q_PROPERTY(QString databaseName READ databaseName WRITE setDatabaseName NOTIFY databaseNameChanged)
     Q_PROPERTY(QString sourcePath READ sourcePath WRITE setSourcePath NOTIFY sourcePathChanged)
     Q_PROPERTY(QString sourceKeyFilePath READ sourceKeyFilePath WRITE setSourceKeyFilePath NOTIFY sourceKeyFilePathChanged)
+    Q_PROPERTY(QStringList addedOriginals READ addedOriginals NOTIFY addedOriginalsChanged)
     Q_PROPERTY(int clipboardClearSeconds READ clipboardClearSeconds CONSTANT)
 
 public:
@@ -95,6 +97,9 @@ public:
     void setSourcePath(const QString &path);
     QString sourceKeyFilePath() const;
     void setSourceKeyFilePath(const QString &path);
+    // The source files of the database added by the last unlock, until it
+    // locks.
+    QStringList addedOriginals() const;
     int clipboardClearSeconds() const;
 
     // Null when locked, when a lock deadline has passed or while a requested
@@ -112,6 +117,8 @@ public:
     // key derivation kdfLevel, and unlocks it; an existing database is never
     // replaced.
     Q_INVOKABLE void createDatabase(const QString &name, const QString &password, int kdfLevel);
+    // Deletes the addedOriginals, and nothing else.
+    Q_INVOKABLE bool removeAddedOriginals();
     Q_INVOKABLE void lock();
     Q_INVOKABLE void clearError();
     // version -1 is the current state of an entry, 0 and up its history
@@ -161,6 +168,7 @@ signals:
     void databaseNameChanged();
     void sourcePathChanged();
     void sourceKeyFilePathChanged();
+    void addedOriginalsChanged();
     void lockedAutomatically();
     // The entries or groups changed; lists reload.
     void contentChanged();
@@ -183,9 +191,10 @@ private:
     bool change(const Edit &edit);
     MoveResult move(const Edit &edit);
     QString readField(const QString &entryId, const QString &key, int version) const;
-    // Enters Unlocking for a task that opens the database name; returns the
-    // task's attempt.
-    int startUnlocking(const QString &name);
+    // Enters Unlocking for a task that opens the database name, copied from
+    // sources when it adds one; returns the task's attempt.
+    int startUnlocking(const QString &name, const QStringList &sources = QStringList());
+    void setAddedOriginals(const QStringList &paths);
     // Marks the in-memory change and starts the save.
     void commitChange();
     void lockAutomatically();
@@ -213,6 +222,8 @@ private:
     QString m_databaseName;
     // The database the running unlock, add or create task opens.
     QString m_unlockingName;
+    QStringList m_unlockingSources;
+    QStringList m_addedOriginals;
     QString m_sourcePath;
     QString m_sourceKeyFilePath;
     AutoLock m_autoLock;

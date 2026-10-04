@@ -68,6 +68,7 @@ DISTFILES += \
     qml/components/PasswordInput.qml \
     qml/components/TwoLineLabel.qml \
     qml/cover/CoverPage.qml \
+    qml/pages/AddedPage.qml \
     qml/pages/DatabasesPage.qml \
     qml/pages/EntryListPage.qml \
     qml/pages/GroupDialog.qml \

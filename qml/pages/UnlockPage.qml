@@ -94,8 +94,11 @@ Page {
             if (vault.state !== Vault.Unlocking)
                 page.creating = false
             if (vault.state === Vault.Unlocked) {
-                pageStack.push(Qt.resolvedUrl("EntryListPage.qml"),
-                               { "groupId": "", "groupName": "SailVault" })
+                if (vault.addedOriginals.length > 0)
+                    pageStack.push(Qt.resolvedUrl("AddedPage.qml"))
+                else
+                    pageStack.push(Qt.resolvedUrl("EntryListPage.qml"),
+                                   { "groupId": "", "groupName": "SailVault" })
             }
         }
     }

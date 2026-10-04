@@ -3,6 +3,7 @@
 #include <QByteArray>
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QFile>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QThreadPool>
@@ -202,6 +203,20 @@ void Vault::setSourceKeyFilePath(const QString &path)
     emit sourceKeyFilePathChanged();
 }
 
+QStringList Vault::addedOriginals() const
+{
+    return m_addedOriginals;
+}
+
+bool Vault::removeAddedOriginals()
+{
+    bool removed = true;
+    for (const QString &path : m_addedOriginals)
+        removed = QFile::remove(path) && removed;
+    setAddedOriginals(QStringList());
+    return removed;
+}
+
 int Vault::clipboardClearSeconds() const
 {
     return ClipboardGuard::ClearAfterSeconds;
@@ -231,7 +246,10 @@ void Vault::addDatabase(const QString &name, const QString &password)
 {
     if (m_state != Locked || m_sourcePath.isEmpty() || !Databases::isValidName(name))
         return;
-    const int attempt = startUnlocking(name);
+    QStringList sources(m_sourcePath);
+    if (!m_sourceKeyFilePath.isEmpty())
+        sources.append(m_sourceKeyFilePath);
+    const int attempt = startUnlocking(name, sources);
     QThreadPool::globalInstance()->start(new AddTask(this, m_unlockCancelled, attempt, m_sourcePath,
                                                      m_sourceKeyFilePath, name,
                                                      password.toUtf8()));
@@ -248,9 +266,10 @@ void Vault::createDatabase(const QString &name, const QString &password, int kdf
                                                         static_cast<uint32_t>(kdfLevel)));
 }
 
-int Vault::startUnlocking(const QString &name)
+int Vault::startUnlocking(const QString &name, const QStringList &sources)
 {
     m_unlockingName = name;
+    m_unlockingSources = sources;
     setError(NoError);
     setState(Unlocking);
     return ++m_attempt;
@@ -282,6 +301,7 @@ void Vault::onUnlockFinished(int attempt, int status, qulonglong handle, const Q
         m_sourceKeyFilePath.clear();
         emit sourceKeyFilePathChanged();
     }
+    setAddedOriginals(m_unlockingSources);
     saveSettings();
     setState(Unlocked);
     m_autoLock.start();
@@ -306,6 +326,7 @@ void Vault::lock()
         return;
     m_database.reset();
     m_fileDigest.clear();
+    setAddedOriginals(QStringList());
     // An earlier save error no longer applies; changes it kept from being
     // written are gone now, which the unlock page reports.
     setError(m_dirty ? ChangesDiscarded : NoError);
@@ -690,6 +711,14 @@ void Vault::setDirty(bool dirty)
         return;
     m_dirty = dirty;
     emit dirtyChanged();
+}
+
+void Vault::setAddedOriginals(const QStringList &paths)
+{
+    if (m_addedOriginals == paths)
+        return;
+    m_addedOriginals = paths;
+    emit addedOriginalsChanged();
 }
 
 void Vault::saveSettings() const
