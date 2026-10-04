@@ -115,6 +115,28 @@ int32_t sv_database_open_like(const SvDatabase *like, const uint8_t *data, size_
  * applies deletions recorded in either copy unless the item changed later.
  * Nothing changes on an error. */
 int32_t sv_database_merge(SvDatabase *database, const SvDatabase *source, SvMergeChanges *out);
+/* Nextcloud sync settings, kept in an entry of the database. */
+enum {
+    SV_SYNC_SERVER = 0,
+    SV_SYNC_USER = 1,
+    SV_SYNC_APP_PASSWORD = 2,
+    SV_SYNC_PATH = 3,
+    /* SHA-256 fingerprint of a pinned self-signed certificate, or empty. */
+    SV_SYNC_CERTIFICATE = 4
+};
+/* One SV_SYNC_* setting; SV_NOT_FOUND when the database has no sync entry.
+ * Free the result with sv_string_free. */
+int32_t sv_database_sync_setting(const SvDatabase *database, uint32_t setting, SvString *out);
+/* Stores the settings (UTF-8 each) in the sync entry, created in the root
+ * group when missing; uuid_out receives its 16-byte UUID. Saved with the
+ * next sv_database_save. */
+int32_t sv_database_set_sync_settings(SvDatabase *database, const uint8_t *server,
+                                      size_t server_length, const uint8_t *user,
+                                      size_t user_length, const uint8_t *app_password,
+                                      size_t app_password_length, const uint8_t *path,
+                                      size_t path_length, const uint8_t *certificate,
+                                      size_t certificate_length, int64_t now,
+                                      uint8_t *uuid_out);
 /* Whether the database was read from a KDBX 3 file. */
 int32_t sv_database_from_kdbx3(const SvDatabase *database, bool *from_kdbx3);
 /* Switches the key derivation to Argon2id at an SV_KDF_* level from the

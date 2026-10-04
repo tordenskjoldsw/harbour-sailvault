@@ -3,6 +3,7 @@ use super::database::*;
 use super::edit::*;
 use super::password::*;
 use super::read::*;
+use super::sync::*;
 use super::*;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -863,6 +864,7 @@ fn header_and_rust_declare_the_same_constants_and_functions() {
         include_str!("edit.rs"),
         include_str!("password.rs"),
         include_str!("read.rs"),
+        include_str!("sync.rs"),
     ]
     .concat();
     let constants = header_constants(header);
@@ -917,6 +919,63 @@ fn another_copy_opens_with_the_held_key_and_merges() {
             SV_INVALID_ARGUMENT
         );
         sv_database_free(copy);
+        sv_database_free(database);
+    }
+}
+
+#[test]
+fn sync_settings_round_trip_through_the_entry() {
+    unsafe {
+        let (status, database) = open(PASSWORD);
+        assert_eq!(status, SV_OK);
+        let mut value = SvString::EMPTY;
+        assert_eq!(
+            sv_database_sync_setting(database, SV_SYNC_SERVER, &mut value),
+            SV_NOT_FOUND
+        );
+        let field = |text: &str| (text.as_ptr(), text.len());
+        let (server, server_length) = field("https://cloud.example.org");
+        let (user, user_length) = field("alice");
+        let (password, password_length) = field("app-password");
+        let (path, path_length) = field("/Passwords/db.kdbx");
+        let mut uuid = [0u8; UUID_LENGTH];
+        assert_eq!(
+            sv_database_set_sync_settings(
+                database,
+                server,
+                server_length,
+                user,
+                user_length,
+                password,
+                password_length,
+                path,
+                path_length,
+                std::ptr::null(),
+                0,
+                0,
+                uuid.as_mut_ptr(),
+            ),
+            SV_OK
+        );
+        assert_ne!(uuid, [0u8; UUID_LENGTH]);
+        for (setting, expected) in [
+            (SV_SYNC_SERVER, "https://cloud.example.org"),
+            (SV_SYNC_USER, "alice"),
+            (SV_SYNC_APP_PASSWORD, "app-password"),
+            (SV_SYNC_PATH, "/Passwords/db.kdbx"),
+            (SV_SYNC_CERTIFICATE, ""),
+        ] {
+            let mut value = SvString::EMPTY;
+            assert_eq!(
+                sv_database_sync_setting(database, setting, &mut value),
+                SV_OK
+            );
+            assert_eq!(take(value), expected);
+        }
+        assert_eq!(
+            sv_database_sync_setting(database, 9, &mut value),
+            SV_INVALID_ARGUMENT
+        );
         sv_database_free(database);
     }
 }

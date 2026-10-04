@@ -10,6 +10,7 @@ mod database;
 mod edit;
 mod password;
 mod read;
+mod sync;
 #[cfg(test)]
 mod tests;
 
@@ -45,6 +46,12 @@ pub const SV_CLASS_LOWER: u32 = 1;
 pub const SV_CLASS_UPPER: u32 = 2;
 pub const SV_CLASS_DIGITS: u32 = 4;
 pub const SV_CLASS_SYMBOLS: u32 = 8;
+
+pub const SV_SYNC_SERVER: u32 = 0;
+pub const SV_SYNC_USER: u32 = 1;
+pub const SV_SYNC_APP_PASSWORD: u32 = 2;
+pub const SV_SYNC_PATH: u32 = 3;
+pub const SV_SYNC_CERTIFICATE: u32 = 4;
 
 pub const SV_COLUMN_TITLE: u32 = 0;
 pub const SV_COLUMN_USER_NAME: u32 = 1;
