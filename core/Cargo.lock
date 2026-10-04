@@ -286,11 +286,21 @@ dependencies = [
  "hmac",
  "pbkdf2",
  "quick-xml",
+ "salsa20",
  "serde",
  "serde_json",
  "sha2",
  "twofish",
  "zeroize",
+]
+
+[[package]]
+name = "salsa20"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97a22f5af31f73a954c10289c93e8a50cc23d971e80ee446f1f6f7137a088213"
+dependencies = [
+ "cipher",
 ]
 
 [[package]]
