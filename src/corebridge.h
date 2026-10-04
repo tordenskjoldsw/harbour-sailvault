@@ -52,6 +52,15 @@ inline QString takeCoreString(SvString string)
     return text;
 }
 
+// As takeCoreString, for text the caller wipes, such as a password.
+inline QByteArray takeCoreBytes(SvString string)
+{
+    const QByteArray bytes(reinterpret_cast<const char *>(string.data),
+                           static_cast<int>(string.length));
+    sv_string_free(string);
+    return bytes;
+}
+
 inline SvString emptyCoreString()
 {
     return SvString{nullptr, 0};

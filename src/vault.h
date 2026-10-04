@@ -137,6 +137,21 @@ public:
                                    const QString &keyFilePath, bool useStoredKeyFile);
     // Deletes the file the last merge read, and nothing else.
     Q_INVOKABLE bool removeMergedFile();
+
+    // For the sync: merges a downloaded copy, opened with the held
+    // credentials, and saves; reports syncMergeFinished or syncMergeFailed.
+    // Refused while busy.
+    bool mergeData(const QByteArray &data);
+    // SHA-256 of the database file as unlocked or last saved.
+    QByteArray fileDigest() const;
+    // One SV_SYNC_* setting as UTF-8, empty without a sync entry. The
+    // caller wipes it.
+    QByteArray syncSetting(uint32_t setting);
+    // Stores the sync settings in the database's sync entry and saves.
+    bool storeSyncSettings(const QString &server, const QString &loginName,
+                           const QByteArray &appPassword, const QString &path,
+                           const QByteArray &certificate);
+    bool busy() const;
     // Deletes a stored database with its key file and backups; refused
     // unless locked.
     Q_INVOKABLE bool removeDatabase(const QString &name);
@@ -198,6 +213,10 @@ signals:
     void mergeFinished(int added, int modified, int moved, int deleted);
     void mergeNeedsPassword();
     void mergeFailed(int error);
+    void syncMergeFinished(bool changed);
+    void syncMergeFailed(int error);
+    // A save wrote the file.
+    void saved();
     // The file had been changed by another program since it was unlocked;
     // that version is kept in the backups.
     void savedOverChangedFile();
@@ -233,8 +252,6 @@ private:
     void setSaving(bool saving);
     void setMerging(bool merging);
     void startMerge(const QString &path, MergeTask *task);
-    // A save or merge task reads the handle; edits and locks wait.
-    bool busy() const;
     // Runs a lock requested while busy.
     void resumePendingLock();
     void setDirty(bool dirty);
@@ -248,6 +265,7 @@ private:
     bool m_saving = false;
     bool m_merging = false;
     QString m_mergePath;
+    bool m_mergeForSync = false;
     QString m_mergedPath;
     bool m_dirty = false;
     // A lock requested during a save waits for it.

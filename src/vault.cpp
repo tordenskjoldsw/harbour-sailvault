@@ -686,6 +686,7 @@ void Vault::onSaveFinished(int attempt, int status, const QByteArray &digest,
         if (status == SV_OK) {
             m_fileDigest = digest;
             setDirty(false);
+            emit saved();
             if (replacedChangedFile)
                 emit savedOverChangedFile();
         } else {
@@ -706,6 +707,50 @@ void Vault::mergeFile(const QString &path)
     startMerge(path, new MergeTask(this, m_attempt, m_database.get(), path));
 }
 
+bool Vault::mergeData(const QByteArray &data)
+{
+    if (busy() || !database())
+        return false;
+    m_mergeForSync = true;
+    setMerging(true);
+    QThreadPool::globalInstance()->start(
+        new MergeTask(this, m_attempt, m_database.get(), data));
+    return true;
+}
+
+QByteArray Vault::fileDigest() const
+{
+    return m_fileDigest;
+}
+
+QByteArray Vault::syncSetting(uint32_t setting)
+{
+    const SvDatabase *handle = database();
+    SvString value = emptyCoreString();
+    if (!handle || sv_database_sync_setting(handle, setting, &value) != SV_OK)
+        return QByteArray();
+    return takeCoreBytes(value);
+}
+
+bool Vault::storeSyncSettings(const QString &server, const QString &loginName,
+                              const QByteArray &appPassword, const QString &path,
+                              const QByteArray &certificate)
+{
+    const QByteArray serverText = server.toUtf8();
+    const QByteArray loginText = loginName.toUtf8();
+    const QByteArray pathText = path.toUtf8();
+    return change([&](SvDatabase *database, int64_t now, bool &changed) {
+        uint8_t uuid[SV_UUID_LENGTH];
+        changed = true;
+        return sv_database_set_sync_settings(
+            database, bytePointer(serverText), static_cast<size_t>(serverText.size()),
+            bytePointer(loginText), static_cast<size_t>(loginText.size()),
+            bytePointer(appPassword), static_cast<size_t>(appPassword.size()),
+            bytePointer(pathText), static_cast<size_t>(pathText.size()),
+            bytePointer(certificate), static_cast<size_t>(certificate.size()), now, uuid);
+    });
+}
+
 void Vault::mergeFileWith(const QString &path, const QString &password,
                           const QString &keyFilePath, bool useStoredKeyFile)
 {
@@ -718,6 +763,7 @@ void Vault::mergeFileWith(const QString &path, const QString &password,
 
 void Vault::startMerge(const QString &path, MergeTask *task)
 {
+    m_mergeForSync = false;
     m_mergePath = path;
     m_mergedPath.clear();
     setMerging(true);
@@ -735,14 +781,23 @@ void Vault::onMergeOpened(int attempt, int status, qulonglong handle)
             m_clipboard.keepCopiedValue();
             status = sv_database_merge(m_database.get(), source.get(), &changes);
         }
-        if (status == SV_INVALID_CREDENTIALS) {
+        const bool changed = changes.added || changes.modified || changes.moved
+            || changes.deleted || changes.metadata;
+        if (m_mergeForSync) {
+            if (status != SV_OK) {
+                emit syncMergeFailed(errorFor(status));
+            } else {
+                if (changed)
+                    commitChange();
+                emit syncMergeFinished(changed);
+            }
+        } else if (status == SV_INVALID_CREDENTIALS) {
             emit mergeNeedsPassword();
         } else if (status != SV_OK) {
             emit mergeFailed(errorFor(status));
         } else {
             m_mergedPath = m_mergePath;
-            if (changes.added || changes.modified || changes.moved || changes.deleted
-                || changes.metadata)
+            if (changed)
                 commitChange();
             emit mergeFinished(static_cast<int>(changes.added), static_cast<int>(changes.modified),
                                static_cast<int>(changes.moved), static_cast<int>(changes.deleted));

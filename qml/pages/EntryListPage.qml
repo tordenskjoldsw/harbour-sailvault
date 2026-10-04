@@ -72,6 +72,21 @@ Page {
         }
     }
 
+    SyncText {
+        id: syncText
+    }
+
+    // A certificate to confirm interrupts: syncing stops until the user
+    // decides. Only the top page asks.
+    Connections {
+        target: sync
+        onStateChanged: {
+            if (sync.state === Sync.Failed && sync.problem === Sync.CertificateUnknown
+                    && page.status === PageStatus.Active)
+                pageStack.push(Qt.resolvedUrl("CertificateDialog.qml"))
+        }
+    }
+
     Connections {
         target: vault
         onContentChanged: {
@@ -100,7 +115,13 @@ Page {
 
             PageHeader {
                 title: page.groupName
-                description: vault.saving ? qsTr("Saving") : vault.dirty ? qsTr("Not saved") : ""
+                description: vault.saving ? qsTr("Saving")
+                           : vault.dirty ? qsTr("Not saved")
+                           : !sync.configured ? ""
+                           : sync.state === Sync.Syncing ? qsTr("Syncing")
+                           : sync.state === Sync.Failed ? syncText.problem(sync.problem)
+                           : sync.state === Sync.Idle ? qsTr("Synced")
+                           : ""
             }
 
             SearchField {
@@ -125,6 +146,18 @@ Page {
             MenuItem {
                 text: qsTr("Lock")
                 onClicked: vault.lock()
+            }
+            MenuItem {
+                text: sync.configured ? qsTr("Sync settings") : qsTr("Set up sync")
+                visible: page.groupId.length === 0
+                enabled: !vault.saving && !vault.merging
+                onClicked: pageStack.push(Qt.resolvedUrl("SyncSetupPage.qml"))
+            }
+            MenuItem {
+                text: qsTr("Sync now")
+                visible: sync.configured
+                enabled: sync.state !== Sync.Syncing
+                onClicked: sync.sync()
             }
             MenuItem {
                 text: qsTr("Merge with file")

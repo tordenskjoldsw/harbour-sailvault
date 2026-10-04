@@ -63,6 +63,8 @@ class MergeTask : public QRunnable
 {
 public:
     MergeTask(Vault *vault, int attempt, const SvDatabase *database, const QString &path);
+    // A copy already read, such as a download.
+    MergeTask(Vault *vault, int attempt, const SvDatabase *database, QByteArray data);
     MergeTask(Vault *vault, int attempt, const QString &path, QByteArray password,
               const QString &keyFilePath);
     ~MergeTask() override;
@@ -76,6 +78,7 @@ private:
     QString m_path;
     QByteArray m_password;
     QString m_keyFilePath;
+    QByteArray m_data;
 };
 
 // Reads a database file and its key file from outside the app, unlocks

@@ -14,6 +14,7 @@
 #include "databases.h"
 #include "entrylistmodel.h"
 #include "importer.h"
+#include "sync.h"
 #include "vault.h"
 
 namespace {
@@ -43,16 +44,20 @@ int main(int argc, char *argv[])
                                       QStringLiteral("Use the vault context property"));
     qmlRegisterUncreatableType<Databases>("harbour.sailvault", 1, 0, "Databases",
                                           QStringLiteral("Use the databases context property"));
+    qmlRegisterUncreatableType<Sync>("harbour.sailvault", 1, 0, "Sync",
+                                     QStringLiteral("Use the sync context property"));
     qmlRegisterUncreatableType<Importer>("harbour.sailvault", 1, 0, "Importer",
                                          QStringLiteral("Use the importer context property"));
 
     Databases databases;
     Vault vault;
     Importer importer(&vault);
+    Sync sync(&vault);
     QScopedPointer<QQuickView> view(SailfishApp::createView());
     view->rootContext()->setContextProperty(QStringLiteral("databases"), &databases);
     view->rootContext()->setContextProperty(QStringLiteral("vault"), &vault);
     view->rootContext()->setContextProperty(QStringLiteral("importer"), &importer);
+    view->rootContext()->setContextProperty(QStringLiteral("sync"), &sync);
     // Development builds carry SemVer build metadata after "+" (branch, time
     // and commit); the About page shows it apart from the release number.
     const QString version = QStringLiteral(APP_VERSION);

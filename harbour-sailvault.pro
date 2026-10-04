@@ -13,6 +13,7 @@ HEADERS += \
     src/entrylistmodel.h \
     src/importer.h \
     src/nextcloud.h \
+    src/sync.h \
     src/vault.h \
     src/vaulttasks.h
 
@@ -25,6 +26,7 @@ SOURCES += \
     src/importer.cpp \
     src/main.cpp \
     src/nextcloud.cpp \
+    src/sync.cpp \
     src/vault.cpp \
     src/vaulttasks.cpp
 
@@ -70,9 +72,11 @@ DISTFILES += \
     qml/components/Paragraph.qml \
     qml/components/PasswordInput.qml \
     qml/components/ProtectionComboBox.qml \
+    qml/components/SyncText.qml \
     qml/components/TwoLineLabel.qml \
     qml/cover/CoverPage.qml \
     qml/pages/AddedPage.qml \
+    qml/pages/CertificateDialog.qml \
     qml/pages/DatabasesPage.qml \
     qml/pages/EntryListPage.qml \
     qml/pages/GroupDialog.qml \
@@ -85,6 +89,7 @@ DISTFILES += \
     qml/pages/NewDatabaseDialog.qml \
     qml/pages/SaveCopyDialog.qml \
     qml/pages/AboutPage.qml \
+    qml/pages/SyncSetupPage.qml \
     qml/pages/ThirdPartyPage.qml \
     qml/pages/thirdparty.js \
     qml/pages/UnlockPage.qml \

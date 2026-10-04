@@ -10,4 +10,4 @@ Name=SailVault
 # directories, so keep both stable once released.
 OrganizationName=de.tordenskjold
 ApplicationName=sailvault
-Permissions=Documents;Downloads
+Permissions=Documents;Downloads;Internet
