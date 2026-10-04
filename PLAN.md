@@ -7,9 +7,8 @@ with the license notices, the pre-Harbour review
 and databases and key files kept in the app's private storage; all tested
 on the Jolla Phone; released as 0.3.0 on 2026-10-04. 0.4.0 (2026-10-04)
 converts KDBX 3.1 files to KDBX 4 with Argon2id when they are added
-(section 14), also device-tested. Next: submit to Harbour (Phase 6, ahead
-of Phase 5). The scope of Phase 5 (Nextcloud sync) is still to be
-discussed.
+(section 14), also device-tested. Next: Phase 5, merge (Part A) and
+Nextcloud sync (Part B), then the Harbour submission (Phase 6).
 
 ## 1. Goal
 
@@ -468,9 +467,26 @@ import".
 Exit: criterion 3 (lossless KeePassXC round trip) met for every fixture and
 for files changed on the phone.
 
-### Phase 5 - Nextcloud sync
+### Phase 5 - Merge and Nextcloud sync (before the Harbour submission)
 
-- WebDAV client, ETag handling, KeePassXC-equivalent merge (criterion 4)
+Part A - merge two databases (no new permission):
+
+- KeePassXC-equivalent merge of two KDBX files in the core: entries and
+  groups by UUID, the newer change wins and the older version goes to the
+  history, histories combined, moves by `LocationChanged`, deletions from
+  `DeletedObjects`, attachments, custom icons and CustomData
+- "Merge with file" in the app: a newer copy from the computer, picked
+  from Documents or Downloads, is merged into the stored database
+- Tests against `keepassxc-cli merge` with changes on both sides
+
+Part B - sync with Nextcloud over WebDAV (section 8):
+
+- Account setup with a Nextcloud app password in Sailfish Secrets; remote
+  path of the database
+- Download with ETag, merge when the remote file changed, upload with
+  `If-Match`; on open, after each save and from the pulley menu
+- Sailjail permissions `Internet` and `Secrets`; the About page, README and
+  threat model drop "no network access" and describe the network attacker
 
 ### Phase 6 - Harbour submission
 
@@ -514,6 +530,16 @@ None at the moment.
 
 Decided:
 
+- Sync (2026-10-04): SailVault merges and syncs with Nextcloud itself, and
+  both come before the Harbour submission (Phase 5 Part A, then Part B).
+  Changing a password on the phone and finding it on the computer, and the
+  other way round, is the main use case; without a merge one side's
+  changes are lost, and without sync in the app every change needs a
+  manual file transfer. KeePassXC's FAQ recommends exactly this setup: the
+  database in a synced folder, a mobile KeePass app on the phone. The cost
+  is accepted and documented: the `Internet` and `Secrets` permissions, a
+  network attacker in the threat model, and the Nextcloud app password,
+  which only the device lock protects.
 - KDBX 3.1 (2026-10-04, revised the same day): 0.3.0 detects 3.1 files
   and explains the conversion in KeePassXC (Database > Database
   security..., Encryption Settings, KDBX 4.0, as in the KeePassXC FAQ).
