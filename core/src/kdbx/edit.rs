@@ -39,11 +39,24 @@ impl Database {
         fields: &[(&str, &str)],
         now: i64,
     ) -> Result<[u8; UUID_LENGTH]> {
+        let fields = fields
+            .iter()
+            .map(|(key, value)| NewField::new(*key, value, false))
+            .collect();
+        self.add_entry_with_fields(group_uuid, fields, now)
+    }
+
+    /// As `add_entry`, with each field other than the standard five
+    /// protected as its `NewField` says, such as an `otp` attribute, which
+    /// KeePassXC always writes protected.
+    pub fn add_entry_with_fields(
+        &mut self,
+        group_uuid: &[u8; UUID_LENGTH],
+        fields: Vec<NewField>,
+        now: i64,
+    ) -> Result<[u8; UUID_LENGTH]> {
         let entry = NewEntry {
-            fields: fields
-                .iter()
-                .map(|(key, value)| NewField::new(*key, value, false))
-                .collect(),
+            fields,
             ..NewEntry::default()
         };
         self.require_outside_recycle_bin(group_uuid)?;

@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 use sailvault_core::bitwarden;
 use sailvault_core::kdbx::{
     version, Argon2Variant, Cipher, CompositeKey, Compression, Database, Entry, Group, KdbxError,
-    KdfLevel, KdfParameters, OuterHeader,
+    KdfLevel, KdfParameters, NewField, OuterHeader,
 };
 
 const KDBX31: &[u8] = include_bytes!("fixtures/kdbx31-aeskdf.kdbx");
@@ -784,6 +784,41 @@ fn moved_entries_keep_their_history_and_keepassxc_finds_them() {
         &["Banking/Cards/Example login"],
     );
     assert_eq!(shown, "current-password-3\n");
+}
+
+#[test]
+fn protected_fields_of_a_new_entry_stay_protected_in_keepassxc() {
+    let mut database = open(AES_AESKDF, false);
+    let root = database.root_group().unwrap().uuid().unwrap();
+    let otp =
+        "otpauth://totp/Example:new?secret=JBSWY3DPEHPK3PXP&period=30&digits=6&issuer=Example";
+    database
+        .add_entry_with_fields(
+            &root,
+            vec![
+                NewField::new("Title", "Protected fields", false),
+                NewField::new("otp", otp, true),
+                NewField::new("Plain", "visible", false),
+            ],
+            NOW,
+        )
+        .unwrap();
+
+    let saved = database.save().unwrap();
+    let reopened = Database::open(&saved, key(false)).unwrap();
+    let added = entry(&reopened.root_group().unwrap(), "Protected fields");
+    assert!(added.field("otp").unwrap().is_protected());
+    assert_eq!(value(&added, "otp"), otp);
+    assert!(!added.field("Plain").unwrap().is_protected());
+
+    let file = TempFile::write("protected-fields", &saved);
+    let export = keepassxc_cli(&["export", "-f", "xml"], &file, false, &[]);
+    let protected_value = |key: &str| {
+        let field = &export[export.find(&format!("<Key>{key}</Key>")).unwrap()..];
+        field[..field.find("</Value>").unwrap()].contains("ProtectInMemory=\"True\"")
+    };
+    assert!(protected_value("otp"));
+    assert!(!protected_value("Plain"));
 }
 
 #[test]
