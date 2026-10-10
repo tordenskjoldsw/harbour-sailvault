@@ -188,6 +188,22 @@ plan a pull request, open an issue first so we can agree on the approach.
 Please never attach a real database or a real export, not even an encrypted
 one.
 
+## AI disclosure
+
+- **AI-assisted development.** I write SailVault's code together with
+  Claude Code, an AI coding agent. I write much of it myself; Claude
+  Code contributes code, suggested fixes, refactoring, tests and
+  documentation, always under my direction.
+- **Reviewed and owned by me.** I review every change before it is
+  committed. I decide what ships and I am responsible for it.
+- **Verified, not trusted.** Generated code gets no special trust. Every
+  crypto path is covered by test vectors. Databases made in KeePassXC
+  with each supported cipher and key derivation are part of the tests,
+  and files saved by SailVault must open in KeePassXC with nothing lost,
+  unknown data included. The app uses established crypto crates and no
+  hand-written cryptography. Device results are stated only when they
+  were measured on a Jolla phone.
+
 ## License
 
 [MIT](LICENSE). The licenses of the bundled Rust crates are listed on the
