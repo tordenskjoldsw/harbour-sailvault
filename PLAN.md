@@ -6,8 +6,8 @@ pre-Harbour review fixes), 0.4.0 (KDBX 3.1 conversion), 0.5.0 (merging
 copies and Nextcloud sync), 0.5.1 (a shorter pulley menu with a settings
 page), 0.5.2 (fixes from the security review before the submission) and
 0.5.3 (fixes found while preparing the store listing), all tested on the
-Jolla Phone. 0.5.3 was submitted to Harbour on 2026-10-04 (Phase 6) and
-waits for QA.
+Jolla Phone. 0.5.3 was submitted to Harbour on 2026-10-04 (Phase 6),
+passed QA and is in the Jolla Store (as of 2026-11-25).
 
 ## 1. Goal
 
@@ -520,6 +520,7 @@ Part B - sync with Nextcloud over WebDAV (section 8):
   phone only, three screenshots and a cover image from a demo database
   with made-up data. Texts in `docs/store/`, settings in
   `docs/store-listing.md`, privacy policy in `PRIVACY.md`.
+- Accepted: 0.5.3 is in the Jolla Store (as of 2026-11-25).
 
 ### Phase 7 - Differentiation
 
