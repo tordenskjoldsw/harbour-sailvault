@@ -14,8 +14,8 @@ sandboxed. SailVault is written for Sailfish OS 5.2 and tested on the Jolla
 Phone (aarch64).
 
 **Status:** version 0.5.3. Reading, editing, importing, merging and sync
-through Nextcloud are done and tested on the device. It is submitted to the
-Jolla Store (Harbour) and waits for review.
+through Nextcloud are done and tested on the device. It is available in
+the Jolla Store (Harbour).
 
 <p align="center">
   <img src="docs/images/screenshot-1-entries.jpg" width="30%" alt="Entry list with groups and entries">
@@ -108,8 +108,8 @@ Found a vulnerability? Please report it privately, as described in
 
 ## Install
 
-SailVault is not in the Jolla Store yet. Until it is, build the RPM
-yourself (see below) and install it with `sfdk deploy` or `pkcon
+SailVault is available in the Jolla Store (Harbour). You can also build
+the RPM yourself (see below) and install it with `sfdk deploy` or `pkcon
 install-local`.
 
 ## Using a database from KeePassXC
