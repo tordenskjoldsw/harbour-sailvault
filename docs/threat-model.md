@@ -152,6 +152,10 @@ Limits:
   encrypted. A key file kept on a card is unencrypted there.
 - Unsandboxed apps (OpenRepos, Chum, `Sandboxing=Disabled`) and the user with
   `devel-su` are not restricted by Sailjail.
+- Uninstalling the app leaves its private directories in place (seen on
+  the Jolla Phone, 2026-11-26): databases, backups, the settings file and
+  key files, the latter unencrypted. They go when the user deletes the
+  database in the app before uninstalling, or the directories by hand.
 
 ### 4. Crafted database or key file
 

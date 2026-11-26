@@ -23,6 +23,18 @@ no account. It never sends data to the developer or to any third party.
 - When you save a copy, it goes to the folder you choose (Documents or
   Downloads), encrypted like the database.
 
+## Uninstalling
+
+Uninstalling SailVault does not delete your data. The databases, key
+files, backups and the settings file stay on the phone, so an update or a
+reinstall keeps them, and an accidental uninstall loses no passwords.
+
+To remove everything, delete each database in SailVault before you
+uninstall it: long-press it in the list of databases and choose
+**Delete**. That removes its key file and backups too. After uninstalling,
+you can delete the folders `~/.local/share/de.tordenskjold/sailvault` and
+`~/.config/de.tordenskjold/sailvault` by hand instead.
+
 ## Network access
 
 SailVault connects to nothing but your own Nextcloud server, and only

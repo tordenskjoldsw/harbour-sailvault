@@ -112,6 +112,11 @@ SailVault is available in the Jolla Store (Harbour). You can also build
 the RPM yourself (see below) and install it with `sfdk deploy` or `pkcon
 install-local`.
 
+Uninstalling SailVault keeps your databases, key files and backups on the
+phone, so a reinstall finds them again. To remove them, delete each
+database in the app first; [PRIVACY.md](PRIVACY.md#uninstalling) has the
+details.
+
 ## Using a database from KeePassXC
 
 1. Copy the `.kdbx` file, and your key file if you use one, to Documents
