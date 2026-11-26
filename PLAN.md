@@ -522,8 +522,9 @@ Part B - sync with Nextcloud over WebDAV (section 8):
   phone only, three screenshots and a cover image from a demo database
   with made-up data. Texts in `docs/store/`, settings in
   `docs/store-listing.md`, privacy policy in `PRIVACY.md`.
-- Accepted: 0.5.3 is in the Jolla Store (as of 2026-11-25); 82 downloads
-  on 2026-11-26.
+- Accepted: 0.5.3 is in the Jolla Store (as of 2026-11-25); on
+  2026-11-26 it had 89 downloads, 82 active installs, 11 likes and 8
+  reviews.
 - Update submitted 2026-11-26: 0.6.0 for aarch64 and armv7hl (both clean
   in `sfdk check`; armv7hl not tested on a device), with the rewritten
   description, the new permission explained in the message to QA, and
