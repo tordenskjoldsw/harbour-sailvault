@@ -1,5 +1,5 @@
 You can now add databases and key files from a memory card, also from an encrypted one. Bitwarden exports and copies to merge can be picked from the card too.
 
-For this SailVault asks for one new permission, Removable media. It only reads the files you pick.
+For this SailVault asks for one new permission, Removable media. It only touches the files you pick.
 
 The start page now says where an existing database can be added from.
