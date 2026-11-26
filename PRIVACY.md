@@ -39,6 +39,8 @@ login page in the Sailfish browser.
 
 - **Documents and Downloads:** to add existing databases and key files,
   save copies and read Bitwarden exports that you pick.
+- **Removable media:** to add databases and key files and read exports
+  that you pick from a memory card or USB stick.
 - **Internet:** only for the Nextcloud sync you set up.
 
 ## Contact

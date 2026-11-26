@@ -194,7 +194,8 @@ The phone holds the primary copy, so a writer bug can destroy real data.
 - Name prefix `harbour-`, everything except binary, desktop file and icons under `/usr/share/harbour-sailvault`
 - Only libraries and QML imports from the Harbour allowlist; anything else is statically linked
 - Sailjail permissions, minimal, each added with a reason: Internet
-  (Nextcloud sync), Downloads and Documents (adding files, copies, imports)
+  (Nextcloud sync), Downloads and Documents (adding files, copies,
+  imports), RemovableMedia (adding files and imports from a memory card)
 - No daemons, no systemd units, no D-Bus services outside the app's own namespace
 - Validator runs on every build
 - No "KeePass" or "Bitwarden" in the app name or icon; marked as an independent app
@@ -560,6 +561,23 @@ None at the moment.
 
 Decided:
 
+- Memory cards (2026-11-26): the Sailjail permission `RemovableMedia` is
+  added, so databases, key files, copies to merge and Bitwarden exports
+  can be picked from a memory card or USB stick. Reason: the first store
+  feedback was a database on an encrypted memory card that could not be
+  added, and without the permission the file picker shows only Documents
+  and Downloads. The cost is a wider read and write access for the app
+  itself; it still opens only files picked in the file picker, and stored
+  databases stay in private storage. A user who does not want the
+  permission can remove it with an override file in
+  `/etc/sailjail/applications`, while a user who needs it could not add
+  it without root. Copies are still saved to Documents or Downloads only.
+  Device test on the Jolla Phone (2026-11-26, development build over the
+  store version): the system asked for the new permission at the first
+  start; the file picker listed the memory card; a database picked from
+  the card was added and unlocked; the hint on the start page without a
+  database was shown. Not tested: deleting the original on the card, and
+  whether the card in the test was encrypted.
 - Sync credentials (2026-10-04): the Nextcloud server, user name, app
   password, remote path and pinned certificate are stored in an entry of
   the database, marked by entry CustomData, not in Sailfish Secrets and not

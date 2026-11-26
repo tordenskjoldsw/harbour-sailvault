@@ -254,6 +254,14 @@ Page {
                 text: qsTr("Add existing database")
                 onClicked: pageStack.push(sourcePicker)
             }
+
+            Paragraph {
+                visible: !page.hasDatabase
+                font.pixelSize: Theme.fontSizeSmall
+                color: Theme.secondaryHighlightColor
+                horizontalAlignment: Text.AlignHCenter
+                text: qsTr("An existing database can be added from Documents, Downloads or a memory card.")
+            }
         }
     }
 

@@ -54,7 +54,8 @@ Rust core                 KDBX4 parsing and writing, KDF, encryption, search
   zeroized by `sv_string_free`.
 - QML never holds the database. It receives what is on screen.
 - The app runs in the Sailjail sandbox with the permissions `Documents`,
-  `Downloads` and `Internet`. Only the sync uses the network.
+  `Downloads`, `RemovableMedia` and `Internet`. Only the sync uses the
+  network. The app reads only the files picked in the file picker.
 
 ## Attackers and protections
 
@@ -146,6 +147,9 @@ Limits:
   an original the user keeps after adding it, or a copy the user saves to
   move it to a computer. A database copy is encrypted; a key file copy is
   not. Deleting a file on flash storage does not erase its blocks.
+- The same holds for a memory card and apps with the `RemovableMedia`
+  permission, and a card can also be read in another device unless it is
+  encrypted. A key file kept on a card is unencrypted there.
 - Unsandboxed apps (OpenRepos, Chum, `Sandboxing=Disabled`) and the user with
   `devel-su` are not restricted by Sailjail.
 

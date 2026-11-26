@@ -90,8 +90,8 @@ password every time.
   backups in the app's private directory.
 - Databases and key files live in SailVault's private directory, which
   other sandboxed apps cannot read. The sandbox gives SailVault access to
-  Documents, Downloads and the internet, and nothing else; it uses them to
-  add files, save copies, read imports and sync.
+  Documents, Downloads, memory cards and the internet, and nothing else;
+  it uses them to add files, save copies, read imports and sync.
 - Sync uses https only. A self-signed server certificate is accepted only
   after you confirmed its fingerprint, and then only that certificate. The
   Nextcloud app password is stored in the database itself, as the entry
@@ -115,7 +115,7 @@ install-local`.
 ## Using a database from KeePassXC
 
 1. Copy the `.kdbx` file, and your key file if you use one, to Documents
-   or Downloads on the phone.
+   or Downloads on the phone, or to a memory card.
 2. In SailVault, choose **Add existing database** from the pulley menu,
    pick the file and unlock it. SailVault keeps its own copy and offers to
    delete the originals.
@@ -132,7 +132,8 @@ changes of a newer copy from your computer into the phone's database.
 1. In the Bitwarden web vault, export your vault as **.json** or as
    **.json (Encrypted)** with the **Password protected** option. Exports
    tied to your account cannot be read outside Bitwarden.
-2. Copy the file to Documents or Downloads on the phone.
+2. Copy the file to Documents or Downloads on the phone, or to a memory
+   card.
 3. Open your database in SailVault and choose **Import** from the pulley
    menu.
 
