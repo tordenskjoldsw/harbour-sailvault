@@ -1,25 +1,29 @@
-SailVault keeps your passwords on your Sailfish phone in a standard KDBX 4 file, the format of KeePass and KeePassXC. No account, no server product, no lock-in: the same file opens in KeePassXC on your computer.
+I wanted my passwords on my Sailfish phone, in a file I control, in an app that runs in the sandbox. That is SailVault. It keeps your passwords in a normal KDBX 4 file, the format of KeePass and KeePassXC, so the same file opens in KeePassXC on your computer. You need no account for it.
 
-Features
-- Open KDBX 4 databases with a master password, a key file or both (AES-256, ChaCha20 and Twofish; AES-KDF, Argon2d and Argon2id). Older KDBX 3.1 files are converted to KDBX 4 with Argon2id when you add them; the original file stays unchanged.
-- Create, edit, move and delete entries and groups, with entry history and recycle bin as in KeePassXC. Search titles, user names, URLs, notes and tags.
-- Create new databases with Argon2id at three protection levels.
-- Sync with your own Nextcloud: log in through the browser, and SailVault keeps the phone and the server in step, merging changes made on both sides. It works offline and syncs when the connection is back.
-- Merge a copy of the database from a file, for example one from your computer.
-- Import Bitwarden and Vaultwarden JSON exports, unencrypted or password-protected; a later import merges instead of creating duplicates.
-- Password generator. Copied fields are cleared from the clipboard after 30 seconds.
-- Locks after five minutes without use and after one minute in the background.
+What you can do with it
+- Open your KDBX 4 database with a master password, a key file or both. An older KDBX 3.1 file is turned into KDBX 4 when you add it, and your original stays as it is.
+- Add, edit, move and delete entries and groups. Old versions of an entry and the recycle bin work as in KeePassXC.
+- Search by title, user name, URL, notes and tags.
+- Sync with your own Nextcloud. Change a password on the phone and it is on your computer, and the other way round. If both sides changed, SailVault merges them. Without a connection you keep working and it syncs later.
+- No Nextcloud? Merge a copy of the database from a file instead.
+- Coming from Bitwarden or Vaultwarden? Import your JSON export, with or without a password. Importing a newer export later updates the entries instead of doubling them.
+- Create a new database and generate passwords.
 
-Security
-- Decryption and key handling run in a Rust core; keys and decrypted data are wiped when the database locks. Nothing decrypted is ever written to disk.
-- The full master password is needed every time. Nothing is stored that unlocks the database without it.
-- Databases and key files live in SailVault's private storage, out of reach of other apps.
-- Every save goes to a temporary file, is verified by decrypting it again and only then replaces the database. The last three versions are kept as backups.
-- Network access only for the Nextcloud sync you set up: https only, self-signed certificates only after you confirm their fingerprint. The Nextcloud app password is stored inside your encrypted database.
-- No TOTP codes: keeping them next to the passwords would turn two factors into one. TOTP fields from KeePassXC are kept and shown as hidden fields.
+What it does not do
+- No fingerprint unlock and no autofill. I found no way to do either from an app in the Jolla Store.
+- No one-time codes (TOTP). TOTP fields from KeePassXC are kept and shown as hidden fields, and KeePassXC still shows the codes from the same file.
+
+How your passwords are protected
+- You type the full master password every time. Nothing on the phone unlocks the database without it.
+- Nothing decrypted is written to storage. When the database locks, the keys are wiped from memory. It locks after five minutes without use and after one minute in the background.
+- A copied password is removed from the clipboard after 30 seconds.
+- Databases and key files are kept in SailVault's private storage.
+- Before a save replaces your database, SailVault opens the new file again to check it. The last three versions are kept as backups.
+- SailVault only connects to the Nextcloud you set up, over https. If you do not set up sync, it connects to nothing. The Nextcloud app password is stored inside your encrypted database.
 
 Permissions
 - Documents and Downloads: to add databases, save copies and read imports.
+- Removable media: to add databases and read imports from a memory card.
 - Internet: only for the Nextcloud sync you set up.
 
 SailVault is free software under the MIT license. The source code, the threat model and the security reviews are on GitHub.
