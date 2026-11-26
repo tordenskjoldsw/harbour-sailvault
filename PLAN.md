@@ -575,9 +575,9 @@ Decided:
   Device test on the Jolla Phone (2026-11-26, development build over the
   store version): the system asked for the new permission at the first
   start; the file picker listed the memory card; a database picked from
-  the card was added and unlocked; the hint on the start page without a
-  database was shown. Not tested: deleting the original on the card, and
-  whether the card in the test was encrypted.
+  the card was added and unlocked; the original on the card was deleted
+  from the app's offer; the hint on the start page without a database was
+  shown. Not tested: whether the card in the test was encrypted.
 - Sync credentials (2026-10-04): the Nextcloud server, user name, app
   password, remote path and pinned certificate are stored in an entry of
   the database, marked by entry CustomData, not in Sailfish Secrets and not
