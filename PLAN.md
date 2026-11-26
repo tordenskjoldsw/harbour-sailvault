@@ -580,7 +580,9 @@ Decided:
   from the app's offer; the hint on the start page without a database was
   shown. Adding a database and deleting its original worked with an
   unencrypted exFAT card and, after formatting the card with encryption
-  in the system settings, with the encrypted (LUKS) card.
+  in the system settings, with the encrypted (LUKS) card. The release
+  package 0.6.0-1 (aarch64) was installed afterwards: the About page
+  shows 0.6.0 and the file picker lists the card.
 - Sync credentials (2026-10-04): the Nextcloud server, user name, app
   password, remote path and pinned certificate are stored in an entry of
   the database, marked by entry CustomData, not in Sailfish Secrets and not
