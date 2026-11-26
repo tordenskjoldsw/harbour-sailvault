@@ -1,3 +1,10 @@
+* Thu Nov 26 2026 Tobias Kaminski <instance_maintainer@protonmail.com> - 0.6.0-1
+- Add databases, key files, copies to merge and Bitwarden exports from a
+  memory card, also from an encrypted one
+- New permission: Removable media, used only for the files picked from a
+  memory card
+- The start page says where an existing database can be added from
+
 * Sun Oct 04 2026 Tobias Kaminski <instance_maintainer@protonmail.com> - 0.5.3-1
 - The entry page shows edited values at once
 - Saving an entry or group waits for a running sync merge
