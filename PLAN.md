@@ -577,8 +577,9 @@ Decided:
   start; the file picker listed the memory card; a database picked from
   the card was added and unlocked; the original on the card was deleted
   from the app's offer; the hint on the start page without a database was
-  shown. The card in the test was an unencrypted exFAT card; an encrypted
-  card was not tested.
+  shown. Adding a database and deleting its original worked with an
+  unencrypted exFAT card and, after formatting the card with encryption
+  in the system settings, with the encrypted (LUKS) card.
 - Sync credentials (2026-10-04): the Nextcloud server, user name, app
   password, remote path and pinned certificate are stored in an entry of
   the database, marked by entry CustomData, not in Sailfish Secrets and not
