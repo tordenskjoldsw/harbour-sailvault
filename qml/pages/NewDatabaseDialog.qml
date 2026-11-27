@@ -1,5 +1,6 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
+import harbour.sailvault 1.0
 import "../components"
 
 // Asks for the name and the master password of a new database. The caller
@@ -12,6 +13,8 @@ Dialog {
     // "passwordpassword" through, so a password rated Poor is refused too.
     readonly property int minimumPasswordLength: 15
     readonly property bool longEnough: passwordField.text.length >= minimumPasswordLength
+    readonly property bool couldBeStronger: strength.visible
+                                            && strength.quality <= PasswordStrength.Weak
     readonly property string name: nameField.text.trim()
     readonly property bool validName: databases.isValidName(name)
     readonly property bool exists: databases.exists(name)
@@ -85,9 +88,22 @@ Dialog {
             }
 
             Paragraph {
+                visible: dialog.couldBeStronger
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.secondaryHighlightColor
-                text: qsTr("Use a long passphrase of several words. Nobody can open the database without it, and it cannot be recovered.")
+                text: qsTr("A longer password is harder to guess. Several random words make a passphrase that is long and still easy to remember.")
+            }
+
+            Item {
+                visible: dialog.couldBeStronger
+                width: 1
+                height: Theme.paddingMedium
+            }
+
+            Paragraph {
+                font.pixelSize: Theme.fontSizeSmall
+                color: Theme.secondaryHighlightColor
+                text: qsTr("Nobody can open the database without the master password, and it cannot be recovered.")
             }
 
             Item {
