@@ -533,6 +533,8 @@ Part B - sync with Nextcloud over WebDAV (section 8):
 ### Phase 7 - Differentiation
 
 - Attachments UI, key file management
+- Password strength estimate (section 14): the master password of a new
+  database first, then entry passwords
 - Warning with a time estimate for slow KDF parameters (section 14)
 - Optional quick unlock with a PIN, in RAM only (section 14)
 - Published threat model, reproducible CI builds, signed releases
@@ -568,6 +570,26 @@ None at the moment.
 
 Decided:
 
+- Password strength (2026-11-27): SailVault rates a password with
+  zxcvbn-c 2.7 (MIT), the estimator KeePassXC uses, and with KeePassXC's
+  levels: Poor under 40 bits, Weak under 75, Good under 100, Excellent
+  from 100. Reason: store and forum feedback asked for a real estimate,
+  and the length rule alone accepts "passwordpassword" as a master
+  password. The C sources and the generated dictionary are vendored in
+  `third_party/zxcvbn` (`tools/gen-zxcvbn-dict.sh` rewrites and checks
+  them) and compiled into the C++ bridge. The Rust crate `zxcvbn` was
+  rejected: it brings 56 packages into the lock file and its current
+  dependencies do not parse with the SDK's cargo 1.75. This is an
+  exception to "logic lives in the core"; the estimate is neither crypto
+  nor key handling, and the password is a UI string at that point. For a
+  new database the 15 characters stay required and a master password
+  rated Poor is refused; everything from Weak on is shown, not blocked.
+  Entry passwords are rated but never blocked (next release). Known
+  limits: the word lists are English, so words of other languages are
+  rated too high, as in KeePassXC; the estimator's working memory is not
+  wiped. `tools/check-password-strength.sh` compares the estimates with
+  `keepassxc-cli estimate` (twelve samples identical with KeePassXC
+  2.8.0). The dictionary adds about 1.1 MB to the RPM.
 - Memory cards (2026-11-26): the Sailjail permission `RemovableMedia` is
   added, so databases, key files, copies to merge and Bitwarden exports
   can be picked from a memory card or USB stick. Reason: the first store
