@@ -534,7 +534,9 @@ Part B - sync with Nextcloud over WebDAV (section 8):
 
 - Attachments UI, key file management
 - Password strength estimate (section 14): the master password of a new
-  database first, then entry passwords
+  database first (0.7.0), then entry passwords in the entry dialog (0.7.1),
+  then a report of weak and reused passwords (0.8.0; how is an open
+  decision, section 14)
 - Warning with a time estimate for slow KDF parameters (section 14)
 - Optional quick unlock with a PIN, in RAM only (section 14)
 - Published threat model, reproducible CI builds, signed releases
@@ -566,7 +568,28 @@ Part B - sync with Nextcloud over WebDAV (section 8):
 
 ## 14. Open decisions
 
-None at the moment.
+- Password report (raised 2026-11-27, wanted for 0.8.0): a page that lists
+  the entries with a password rated Poor or Weak, worst first, and the
+  passwords used in more than one entry, like KeePassXC's Health Check.
+  It would complete the strength estimate. Open is how the passwords
+  reach the estimator, which lives in the bridge while the passwords live
+  in the core:
+  1. Copy every password into the bridge and rate it there. Simplest, but
+     it gives up the rule that a password leaves the core only when it is
+     shown, copied or edited.
+  2. Move the estimator into the core, so no password leaves it. Cargo
+     would have to compile C for the target (new build dependencies) and
+     the core would call C outside its FFI boundary.
+  3. The core walks the entries and lends each password to a callback of
+     the bridge, which rates it in the core's memory and returns only the
+     bits. No copy and no new dependency; the estimator's working memory
+     stays the only trace outside the core. Proposed, not decided.
+  Reuse can be compared inside the core with any of them. Also open:
+  whether to honor KeePassXC's mark for entries excluded from its report
+  (how it is stored is not looked up yet). Not wanted in any case: a
+  check against breach databases, which would send data to a third
+  party. To measure before deciding: the time for 1000 entries on the
+  Jolla Phone, and whether zxcvbn-c may be called from two threads.
 
 Decided:
 
