@@ -1,6 +1,7 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
 import harbour.sailvault 1.0
+import "../components"
 
 // Creates an entry in groupId, or edits the entry entryId when it is set.
 Dialog {
@@ -98,6 +99,12 @@ Dialog {
                 placeholderText: label
                 EnterKey.iconSource: "image://theme/icon-m-enter-next"
                 EnterKey.onClicked: urlField.focus = true
+            }
+
+            // A rating only: which password an entry holds is the user's
+            // choice, also when a site allows nothing better.
+            StrengthIndicator {
+                password: passwordField.text
             }
 
             TextField {
