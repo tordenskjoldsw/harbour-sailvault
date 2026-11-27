@@ -285,6 +285,23 @@ Limits:
   (`docs/security-review-2026-11-password-report.md`, F2). In the dialogs
   the password is a Qt string anyway. Some passwords take the estimator
   up to two seconds, so it runs on a worker thread.
+- **The password report hands every password to C code.** The report
+  rates all entries at one tap, also those that came with a shared
+  database, a merge or an import. The estimator, zxcvbn-c, is 1800 lines
+  of C; a memory error in it would be reachable by a crafted password, in
+  a process that holds the decrypted database. An independent read of the
+  code, a walk of its dictionary tables and fuzzing under sanitizers
+  found none (`docs/security-review-2026-11-password-report.md`), and
+  `tools/check-estimator.sh` repeats the last two whenever the estimator
+  changes. KeePassXC runs the same code on the same data. The core lends
+  each password to the estimator without a copy and bounds it to 256
+  characters; the walk runs on a stack of its own that is overwritten
+  afterwards, and the estimator's heap blocks are wiped, so the report
+  leaves no trace of a password (measured on the Jolla Phone with
+  `tools/run-residue-check.sh`). CPU registers and caches are not wiped.
+  A lock cancels a running report at its next entry; one estimate can
+  take up to two seconds for a crafted password, and the lock waits that
+  long.
 - **HMAC and SHA-2 states are not wiped.** The `hmac` and `sha2` crates
   offer no zeroize support; their internal states, derived from key
   material, are freed without zeroing.

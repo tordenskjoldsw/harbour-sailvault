@@ -287,8 +287,28 @@ entries.
 | | Action | When |
 |---|---|---|
 | F1 | Rate off the UI thread (C3 for the dialogs) | done in 0.7.2 (`a81e93d`), verified on the device |
-| F2 | C1 and C2 | C2 done in 0.7.2 (`fa36683`); C1 with the report |
+| F2 | C1 and C2 | C2 done in 0.7.2 (`fa36683`); C1 done in 0.8.0 (`793be02`), measured on the device |
 | F3 | End cleanly on a failed allocation, in the wrapper of C2 | done in 0.7.2 (`fa36683`) |
-| F4, F5 | C5 | before the report |
+| F4, F5 | C5 | done in 0.8.0 (`1559272`) |
 | - | Correct the benchmark's conclusion in `PLAN.md` | done |
-| - | Add the report, its safeguards and F6 to the threat model | with the report |
+| - | Add the report, its safeguards and F6 to the threat model | done |
+| C3 | Lock while a report runs over crafted entries, on the device | open |
+| C4 | The core bounds what the estimator gets | done in 0.8.0 (`7b485d8`), with tests |
+
+## Addendum, 2026-11-27: the report as built
+
+The report was built as recommended, with all five conditions.
+
+On F2: the fragment of 7 bytes was seen once, with the first measuring
+program and the estimator built without the wiped heap. The tool that
+replaced it, `tools/run-residue-check.sh`, rates eight passwords with the
+estimator as the app builds it and did not find a fragment after the
+unprotected run either, on the host or on the Jolla Phone; it does find
+the copies it leaves on purpose. So what the estimator leaves on the
+stack depends on the build and on how it is called, more than F2 says.
+The stack that is wiped stays: the next compiler can change the result,
+and the cost is one thread per report.
+
+Still open: the lock while a report runs (C3) is covered by a test of the
+core for the cancellation and by reading the vault's code, not yet by a
+test on the device.

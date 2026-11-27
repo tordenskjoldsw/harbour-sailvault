@@ -568,7 +568,21 @@ Part B - sync with Nextcloud over WebDAV (section 8):
 
 ## 14. Open decisions
 
-None at the moment.
+- Excluding entries from the password report in the app (raised
+  2026-11-27, not decided, not before 0.8.1): the report already skips
+  entries that KeePassXC excludes, but the mark can only be set in
+  KeePassXC (entry, Advanced, "Exclude from database reports"; its own
+  example is a four-digit PIN that cannot be changed). Without a way to
+  set it on the phone, the report keeps listing such an entry for users
+  who have no KeePassXC at hand. What it would take: a long press in the
+  report to exclude an entry, a menu item that shows the excluded ones
+  so the choice can be undone, and writing the mark. KeePassXC writes the
+  KDBX 4.1 element `QualityCheck` with the value False, and only into a
+  4.1 file, so a 4.0 file would have to be raised to 4.1. To check
+  first: whether KeePassXC raises a 4.0 file itself when an entry is
+  excluded there, and with `keepassxc-cli` that it reads a mark SailVault
+  wrote and keeps it on save. Not to be mentioned in the app or the
+  store texts until it exists.
 
 Decided:
 
@@ -601,6 +615,23 @@ Decided:
   2.1 s for one password of 100 characters. With the dictionary compiled
   in, zxcvbn-c has no mutable global or static data; eight threads ran
   on the host under ThreadSanitizer without a report.
+  Built for 0.8.0 as decided: `core/src/strength.rs` (outside `kdbx/`,
+  which SailFactor copies) with the walk, the bound, the exclusions and
+  the reuse; `sv_estimate` in `src/estimator.c` as the estimator;
+  `src/wipedstack.c` for C1; `ReportTask` and the vault's busy and lock
+  handling for C3; `tools/check-estimator.sh` for C5.
+  `tools/run-residue-check.sh` on the Jolla Phone: rating eight made-up
+  passwords the way the report does left no fragment of five bytes or
+  more on the dead stack or in any writable page, and the copies the
+  tool leaves on purpose were found.
+  Device test on the Jolla Phone (2026-11-27, development build): the
+  report lists the weak passwords, weakest first, with the number of
+  passwords checked; two entries with the same password are listed as
+  sharing it; a tap opens the entry, and the list is checked again after
+  its password was changed; a database without weak or shared passwords
+  shows the empty notice; portrait and landscape. Not tested on the
+  device: a lock while a report is still running, which needs entries
+  with the estimator's slow passwords.
 - Password strength (2026-11-27): SailVault rates a password with
   zxcvbn-c 2.7 (MIT), the estimator KeePassXC uses, and with KeePassXC's
   levels: Poor under 40 bits, Weak under 75, Good under 100, Excellent

@@ -46,6 +46,9 @@ The screenshots show a demo database with made-up data.
 - Rates passwords with the estimator KeePassXC uses (zxcvbn): the master
   password of a new database, where one that is too easy to guess is
   refused, and the password of an entry while you edit it.
+- Password report: lists the entries with a weak password and the
+  passwords used in more than one entry. Entries that KeePassXC excludes
+  from its reports are left out here too.
 - Create a new database with Argon2id at one of three strengths, all
   measured on the Jolla Phone (about 1, 2.5 and 5 seconds to unlock).
 - Keep databases and key files in SailVault's private storage, out of
@@ -179,7 +182,8 @@ cargo test --manifest-path core/Cargo.toml
 
 ```
 core/   Rust: KDBX 4 codec, crypto, merge, import, search. C API, no I/O.
-src/    C++ (Qt 5.6): file access, list models, clipboard, auto-lock.
+src/    C++ (Qt 5.6): file access, list models, clipboard, auto-lock; C
+        glue for the strength estimator and a stack that is wiped.
 qml/    Silica user interface.
 third_party/  zxcvbn-c, the password strength estimator of KeePassXC.
 docs/   Threat model, security review, Bitwarden export format.
