@@ -56,6 +56,26 @@ private:
     QByteArray m_expectedDigest;
 };
 
+// Rates the passwords of all entries for the password report. The core
+// lends each password to the estimator; the whole walk runs on a stack of
+// its own that is overwritten afterwards, so neither leaves a trace of a
+// password. The vault keeps the handle alive and read-only until the result
+// arrives; cancelled stops the walk before the next estimate.
+class ReportTask : public QRunnable
+{
+public:
+    ReportTask(Vault *vault, int attempt, const SvDatabase *database,
+               std::shared_ptr<std::atomic_bool> cancelled);
+
+    void run() override;
+
+private:
+    Vault *m_vault;
+    int m_attempt;
+    const SvDatabase *m_database;
+    std::shared_ptr<std::atomic_bool> m_cancelled;
+};
+
 // Opens another copy of the database for a merge: with the credentials
 // the open database holds, which keeps its handle alive and read-only until
 // the result arrives, or with the file's own password and key file.

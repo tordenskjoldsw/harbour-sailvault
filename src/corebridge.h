@@ -81,6 +81,8 @@ using CoreList = std::unique_ptr<SvList, CoreFree<SvList, sv_list_free>>;
 using CoreFieldList = std::unique_ptr<SvFieldList, CoreFree<SvFieldList, sv_field_list_free>>;
 using CoreImport = std::unique_ptr<SvImport, CoreFree<SvImport, sv_import_free>>;
 using CoreDatabase = std::unique_ptr<SvDatabase, CoreFree<SvDatabase, sv_database_free>>;
+using CorePasswordReport
+    = std::unique_ptr<SvPasswordReport, CoreFree<SvPasswordReport, sv_password_report_free>>;
 
 // A file from the core, released when it goes out of scope.
 class CoreBytes

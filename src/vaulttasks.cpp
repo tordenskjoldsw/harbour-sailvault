@@ -6,7 +6,9 @@
 #include "corebridge.h"
 #include "databasefile.h"
 #include "databases.h"
+#include "estimator.h"
 #include "vault.h"
+#include "wipedstack.h"
 
 namespace {
 
@@ -112,6 +114,50 @@ void SaveTask::run()
     QMetaObject::invokeMethod(m_vault, "onSaveFinished", Qt::QueuedConnection,
                               Q_ARG(int, m_attempt), Q_ARG(int, status),
                               Q_ARG(QByteArray, digest), Q_ARG(bool, replacedChangedFile));
+}
+
+namespace {
+
+struct ReportCall {
+    const SvDatabase *database;
+    std::atomic_bool *cancelled;
+    SvPasswordReport *report;
+    int status;
+};
+
+bool reportCancelled(void *context)
+{
+    return static_cast<std::atomic_bool *>(context)->load();
+}
+
+void runReport(void *context)
+{
+    auto *call = static_cast<ReportCall *>(context);
+    call->status = sv_database_password_report(call->database, sv_estimate, reportCancelled,
+                                               call->cancelled, &call->report);
+}
+
+} // namespace
+
+ReportTask::ReportTask(Vault *vault, int attempt, const SvDatabase *database,
+                       std::shared_ptr<std::atomic_bool> cancelled)
+    : m_vault(vault)
+    , m_attempt(attempt)
+    , m_database(database)
+    , m_cancelled(std::move(cancelled))
+{
+}
+
+void ReportTask::run()
+{
+    ReportCall call{m_database, m_cancelled.get(), nullptr, SV_OK};
+    // Without the stack that is wiped there is no report: passwords would
+    // stay on this pool thread's stack.
+    if (!sv_run_on_wiped_stack(runReport, &call))
+        call.status = SV_LIMIT_EXCEEDED;
+    QMetaObject::invokeMethod(m_vault, "onReportFinished", Qt::QueuedConnection,
+                              Q_ARG(int, m_attempt), Q_ARG(int, call.status),
+                              Q_ARG(qulonglong, reinterpret_cast<qulonglong>(call.report)));
 }
 
 MergeTask::MergeTask(Vault *vault, int attempt, const SvDatabase *database, const QString &path)

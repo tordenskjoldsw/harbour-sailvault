@@ -35,6 +35,7 @@ class Vault : public QObject
     Q_PROPERTY(Error error READ error NOTIFY errorChanged)
     Q_PROPERTY(bool saving READ saving NOTIFY savingChanged)
     Q_PROPERTY(bool merging READ merging NOTIFY mergingChanged)
+    Q_PROPERTY(bool reporting READ reporting NOTIFY reportingChanged)
     Q_PROPERTY(bool dirty READ dirty NOTIFY dirtyChanged)
     Q_PROPERTY(QString databaseName READ databaseName WRITE setDatabaseName NOTIFY databaseNameChanged)
     Q_PROPERTY(QString sourcePath READ sourcePath WRITE setSourcePath NOTIFY sourcePathChanged)
@@ -152,6 +153,12 @@ public:
                            const QByteArray &appPassword, const QString &path,
                            const QByteArray &certificate);
     bool busy() const;
+    bool reporting() const;
+    // Rates the passwords of all entries in the background and reports
+    // passwordReportFinished or passwordReportFailed; refused while busy or
+    // locked. A lock or cancelPasswordReport stops it without a result.
+    Q_INVOKABLE bool startPasswordReport();
+    Q_INVOKABLE void cancelPasswordReport();
     // Deletes a stored database with its key file and backups; refused
     // unless locked.
     Q_INVOKABLE bool removeDatabase(const QString &name);
@@ -210,6 +217,14 @@ signals:
     void contentChanged();
     void saveFailed();
     void mergingChanged();
+    void reportingChanged();
+    // entries: the entries with a password rated Poor or Weak, weakest
+    // first, then those that only share a password; each with id, title,
+    // userName, location, bits, quality (PasswordStrength.Quality) and
+    // sharedWith, the number of other entries with the same password.
+    // checked: how many passwords were rated.
+    void passwordReportFinished(const QVariantList &entries, int checked);
+    void passwordReportFailed();
     void mergeFinished(int added, int modified, int moved, int deleted);
     void mergeNeedsPassword();
     void mergeFailed(int error);
@@ -226,6 +241,7 @@ private slots:
     void onSaveFinished(int attempt, int status, const QByteArray &digest,
                         bool replacedChangedFile);
     void onMergeOpened(int attempt, int status, qulonglong handle);
+    void onReportFinished(int attempt, int status, qulonglong handle);
 
 private:
     // One edit of the database; sets changed when it changed anything.
@@ -251,6 +267,7 @@ private:
     void setError(Error error);
     void setSaving(bool saving);
     void setMerging(bool merging);
+    void setReporting(bool reporting);
     void startMerge(const QString &path, MergeTask *task);
     // Runs a lock requested while busy.
     void resumePendingLock();
@@ -264,6 +281,8 @@ private:
     Error m_error = NoError;
     bool m_saving = false;
     bool m_merging = false;
+    bool m_reporting = false;
+    std::shared_ptr<std::atomic_bool> m_reportCancelled;
     QString m_mergePath;
     bool m_mergeForSync = false;
     QString m_mergedPath;

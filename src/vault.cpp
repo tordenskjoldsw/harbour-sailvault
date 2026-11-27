@@ -126,6 +126,7 @@ private:
 Vault::Vault(QObject *parent)
     : QObject(parent)
     , m_unlockCancelled(std::make_shared<std::atomic_bool>(false))
+    , m_reportCancelled(std::make_shared<std::atomic_bool>(false))
 {
     const QSettings settings(settingsPath(), QSettings::IniFormat);
     const QString name = settings.value(QStringLiteral("databaseName")).toString();
@@ -146,6 +147,7 @@ Vault::Vault(QObject *parent)
 Vault::~Vault()
 {
     cancelPendingUnlock();
+    cancelPasswordReport();
     // A running save finishes writing the file first.
     QThreadPool::globalInstance()->waitForDone();
     // A task may have posted its result before it saw the cancellation;
@@ -177,7 +179,12 @@ bool Vault::merging() const
 
 bool Vault::busy() const
 {
-    return m_saving || m_merging;
+    return m_saving || m_merging || m_reporting;
+}
+
+bool Vault::reporting() const
+{
+    return m_reporting;
 }
 
 bool Vault::dirty() const
@@ -355,7 +362,9 @@ void Vault::lock()
     m_autoLock.stop();
     m_clipboard.clear();
     if (busy()) {
-        // The task still reads the handle; its result handler locks.
+        // The task still reads the handle; its result handler locks. A
+        // report gives way to the lock at its next entry.
+        cancelPasswordReport();
         if (m_pendingLock == PendingLock::None)
             m_pendingLock = PendingLock::Manual;
         return;
@@ -395,6 +404,7 @@ void Vault::lockAutomatically()
     if (m_state != Unlocked)
         return;
     if (busy()) {
+        cancelPasswordReport();
         m_pendingLock = PendingLock::Automatic;
         return;
     }
@@ -807,6 +817,62 @@ void Vault::onMergeOpened(int attempt, int status, qulonglong handle)
     resumePendingLock();
 }
 
+bool Vault::startPasswordReport()
+{
+    if (m_state != Unlocked || busy() || !database())
+        return false;
+    m_reportCancelled = std::make_shared<std::atomic_bool>(false);
+    setReporting(true);
+    QThreadPool::globalInstance()->start(
+        new ReportTask(this, m_attempt, m_database.get(), m_reportCancelled));
+    return true;
+}
+
+void Vault::cancelPasswordReport()
+{
+    m_reportCancelled->store(true);
+}
+
+void Vault::onReportFinished(int attempt, int status, qulonglong handle)
+{
+    const CorePasswordReport report(reinterpret_cast<SvPasswordReport *>(handle));
+    setReporting(false);
+    // A lock requested meanwhile wins over the result.
+    if (attempt == m_attempt && m_state == Unlocked && m_pendingLock == PendingLock::None) {
+        if (status == SV_OK) {
+            QVariantList entries;
+            const size_t length = sv_password_report_length(report.get());
+            for (size_t index = 0; index < length; ++index) {
+                QByteArray uuid(SV_UUID_LENGTH, Qt::Uninitialized);
+                if (sv_password_report_uuid(report.get(), index,
+                                            reinterpret_cast<uint8_t *>(uuid.data())) != SV_OK)
+                    continue;
+                const auto text = [&report, index](uint32_t column) {
+                    SvString string = emptyCoreString();
+                    return sv_password_report_text(report.get(), index, column, &string) == SV_OK
+                        ? takeCoreString(string) : QString();
+                };
+                QVariantMap entry;
+                entry.insert(QStringLiteral("id"), QString::fromLatin1(uuid.toHex()));
+                entry.insert(QStringLiteral("title"), text(SV_COLUMN_TITLE));
+                entry.insert(QStringLiteral("userName"), text(SV_COLUMN_USER_NAME));
+                entry.insert(QStringLiteral("location"), text(SV_COLUMN_GROUP));
+                entry.insert(QStringLiteral("bits"), sv_password_report_bits(report.get(), index));
+                entry.insert(QStringLiteral("quality"),
+                             static_cast<int>(sv_password_report_quality(report.get(), index)));
+                entry.insert(QStringLiteral("sharedWith"),
+                             static_cast<int>(sv_password_report_shared_with(report.get(), index)));
+                entries.append(entry);
+            }
+            emit passwordReportFinished(
+                entries, static_cast<int>(sv_password_report_checked(report.get())));
+        } else if (status != SV_CANCELLED) {
+            emit passwordReportFailed();
+        }
+    }
+    resumePendingLock();
+}
+
 bool Vault::removeMergedFile()
 {
     const bool removed = !m_mergedPath.isEmpty() && QFile::remove(m_mergedPath);
@@ -870,6 +936,14 @@ void Vault::setMerging(bool merging)
         return;
     m_merging = merging;
     emit mergingChanged();
+}
+
+void Vault::setReporting(bool reporting)
+{
+    if (m_reporting == reporting)
+        return;
+    m_reporting = reporting;
+    emit reportingChanged();
 }
 
 void Vault::setSaving(bool saving)
