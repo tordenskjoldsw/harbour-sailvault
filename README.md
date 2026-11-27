@@ -13,7 +13,7 @@ my passwords on my phone, in a format I control, in an app that runs
 sandboxed. SailVault is written for Sailfish OS 5.2 and tested on the Jolla
 Phone (aarch64).
 
-**Status:** version 0.7.2. Reading, editing, importing, merging and sync
+**Status:** version 0.8.0. Reading, editing, importing, merging and sync
 through Nextcloud are done and tested on the device. It is available in
 the Jolla Store (Harbour).
 
@@ -189,6 +189,9 @@ third_party/  zxcvbn-c, the password strength estimator of KeePassXC.
 docs/   Threat model, security review, Bitwarden export format.
 tools/  Fixture generators, measurement scripts, license notice generator.
 ```
+
+`tools/run-bridge-tests.sh` runs the tests of the C++ bridge on the host
+(`tests/bridge`); they need Qt 5 and no device.
 
 Test databases in `core/tests/fixtures` hold fake data only and are made
 with `keepassxc-cli` or the KeePassXC GUI. Their password is

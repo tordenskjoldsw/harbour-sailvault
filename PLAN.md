@@ -8,7 +8,8 @@ page), 0.5.2 (fixes from the security review before the submission),
 0.5.3 (fixes found while preparing the store listing), 0.6.0 (files
 from a memory card, after the first store feedback) 0.7.2 (strength
 estimate for a new master password and for entry passwords; 0.7.0 and
-0.7.1 were tagged but not released), all tested on the Jolla Phone. 0.5.3 was submitted to Harbour on 2026-10-04 (Phase 6),
+0.7.1 were tagged but not released) and 0.8.0 (password report), all
+tested on the Jolla Phone. 0.5.3 was submitted to Harbour on 2026-10-04 (Phase 6),
 passed QA and is in the Jolla Store (as of 2026-11-25).
 
 ## 1. Goal
@@ -629,9 +630,12 @@ Decided:
   passwords checked; two entries with the same password are listed as
   sharing it; a tap opens the entry, and the list is checked again after
   its password was changed; a database without weak or shared passwords
-  shows the empty notice; portrait and landscape. Not tested on the
-  device: a lock while a report is still running, which needs entries
-  with the estimator's slow passwords.
+  shows the empty notice; portrait and landscape. A lock while a report
+  is still running is tested on the host instead
+  (`tools/run-bridge-tests.sh`, the real Vault with the real estimator):
+  over eight entries with the estimator's slow password the lock took
+  effect after the one running estimate, 0.65 s, where the whole report
+  takes 9.7 s. On the phone one such estimate takes up to 2.1 s.
 - Password strength (2026-11-27): SailVault rates a password with
   zxcvbn-c 2.7 (MIT), the estimator KeePassXC uses, and with KeePassXC's
   levels: Poor under 40 bits, Weak under 75, Good under 100, Excellent

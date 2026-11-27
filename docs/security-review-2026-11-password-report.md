@@ -292,7 +292,7 @@ entries.
 | F4, F5 | C5 | done in 0.8.0 (`1559272`) |
 | - | Correct the benchmark's conclusion in `PLAN.md` | done |
 | - | Add the report, its safeguards and F6 to the threat model | done |
-| C3 | Lock while a report runs over crafted entries, on the device | open |
+| C3 | Lock while a report runs over crafted entries | done as a host test of the real Vault (`tools/run-bridge-tests.sh`); the time of one estimate is measured on the device |
 | C4 | The core bounds what the estimator gets | done in 0.8.0 (`7b485d8`), with tests |
 
 ## Addendum, 2026-11-27: the report as built
@@ -309,6 +309,10 @@ stack depends on the build and on how it is called, more than F2 says.
 The stack that is wiped stays: the next compiler can change the result,
 and the cost is one thread per report.
 
-Still open: the lock while a report runs (C3) is covered by a test of the
-core for the cancellation and by reading the vault's code, not yet by a
-test on the device.
+The lock while a report runs (C3) is tested on the host with the real
+Vault, the host build of the core and the real estimator: over eight
+entries with the estimator's slow password, the lock took effect after
+the one estimate that was running (0.65 s) instead of after the whole
+report (9.7 s), and the test fails when the cancellation is removed. It
+is not repeated on the device; what differs there is the time of one
+estimate, measured at up to 2.1 s.
