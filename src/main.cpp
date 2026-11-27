@@ -50,12 +50,9 @@ int main(int argc, char *argv[])
     qmlRegisterUncreatableType<Importer>("harbour.sailvault", 1, 0, "Importer",
                                          QStringLiteral("Use the importer context property"));
 
-    qmlRegisterUncreatableType<PasswordStrength>(
-        "harbour.sailvault", 1, 0, "PasswordStrength",
-        QStringLiteral("Use the passwordStrength context property"));
+    qmlRegisterType<PasswordStrength>("harbour.sailvault", 1, 0, "PasswordStrength");
 
     Databases databases;
-    PasswordStrength passwordStrength;
     Vault vault;
     Importer importer(&vault);
     Sync sync(&vault);
@@ -64,8 +61,6 @@ int main(int argc, char *argv[])
     view->rootContext()->setContextProperty(QStringLiteral("vault"), &vault);
     view->rootContext()->setContextProperty(QStringLiteral("importer"), &importer);
     view->rootContext()->setContextProperty(QStringLiteral("sync"), &sync);
-    view->rootContext()->setContextProperty(QStringLiteral("passwordStrength"),
-                                            &passwordStrength);
     // Development builds carry SemVer build metadata after "+" (branch, time
     // and commit); the About page shows it apart from the release number.
     const QString version = QStringLiteral(APP_VERSION);

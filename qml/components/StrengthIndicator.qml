@@ -3,13 +3,15 @@ import Sailfish.Silica 1.0
 import harbour.sailvault 1.0
 
 // Rates a password below its field: a bar, the quality in words and the
-// estimated bits.
+// estimated bits. The rating arrives a moment after the text; until then
+// rated is false and the last rating stays on screen.
 Column {
     id: indicator
 
-    property string password
-    readonly property real bits: passwordStrength.entropyBits(password)
-    readonly property int quality: passwordStrength.quality(bits)
+    property alias password: strength.password
+    readonly property alias bits: strength.bits
+    readonly property alias quality: strength.quality
+    readonly property alias rated: strength.current
     readonly property bool poor: quality === PasswordStrength.Poor
     readonly property color barColor: poor ? Theme.errorColor : Theme.highlightColor
 
@@ -27,6 +29,10 @@ Column {
     spacing: Theme.paddingSmall
     visible: password.length > 0
 
+    PasswordStrength {
+        id: strength
+    }
+
     Rectangle {
         width: parent.width
         height: Theme.paddingSmall
@@ -34,7 +40,7 @@ Column {
         color: Theme.rgba(indicator.barColor, Theme.opacityFaint)
 
         Rectangle {
-            width: parent.width * Math.min(indicator.bits / passwordStrength.excellentBits, 1)
+            width: parent.width * Math.min(indicator.bits / strength.excellentBits, 1)
             height: parent.height
             radius: parent.radius
             color: indicator.barColor

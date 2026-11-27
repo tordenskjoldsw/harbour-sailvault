@@ -22,7 +22,7 @@ Dialog {
     readonly property int kdfLevel: kdfBox.kdfLevel
 
     canAccept: validName && !exists
-               && longEnough && !strength.poor
+               && longEnough && strength.rated && !strength.poor
                && repeatField.text === passwordField.text
     allowedOrientations: Orientation.All
 
@@ -65,7 +65,7 @@ Dialog {
                 label: qsTr("Master password")
                 errorText: text.length === 0 ? ""
                          : !dialog.longEnough ? qsTr("At least %1 characters").arg(dialog.minimumPasswordLength)
-                         : strength.poor ? qsTr("Too easy to guess")
+                         : strength.rated && strength.poor ? qsTr("Too easy to guess")
                          : ""
                 EnterKey.iconSource: "image://theme/icon-m-enter-next"
                 EnterKey.onClicked: repeatField.focus = true
