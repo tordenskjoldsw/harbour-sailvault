@@ -15,8 +15,10 @@ HEADERS += \
     src/nextcloud.h \
     src/passwordstrength.h \
     src/sync.h \
+    src/estimator.h \
     src/vault.h \
-    src/vaulttasks.h
+    src/vaulttasks.h \
+    src/wipedstack.h
 
 SOURCES += \
     src/autolock.cpp \
@@ -37,7 +39,7 @@ INCLUDEPATH += core/include
 # The password strength estimator, an unchanged copy of zxcvbn-c with its
 # dictionary compiled in (third_party/zxcvbn/README.md). src/estimator.c
 # includes zxcvbn.c and gives it a heap that is wiped.
-SOURCES += src/estimator.c
+SOURCES += src/estimator.c src/wipedstack.c
 INCLUDEPATH += third_party/zxcvbn
 
 # The spec passes the package version; the About page shows it. Builds
