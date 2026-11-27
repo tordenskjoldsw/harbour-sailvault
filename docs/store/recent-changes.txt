@@ -8,4 +8,4 @@ The password generator now suggests 24 characters instead of 20.
 
 You can now add databases and key files from a memory card, also from an encrypted one. Bitwarden exports and copies to merge can be picked from the card too. For this SailVault asks for one new permission, Removable media. It only touches the files you pick.
 
-The rating knows English words only. A password made of words in another language is rated better than it is.
+The rating only recognises English words. A password made of German words, for example, gets a better rating than it deserves.
