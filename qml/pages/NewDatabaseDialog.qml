@@ -8,8 +8,10 @@ Dialog {
     id: dialog
 
     // NIST SP 800-63B rev. 4 asks for 15 characters when a password is the
-    // only factor, as the master password is here.
+    // only factor, as the master password is here. Length alone lets
+    // "passwordpassword" through, so a password rated Poor is refused too.
     readonly property int minimumPasswordLength: 15
+    readonly property bool longEnough: passwordField.text.length >= minimumPasswordLength
     readonly property string name: nameField.text.trim()
     readonly property bool validName: databases.isValidName(name)
     readonly property bool exists: databases.exists(name)
@@ -17,7 +19,7 @@ Dialog {
     readonly property int kdfLevel: kdfBox.kdfLevel
 
     canAccept: validName && !exists
-               && passwordField.text.length >= minimumPasswordLength
+               && longEnough && !strength.poor
                && repeatField.text === passwordField.text
     allowedOrientations: Orientation.All
 
@@ -58,10 +60,18 @@ Dialog {
                 id: passwordField
 
                 label: qsTr("Master password")
-                errorText: text.length > 0 && text.length < dialog.minimumPasswordLength
-                           ? qsTr("At least %1 characters").arg(dialog.minimumPasswordLength) : ""
+                errorText: text.length === 0 ? ""
+                         : !dialog.longEnough ? qsTr("At least %1 characters").arg(dialog.minimumPasswordLength)
+                         : strength.poor ? qsTr("Too easy to guess")
+                         : ""
                 EnterKey.iconSource: "image://theme/icon-m-enter-next"
                 EnterKey.onClicked: repeatField.focus = true
+            }
+
+            StrengthIndicator {
+                id: strength
+
+                password: passwordField.text
             }
 
             PasswordInput {

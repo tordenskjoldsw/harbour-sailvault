@@ -79,6 +79,7 @@ DISTFILES += \
     qml/components/Paragraph.qml \
     qml/components/PasswordInput.qml \
     qml/components/ProtectionComboBox.qml \
+    qml/components/StrengthIndicator.qml \
     qml/components/SyncText.qml \
     qml/components/TwoLineLabel.qml \
     qml/cover/CoverPage.qml \

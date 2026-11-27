@@ -276,6 +276,11 @@ Limits:
   them; both are overwritten with `explicit_bzero` after use. Qt's
   implicit sharing elsewhere can leave copies that are freed without
   zeroing.
+- **The strength estimate is a rough guide.** It comes from zxcvbn-c, as
+  in KeePassXC. Its word lists are English, so a password made of words in
+  another language is rated higher than it deserves. The estimator works
+  on a copy of the typed password that is wiped afterwards, but its own
+  working memory is freed without zeroing.
 - **HMAC and SHA-2 states are not wiped.** The `hmac` and `sha2` crates
   offer no zeroize support; their internal states, derived from key
   material, are freed without zeroing.

@@ -43,6 +43,8 @@ The screenshots show a demo database with made-up data.
 - Lock after five minutes without use and after one minute in the
   background.
 - Password generator.
+- Rates the master password of a new database with the estimator KeePassXC
+  uses (zxcvbn), and refuses one that is too easy to guess.
 - Create a new database with Argon2id at one of three strengths, all
   measured on the Jolla Phone (about 1, 2.5 and 5 seconds to unlock).
 - Keep databases and key files in SailVault's private storage, out of
@@ -178,6 +180,7 @@ cargo test --manifest-path core/Cargo.toml
 core/   Rust: KDBX 4 codec, crypto, merge, import, search. C API, no I/O.
 src/    C++ (Qt 5.6): file access, list models, clipboard, auto-lock.
 qml/    Silica user interface.
+third_party/  zxcvbn-c, the password strength estimator of KeePassXC.
 docs/   Threat model, security review, Bitwarden export format.
 tools/  Fixture generators, measurement scripts, license notice generator.
 ```
