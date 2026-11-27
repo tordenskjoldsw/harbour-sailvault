@@ -1,6 +1,9 @@
 /* Times the password strength estimator on made-up passwords: a mix like a
- * real database for the report over all entries, and long passwords for the
- * rating while typing. Built and run by tools/run-strength-benchmark.sh. */
+ * real database for the report over all entries, long passwords for the
+ * rating while typing, and the estimator's slow case: neighbours on the
+ * number pad that change direction at every step, which cost time with the
+ * fifth power of the length up to 100 characters. Built and run by
+ * tools/run-strength-benchmark.sh. */
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -102,12 +105,14 @@ int main(void)
     }
     for (i = 0; i < sizeof LENGTHS / sizeof LENGTHS[0]; ++i) {
         double start, elapsed;
-        memset(password, 'a', (size_t)LENGTHS[i]);
+        int position;
+        for (position = 0; position < LENGTHS[i]; ++position)
+            password[position] = "12"[position % 2];
         password[LENGTHS[i]] = '\0';
         start = nowMs();
         ZxcvbnMatch(password, NULL, NULL);
         elapsed = nowMs() - start;
-        printf("one repeated character, %3d times: %.1f ms\n", LENGTHS[i], elapsed);
+        printf("\"12\" repeated to %3d characters: %.1f ms\n", LENGTHS[i], elapsed);
     }
     return 0;
 }
