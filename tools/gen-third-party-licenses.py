@@ -2,8 +2,9 @@
 """Generates the third-party license notices shown on the About page.
 
 Lists the crates linked into the app (cargo tree without dev, build and
-proc-macro dependencies, for the device target) and the Rust standard
-library, and takes each license text from the vendored sources. Where a
+proc-macro dependencies, for the device target), the C sources compiled
+into it and the Rust standard library, and takes each license text from
+the vendored sources. Where a
 crate offers a choice, SailVault uses the MIT terms.
 
 Usage: tools/gen-third-party-licenses.py          # rewrite the file
@@ -21,6 +22,12 @@ OUTPUT = ROOT / "qml" / "pages" / "thirdparty.js"
 TARGET = "aarch64-unknown-linux-gnu"
 # The Rust toolchain of the SDK target; its standard library is linked in.
 RUST_TOOLCHAIN = "1.75"
+# C sources compiled into the app: name, version, license, license files.
+ZXCVBN = ROOT / "third_party" / "zxcvbn"
+VENDORED_C = [
+    ("zxcvbn-c", "2.7", "MIT", ZXCVBN / "LICENSE.txt"),
+    ("zxcvbn word lists", "in zxcvbn-c 2.7", "MIT", ZXCVBN / "LICENSE-wordlists.txt"),
+]
 # Preferred license files, MIT terms first.
 LICENSE_FILES = ["LICENSE-MIT", "LICENSE-MIT.md", "LICENSE", "LICENSE.md"]
 CHOSEN = {"BSD-3-Clause": "BSD-3-Clause"}
@@ -81,6 +88,13 @@ def generate():
             "version": version,
             "license": chosen_license(name, expression),
             "text": text_index(license_text(name, version)),
+        })
+    for name, version, license_name, path in VENDORED_C:
+        packages.append({
+            "name": name,
+            "version": version,
+            "license": license_name,
+            "text": text_index(path.read_text(encoding="utf-8").strip()),
         })
     packages.append({
         "name": "Rust standard library",

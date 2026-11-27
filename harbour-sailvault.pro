@@ -13,6 +13,7 @@ HEADERS += \
     src/entrylistmodel.h \
     src/importer.h \
     src/nextcloud.h \
+    src/passwordstrength.h \
     src/sync.h \
     src/vault.h \
     src/vaulttasks.h
@@ -26,11 +27,17 @@ SOURCES += \
     src/importer.cpp \
     src/main.cpp \
     src/nextcloud.cpp \
+    src/passwordstrength.cpp \
     src/sync.cpp \
     src/vault.cpp \
     src/vaulttasks.cpp
 
 INCLUDEPATH += core/include
+
+# The password strength estimator, an unchanged copy of zxcvbn-c with its
+# dictionary compiled in (third_party/zxcvbn/README.md).
+SOURCES += third_party/zxcvbn/zxcvbn.c
+INCLUDEPATH += third_party/zxcvbn
 
 # The spec passes the package version; the About page shows it. Builds
 # without one, such as from Qt Creator, show a development version.
