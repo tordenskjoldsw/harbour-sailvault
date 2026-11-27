@@ -279,8 +279,12 @@ Limits:
 - **The strength estimate is a rough guide.** It comes from zxcvbn-c, as
   in KeePassXC. Its word lists are English, so a password made of words in
   another language is rated higher than it deserves. The estimator works
-  on a copy of the typed password that is wiped afterwards, but its own
-  working memory is freed without zeroing.
+  on a copy of the typed password that is wiped afterwards, and its heap
+  blocks are overwritten when they are freed; its stack frames are not,
+  and they can keep a few characters of the password
+  (`docs/security-review-2026-11-password-report.md`, F2). In the dialogs
+  the password is a Qt string anyway. Some passwords take the estimator
+  up to two seconds, so it runs on a worker thread.
 - **HMAC and SHA-2 states are not wiped.** The `hmac` and `sha2` crates
   offer no zeroize support; their internal states, derived from key
   material, are freed without zeroing.

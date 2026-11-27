@@ -536,8 +536,7 @@ Part B - sync with Nextcloud over WebDAV (section 8):
 - Attachments UI, key file management
 - Password strength estimate (section 14): the master password of a new
   database first (0.7.0), then entry passwords in the entry dialog (0.7.1),
-  then a report of weak and reused passwords (0.8.0; how is an open
-  decision, section 14)
+  then a report of weak and reused passwords (0.8.0, section 14)
 - Warning with a time estimate for slow KDF parameters (section 14)
 - Optional quick unlock with a PIN, in RAM only (section 14)
 - Published threat model, reproducible CI builds, signed releases
@@ -569,53 +568,39 @@ Part B - sync with Nextcloud over WebDAV (section 8):
 
 ## 14. Open decisions
 
-- Password report (raised 2026-11-27, wanted for 0.8.0): a page that lists
-  the entries with a password rated Poor or Weak, worst first, and the
-  passwords used in more than one entry, like KeePassXC's Health Check.
-  It would complete the strength estimate. Open is how the passwords
-  reach the estimator, which lives in the bridge while the passwords live
-  in the core:
-  1. Copy every password into the bridge and rate it there. Simplest, but
-     it gives up the rule that a password leaves the core only when it is
-     shown, copied or edited.
-  2. Move the estimator into the core, so no password leaves it. Cargo
-     would have to compile C for the target (new build dependencies) and
-     the core would call C outside its FFI boundary.
-  3. The core walks the entries and lends each password to a callback of
-     the bridge, which rates it in the core's memory and returns only the
-     bits. No copy and no new dependency; the estimator's working memory
-     stays the only trace outside the core. Proposed, not decided. The
-     security review recommends this option in a stricter form and on
-     five conditions (C1 to C5 there); without them every option would
-     leave fragments of passwords in memory after a lock.
-  Reuse can be compared inside the core with any of them. Also open:
-  whether to honor KeePassXC's mark for entries excluded from its report
-  (how it is stored is not looked up yet). Not wanted in any case: a
-  check against breach databases, which would send data to a third
-  party.
-  Measured and looked up on 2026-11-27, before the decision:
-  - Time: `tools/run-strength-benchmark.sh` on the Jolla Phone rates 1000
-    made-up passwords (generated ones, words with digits, PINs,
-    passphrases) in 50 ms, 0.05 ms on average and 0.6 ms the slowest. The
-    worst single case found, one character repeated 100 times or more,
-    takes 5 ms. Corrected by the security review of the same day
-    (`docs/security-review-2026-11-password-report.md`, F1): the samples
-    missed the estimator's slow case, number-pad neighbours that change
-    direction at every step, which takes up to 2.1 s for one password of
-    100 characters. Estimates must not run on the UI thread, in the
-    dialogs of 0.7.x either.
-  - Threads: with the dictionary compiled in, zxcvbn-c has no mutable
-    global or static data (the only such variables belong to its
-    file-based mode, which SailVault does not build). Eight threads with
-    24000 estimates each ran on the host under ThreadSanitizer without a
-    report and with identical results. Calls need no lock.
-  - KeePassXC's exclusion: KDBX 4.1 gives an entry the boolean element
-    `QualityCheck` (default true; false excludes it from the quality
-    estimate), and KeePassXC still reads its older entry CustomData key
-    `KnownBad`. Honoring both would only read them.
+None at the moment.
 
 Decided:
 
+- Password report (2026-11-27, for 0.8.0): a page that lists the entries
+  with a password rated Poor or Weak, worst first, and the passwords used
+  in more than one entry, like KeePassXC's Health Check. Entries that
+  KeePassXC excludes are skipped: the KDBX 4.1 element `QualityCheck`
+  set to false, and the older entry CustomData key `KnownBad`. No check
+  against breach databases, which would send data to a third party.
+  How the passwords reach the estimator was decided after the security
+  review (`docs/security-review-2026-11-password-report.md`): the core
+  walks the entries and lends each password to the estimator through a
+  function pointer that points at a C function next to zxcvbn-c, with no
+  C++ or Qt code on the path; reuse is compared inside the core. All
+  five conditions of the review hold, or the report is not released:
+  C1 the report runs on a thread whose stack the bridge allocated and
+  overwrites afterwards; C2 the estimator's heap blocks are wiped (in
+  since 0.7.2); C3 no estimate on the UI thread (the dialogs since
+  0.7.2), the report is cancelled between two entries and by a lock;
+  C4 the core bounds what the estimator gets (256 characters, zero
+  terminated, zeroized memory); C5 a fuzz target and a walk of the
+  dictionary tables are tools that run when the estimator or its
+  dictionary changes. Rejected: copying every password into the bridge
+  (copies outside the core, and Qt can keep them), and moving the
+  estimator into the core (the same residue in memory, but C inside the
+  core and a cargo build that compiles C, untried in the SDK).
+  Measured on 2026-11-27: `tools/run-strength-benchmark.sh` on the Jolla
+  Phone rates 1000 made-up passwords in 50 ms; the estimator's slow case,
+  number-pad neighbours that change direction at every step, takes up to
+  2.1 s for one password of 100 characters. With the dictionary compiled
+  in, zxcvbn-c has no mutable global or static data; eight threads ran
+  on the host under ThreadSanitizer without a report.
 - Password strength (2026-11-27): SailVault rates a password with
   zxcvbn-c 2.7 (MIT), the estimator KeePassXC uses, and with KeePassXC's
   levels: Poor under 40 bits, Weak under 75, Good under 100, Excellent
@@ -635,7 +620,10 @@ Decided:
   rated too high, as in KeePassXC; the estimator's working memory is not
   wiped. `tools/check-password-strength.sh` compares the estimates with
   `keepassxc-cli estimate` (twelve samples identical with KeePassXC
-  2.8.0). The dictionary adds about 1.1 MB to the RPM.
+  2.8.0). The dictionary adds about 1.1 MB to the RPM. Since 0.7.2 the
+  estimate runs on a pool thread and the estimator's heap blocks are
+  wiped (security review 2026-11, F1 to F3); 0.7.0 and 0.7.1 were
+  tagged but never released.
   Device test on the Jolla Phone (2026-11-27, development build): the
   new database dialog rates the master password while typing, and typing
   stays smooth. Not checked one by one: landscape, and the two new
