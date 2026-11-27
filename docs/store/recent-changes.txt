@@ -1,5 +1,5 @@
-You can now add databases and key files from a memory card, also from an encrypted one. Bitwarden exports and copies to merge can be picked from the card too.
+When you create a database, SailVault now rates the master password: a bar, a word from Poor to Excellent and the estimated bits. It uses the same estimator as KeePassXC (zxcvbn), so both say the same about a password.
 
-For this SailVault asks for one new permission, Removable media. It only touches the files you pick.
+A master password that is too easy to guess is refused, also when it is long enough. "passwordpassword" has 16 characters and is still a bad idea.
 
-The start page now says where an existing database can be added from.
+The estimator knows English words only. A password made of words in another language is rated better than it is.

@@ -5,9 +5,9 @@ Status: 2026-11-26 - Phases 1 to 6 are complete. Released: 0.2.0
 pre-Harbour review fixes), 0.4.0 (KDBX 3.1 conversion), 0.5.0 (merging
 copies and Nextcloud sync), 0.5.1 (a shorter pulley menu with a settings
 page), 0.5.2 (fixes from the security review before the submission),
-0.5.3 (fixes found while preparing the store listing) and 0.6.0 (files
-from a memory card, after the first store feedback), all tested on the
-Jolla Phone. 0.5.3 was submitted to Harbour on 2026-10-04 (Phase 6),
+0.5.3 (fixes found while preparing the store listing), 0.6.0 (files
+from a memory card, after the first store feedback) and 0.7.0 (strength
+estimate for a new master password), all tested on the Jolla Phone. 0.5.3 was submitted to Harbour on 2026-10-04 (Phase 6),
 passed QA and is in the Jolla Store (as of 2026-11-25).
 
 ## 1. Goal
@@ -613,6 +613,10 @@ Decided:
   wiped. `tools/check-password-strength.sh` compares the estimates with
   `keepassxc-cli estimate` (twelve samples identical with KeePassXC
   2.8.0). The dictionary adds about 1.1 MB to the RPM.
+  Device test on the Jolla Phone (2026-11-27, development build): the
+  new database dialog rates the master password while typing, and typing
+  stays smooth. Not checked one by one: landscape, and the two new
+  entries in the license list of the About page.
 - Memory cards (2026-11-26): the Sailjail permission `RemovableMedia` is
   added, so databases, key files, copies to merge and Bitwarden exports
   can be picked from a memory card or USB stick. Reason: the first store
