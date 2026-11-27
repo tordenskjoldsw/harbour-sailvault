@@ -5,3 +5,4 @@ pub mod kdbx;
 pub mod password;
 mod random;
 mod secret;
+pub mod strength;

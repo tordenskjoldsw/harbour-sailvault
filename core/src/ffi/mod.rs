@@ -10,6 +10,7 @@ mod database;
 mod edit;
 mod password;
 mod read;
+mod strength;
 mod sync;
 #[cfg(test)]
 mod tests;
@@ -33,6 +34,7 @@ pub const SV_NOT_FOUND: i32 = 9;
 pub const SV_WRITE_FAILED: i32 = 10;
 pub const SV_RANDOM_UNAVAILABLE: i32 = 11;
 pub const SV_NOT_AN_EXPORT: i32 = 12;
+pub const SV_CANCELLED: i32 = 13;
 
 pub const SV_EXPORT_UNENCRYPTED: i32 = 0;
 pub const SV_EXPORT_PASSWORD_PROTECTED: i32 = 1;
@@ -52,6 +54,11 @@ pub const SV_SYNC_USER: u32 = 1;
 pub const SV_SYNC_APP_PASSWORD: u32 = 2;
 pub const SV_SYNC_PATH: u32 = 3;
 pub const SV_SYNC_CERTIFICATE: u32 = 4;
+
+pub const SV_QUALITY_POOR: u32 = 0;
+pub const SV_QUALITY_WEAK: u32 = 1;
+pub const SV_QUALITY_GOOD: u32 = 2;
+pub const SV_QUALITY_EXCELLENT: u32 = 3;
 
 pub const SV_COLUMN_TITLE: u32 = 0;
 pub const SV_COLUMN_USER_NAME: u32 = 1;
@@ -264,6 +271,19 @@ unsafe fn read_uuid(uuid: *const u8) -> Option<[u8; UUID_LENGTH]> {
 /// `out` must be valid for writes of 16 bytes.
 unsafe fn write_uuid(out: *mut u8, uuid: &[u8; UUID_LENGTH]) {
     slice::from_raw_parts_mut(out, UUID_LENGTH).copy_from_slice(uuid);
+}
+
+/// As `write_uuid`, refusing a null `out`.
+///
+/// # Safety
+///
+/// `out` must be null or valid for writes of 16 bytes.
+unsafe fn read_uuid_out(out: *mut u8, uuid: &[u8; UUID_LENGTH]) -> i32 {
+    if out.is_null() {
+        return SV_INVALID_ARGUMENT;
+    }
+    write_uuid(out, uuid);
+    SV_OK
 }
 
 /// # Safety

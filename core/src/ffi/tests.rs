@@ -3,6 +3,7 @@ use super::database::*;
 use super::edit::*;
 use super::password::*;
 use super::read::*;
+use super::strength::*;
 use super::sync::*;
 use super::*;
 use std::collections::{BTreeMap, BTreeSet};
@@ -864,6 +865,7 @@ fn header_and_rust_declare_the_same_constants_and_functions() {
         include_str!("edit.rs"),
         include_str!("password.rs"),
         include_str!("read.rs"),
+        include_str!("strength.rs"),
         include_str!("sync.rs"),
     ]
     .concat();
@@ -974,6 +976,108 @@ fn sync_settings_round_trip_through_the_entry() {
         }
         assert_eq!(
             sv_database_sync_setting(database, 9, &mut value),
+            SV_INVALID_ARGUMENT
+        );
+        sv_database_free(database);
+    }
+}
+
+unsafe extern "C" fn one_bit_per_byte(password: *const std::ffi::c_char) -> f64 {
+    std::ffi::CStr::from_ptr(password).to_bytes().len() as f64
+}
+
+unsafe extern "C" fn count_and_cancel(context: *mut std::ffi::c_void) -> bool {
+    *context.cast::<u32>() += 1;
+    true
+}
+
+#[test]
+fn rates_text_through_the_estimator_it_is_given() {
+    unsafe {
+        let password = "geheim";
+        assert_eq!(
+            sv_password_entropy(password.as_ptr(), password.len(), Some(one_bit_per_byte)),
+            6.0
+        );
+        assert!(sv_password_entropy(password.as_ptr(), password.len(), None) < 0.0);
+        let invalid = [0xffu8, 0xfe];
+        assert!(sv_password_entropy(invalid.as_ptr(), invalid.len(), Some(one_bit_per_byte)) < 0.0);
+    }
+    assert_eq!(sv_password_quality(39.0), SV_QUALITY_POOR);
+    assert_eq!(sv_password_quality(40.0), SV_QUALITY_WEAK);
+    assert_eq!(sv_password_quality(75.0), SV_QUALITY_GOOD);
+    assert_eq!(sv_password_quality(100.0), SV_QUALITY_EXCELLENT);
+    assert_eq!(sv_password_excellent_bits(), 100.0);
+}
+
+#[test]
+fn reports_the_weak_passwords_of_the_fixture() {
+    unsafe {
+        let (status, database) = open(PASSWORD);
+        assert_eq!(status, SV_OK);
+
+        let mut report = std::ptr::null_mut();
+        assert_eq!(
+            sv_database_password_report(
+                database,
+                Some(one_bit_per_byte),
+                None,
+                std::ptr::null_mut(),
+                &mut report
+            ),
+            SV_OK
+        );
+        let length = sv_password_report_length(report);
+        assert!(length > 0);
+        assert!(sv_password_report_checked(report) >= length);
+        let mut previous = 0.0;
+        for index in 0..length {
+            let mut uuid = [0u8; UUID_LENGTH];
+            assert_eq!(
+                sv_password_report_uuid(report, index, uuid.as_mut_ptr()),
+                SV_OK
+            );
+            let mut title = SvString::EMPTY;
+            assert_eq!(
+                sv_password_report_text(report, index, SV_COLUMN_TITLE, &mut title),
+                SV_OK
+            );
+            assert!(!take(title).is_empty());
+            let bits = sv_password_report_bits(report, index);
+            let quality = sv_password_report_quality(report, index);
+            assert_eq!(quality, sv_password_quality(bits));
+            // Weak ones first, in rising order; the others are listed for a
+            // shared password.
+            if quality <= SV_QUALITY_WEAK {
+                assert!(bits >= previous);
+                previous = bits;
+            } else {
+                assert!(sv_password_report_shared_with(report, index) > 0);
+            }
+        }
+        assert_eq!(
+            sv_password_report_uuid(report, length, [0u8; UUID_LENGTH].as_mut_ptr()),
+            SV_NOT_FOUND
+        );
+        assert!(sv_password_report_bits(report, length) < 0.0);
+        sv_password_report_free(report);
+
+        let mut calls = 0u32;
+        let mut cancelled = std::ptr::null_mut();
+        assert_eq!(
+            sv_database_password_report(
+                database,
+                Some(one_bit_per_byte),
+                Some(count_and_cancel),
+                (&mut calls as *mut u32).cast(),
+                &mut cancelled
+            ),
+            SV_CANCELLED
+        );
+        assert!(cancelled.is_null());
+        assert_eq!(calls, 1);
+        assert_eq!(
+            sv_database_password_report(database, None, None, std::ptr::null_mut(), &mut cancelled),
             SV_INVALID_ARGUMENT
         );
         sv_database_free(database);

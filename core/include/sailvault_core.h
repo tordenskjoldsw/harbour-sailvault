@@ -25,7 +25,9 @@ enum {
     SV_WRITE_FAILED = 10,
     SV_RANDOM_UNAVAILABLE = 11,
     /* The file is not a Bitwarden/Vaultwarden JSON export. */
-    SV_NOT_AN_EXPORT = 12
+    SV_NOT_AN_EXPORT = 12,
+    /* sv_database_password_report was stopped by its cancelled callback. */
+    SV_CANCELLED = 13
 };
 
 /* Kinds of Bitwarden exports, from sv_bitwarden_export_kind. */
@@ -51,13 +53,23 @@ enum {
 
 enum { SV_UUID_LENGTH = 16 };
 
-/* Columns for sv_list_text. */
+/* Password quality levels, with KeePassXC's limits: under 40 bits, under 75,
+ * under 100, and from 100 bits on. */
+enum {
+    SV_QUALITY_POOR = 0,
+    SV_QUALITY_WEAK = 1,
+    SV_QUALITY_GOOD = 2,
+    SV_QUALITY_EXCELLENT = 3
+};
+
+/* Columns for sv_list_text and sv_password_report_text. */
 enum { SV_COLUMN_TITLE = 0, SV_COLUMN_USER_NAME = 1, SV_COLUMN_GROUP = 2 };
 
 typedef struct SvDatabase SvDatabase;
 typedef struct SvList SvList;
 typedef struct SvFieldList SvFieldList;
 typedef struct SvImport SvImport;
+typedef struct SvPasswordReport SvPasswordReport;
 
 /* UTF-8, not NUL-terminated. Release with sv_string_free, which zeroizes it. */
 typedef struct SvString {
@@ -242,6 +254,52 @@ void sv_bytes_free(SvBytes bytes);
 /* A random password of length characters (4 to 128) drawn from the selected
  * SV_CLASS_* classes, each used at least once. Free it with sv_string_free. */
 int32_t sv_generate_password(size_t length, uint32_t classes, SvString *out);
+
+/* The password strength estimator: rates zero-terminated UTF-8 text and
+ * returns its entropy in bits. It is not part of the core; the caller passes
+ * it in (sv_estimate in src/estimator.h). It must not keep the pointer or
+ * call back into this API. It can take seconds for some passwords, so call
+ * the functions that use it off the UI thread. */
+typedef double (*SvEstimator)(const char *password);
+/* Asked before each estimate of a report; true stops it. */
+typedef bool (*SvCancelled)(void *context);
+
+/* The entropy in bits of UTF-8 text, or a negative number for invalid
+ * arguments. The estimator gets at most the first 256 UTF-16 units,
+ * zero-terminated and up to the first zero byte, in memory that is wiped;
+ * each further unit counts with their average, as in KeePassXC. */
+double sv_password_entropy(const uint8_t *password, size_t password_length,
+                           SvEstimator estimator);
+/* The SV_QUALITY_* level of an entropy in bits. */
+uint32_t sv_password_quality(double bits);
+/* The entropy from which a password is SV_QUALITY_EXCELLENT. */
+double sv_password_excellent_bits(void);
+
+/* Rates the password of every current entry outside the recycle bin, except
+ * empty ones and entries KeePassXC excludes from its reports (QualityCheck
+ * false, or the entry CustomData key KnownBad), and lists those rated Poor
+ * or Weak or sharing their password with other entries: the weakest first,
+ * then those listed only for a shared password. Each password is lent to the
+ * estimator as in sv_password_entropy and compared inside the core; none is
+ * in the result. cancelled may be null; SV_CANCELLED when it returned true.
+ * Other threads may read the database meanwhile but must not modify or free
+ * it. Free the report with sv_password_report_free. */
+int32_t sv_database_password_report(const SvDatabase *database, SvEstimator estimator,
+                                    SvCancelled cancelled, void *context,
+                                    SvPasswordReport **out);
+size_t sv_password_report_length(const SvPasswordReport *report);
+/* Entries whose password was rated. */
+size_t sv_password_report_checked(const SvPasswordReport *report);
+int32_t sv_password_report_uuid(const SvPasswordReport *report, size_t index,
+                                uint8_t *uuid_out);
+int32_t sv_password_report_text(const SvPasswordReport *report, size_t index, uint32_t column,
+                                SvString *out);
+/* Negative for no such entry. */
+double sv_password_report_bits(const SvPasswordReport *report, size_t index);
+uint32_t sv_password_report_quality(const SvPasswordReport *report, size_t index);
+/* How many other rated entries have the same password. */
+size_t sv_password_report_shared_with(const SvPasswordReport *report, size_t index);
+void sv_password_report_free(SvPasswordReport *report);
 
 /* Bitwarden/Vaultwarden JSON exports. The kind comes from the top level only.
  * sv_bitwarden_read decrypts a password-protected export (a wrong password
