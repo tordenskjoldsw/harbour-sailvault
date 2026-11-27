@@ -13,6 +13,9 @@ Column {
     readonly property alias quality: strength.quality
     readonly property alias rated: strength.current
     readonly property bool poor: quality === PasswordStrength.Poor
+    // Some passwords take the estimator seconds. Only then the indicator
+    // shows that it is still working, so it does not flicker while typing.
+    property bool waiting
     readonly property color barColor: poor ? Theme.errorColor : Theme.highlightColor
 
     function qualityText(quality) {
@@ -31,6 +34,22 @@ Column {
 
     PasswordStrength {
         id: strength
+
+        onCurrentChanged: {
+            if (current) {
+                waitingTimer.stop()
+                indicator.waiting = false
+            } else {
+                waitingTimer.restart()
+            }
+        }
+    }
+
+    Timer {
+        id: waitingTimer
+
+        interval: 300
+        onTriggered: indicator.waiting = true
     }
 
     Rectangle {
@@ -44,6 +63,7 @@ Column {
             height: parent.height
             radius: parent.radius
             color: indicator.barColor
+            opacity: indicator.waiting ? Theme.opacityLow : 1
         }
     }
 
@@ -51,9 +71,11 @@ Column {
         width: parent.width
         wrapMode: Text.Wrap
         font.pixelSize: Theme.fontSizeSmall
-        color: indicator.poor ? Theme.errorColor : Theme.secondaryHighlightColor
+        color: indicator.poor && !indicator.waiting ? Theme.errorColor
+                                                    : Theme.secondaryHighlightColor
         //: Password quality and estimated entropy, e.g. "Weak (52 bits)"
-        text: qsTr("%1 (%2 bits)").arg(indicator.qualityText(indicator.quality))
-                                  .arg(Math.floor(indicator.bits))
+        text: indicator.waiting ? qsTr("Rating the password")
+                                : qsTr("%1 (%2 bits)").arg(indicator.qualityText(indicator.quality))
+                                                      .arg(Math.floor(indicator.bits))
     }
 }
