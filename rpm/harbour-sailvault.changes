@@ -1,3 +1,8 @@
+* Fri Nov 27 2026 Tobias Kaminski <instance_maintainer@protonmail.com> - 0.7.1-1
+- Rates the password of an entry in the entry dialog, also an existing
+  one; entry passwords are never refused
+- The password generator suggests 24 characters instead of 20
+
 * Fri Nov 27 2026 Tobias Kaminski <instance_maintainer@protonmail.com> - 0.7.0-1
 - Rates the master password of a new database with zxcvbn, the estimator
   KeePassXC uses: a bar, the quality in words and the estimated bits
