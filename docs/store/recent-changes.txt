@@ -1,9 +1,9 @@
-SailVault now rates passwords: a bar, a word from Poor to Excellent and the estimated bits. It uses the same estimator as KeePassXC (zxcvbn), so both say the same about a password.
+New: a password report. Open Settings > Password report to see which entries have a weak password and which passwords you use in more than one entry. Tap an entry to change it.
 
-You see the rating when you create a database and when you add or edit an entry, also for a password that is already there.
+SailVault now rates passwords: a bar, a word from Poor to Excellent and the estimated bits. It uses the same estimator as KeePassXC (zxcvbn), so both say the same about a password. You see the rating when you create a database and when you add or edit an entry.
 
 A master password that is too easy to guess is refused, also when it is long enough. "passwordpassword" has 16 characters and is still a bad idea. Entry passwords are only rated, never refused.
 
 The password generator now suggests 24 characters instead of 20.
 
-The estimator knows English words only. A password made of words in another language is rated better than it is.
+The rating knows English words only. A password made of words in another language is rated better than it is.
