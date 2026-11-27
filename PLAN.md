@@ -531,6 +531,12 @@ Part B - sync with Nextcloud over WebDAV (section 8):
   in `sfdk check`; armv7hl not tested on a device), with the rewritten
   description, the new permission explained in the message to QA, and
   5.1.0 kept as the lowest OS version.
+- Update submitted 2026-11-27: 0.8.0 for aarch64 and armv7hl (both clean
+  in `sfdk check`, checked again on the uploaded files; armv7hl not
+  tested on a device). It replaces 0.6.0, which was still in QA, so the
+  changes shown in the store cover the memory card, the strength rating
+  and the password report; the message to QA explains the jump from
+  0.5.3 and that a master password rated Poor is refused.
 
 ### Phase 7 - Differentiation
 
@@ -584,6 +590,15 @@ Part B - sync with Nextcloud over WebDAV (section 8):
   excluded there, and with `keepassxc-cli` that it reads a mark SailVault
   wrote and keeps it on save. Not to be mentioned in the app or the
   store texts until it exists.
+- Wording of the language limit (for 0.8.1): the report page of 0.8.0
+  says "The rating knows English words only". That is too strong. The
+  estimator's lists are English Wikipedia words, names, film titles and
+  common passwords, and the last holds words of other languages too
+  ("passwort", "hallo", "schatz", "fussball"). Ordinary German words are
+  missing, so "der hund läuft über die strasse" gets 164 bits where "the
+  dog runs across the street" gets 79. Better: "The rating is built on
+  English word lists, so a password made of words in another language is
+  often rated too high."
 
 Decided:
 
@@ -651,8 +666,9 @@ Decided:
   new database the 15 characters stay required and a master password
   rated Poor is refused; everything from Weak on is shown, not blocked.
   Entry passwords are rated but never blocked (next release). Known
-  limits: the word lists are English, so words of other languages are
-  rated too high, as in KeePassXC; the estimator's working memory is not
+  limits: the word lists are English (plus names, film titles and common
+  passwords, some of them from other languages), so words of other
+  languages are often rated too high, as in KeePassXC; the estimator's working memory is not
   wiped. `tools/check-password-strength.sh` compares the estimates with
   `keepassxc-cli estimate` (twelve samples identical with KeePassXC
   2.8.0). The dictionary adds about 1.1 MB to the RPM. Since 0.7.2 the

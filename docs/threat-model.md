@@ -277,8 +277,10 @@ Limits:
   implicit sharing elsewhere can leave copies that are freed without
   zeroing.
 - **The strength estimate is a rough guide.** It comes from zxcvbn-c, as
-  in KeePassXC. Its word lists are English, so a password made of words in
-  another language is rated higher than it deserves. The estimator works
+  in KeePassXC. Its word lists are English, with names, film titles and
+  common passwords, so a password made of ordinary words of another
+  language is often rated higher than it deserves ("der hund läuft über
+  die strasse": 164 bits; "the dog runs across the street": 79). The estimator works
   on a copy of the typed password that is wiped afterwards, and its heap
   blocks are overwritten when they are freed; its stack frames are not,
   and they can keep a few characters of the password
