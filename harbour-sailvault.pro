@@ -98,6 +98,7 @@ DISTFILES += \
     qml/pages/MergePage.qml \
     qml/pages/MovePage.qml \
     qml/pages/NewDatabaseDialog.qml \
+    qml/pages/PasswordReportPage.qml \
     qml/pages/SaveCopyDialog.qml \
     qml/pages/AboutPage.qml \
     qml/pages/SettingsPage.qml \

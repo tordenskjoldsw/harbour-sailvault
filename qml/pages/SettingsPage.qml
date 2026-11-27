@@ -128,6 +128,20 @@ Page {
             }
 
             BackgroundItem {
+                id: reportItem
+
+                height: Theme.itemSizeMedium
+                onClicked: pageStack.push(Qt.resolvedUrl("PasswordReportPage.qml"))
+
+                TwoLineLabel {
+                    anchors.fill: parent
+                    highlighted: reportItem.highlighted
+                    title: qsTr("Password report")
+                    description: qsTr("Weak passwords and passwords used more than once")
+                }
+            }
+
+            BackgroundItem {
                 id: importItem
 
                 height: Theme.itemSizeMedium

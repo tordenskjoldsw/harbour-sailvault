@@ -14,7 +14,7 @@ Dialog {
     // The vault takes no change while a save or merge runs; accepting then
     // would drop the input.
     canAccept: titleField.text.trim().length > 0 && vault.state === Vault.Unlocked
-               && !vault.saving && !vault.merging
+               && !vault.saving && !vault.merging && !vault.reporting
     allowedOrientations: Orientation.All
 
     // A lock empties the dialog even if the page stack cannot close it at
