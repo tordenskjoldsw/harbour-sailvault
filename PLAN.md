@@ -584,7 +584,10 @@ Part B - sync with Nextcloud over WebDAV (section 8):
   3. The core walks the entries and lends each password to a callback of
      the bridge, which rates it in the core's memory and returns only the
      bits. No copy and no new dependency; the estimator's working memory
-     stays the only trace outside the core. Proposed, not decided.
+     stays the only trace outside the core. Proposed, not decided. The
+     security review recommends this option in a stricter form and on
+     five conditions (C1 to C5 there); without them every option would
+     leave fragments of passwords in memory after a lock.
   Reuse can be compared inside the core with any of them. Also open:
   whether to honor KeePassXC's mark for entries excluded from its report
   (how it is stored is not looked up yet). Not wanted in any case: a
@@ -595,7 +598,12 @@ Part B - sync with Nextcloud over WebDAV (section 8):
     made-up passwords (generated ones, words with digits, PINs,
     passphrases) in 50 ms, 0.05 ms on average and 0.6 ms the slowest. The
     worst single case found, one character repeated 100 times or more,
-    takes 5 ms. A report needs no worker thread for the estimate itself.
+    takes 5 ms. Corrected by the security review of the same day
+    (`docs/security-review-2026-11-password-report.md`, F1): the samples
+    missed the estimator's slow case, number-pad neighbours that change
+    direction at every step, which takes up to 2.1 s for one password of
+    100 characters. Estimates must not run on the UI thread, in the
+    dialogs of 0.7.x either.
   - Threads: with the dictionary compiled in, zxcvbn-c has no mutable
     global or static data (the only such variables belong to its
     file-based mode, which SailVault does not build). Eight threads with
