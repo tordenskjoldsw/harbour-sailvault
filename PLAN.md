@@ -6,9 +6,9 @@ pre-Harbour review fixes), 0.4.0 (KDBX 3.1 conversion), 0.5.0 (merging
 copies and Nextcloud sync), 0.5.1 (a shorter pulley menu with a settings
 page), 0.5.2 (fixes from the security review before the submission),
 0.5.3 (fixes found while preparing the store listing), 0.6.0 (files
-from a memory card, after the first store feedback) 0.7.0 (strength
-estimate for a new master password) and 0.7.1 (the same for entry
-passwords), all tested on the Jolla Phone. 0.5.3 was submitted to Harbour on 2026-10-04 (Phase 6),
+from a memory card, after the first store feedback) 0.7.2 (strength
+estimate for a new master password and for entry passwords; 0.7.0 and
+0.7.1 were tagged but not released), all tested on the Jolla Phone. 0.5.3 was submitted to Harbour on 2026-10-04 (Phase 6),
 passed QA and is in the Jolla Store (as of 2026-11-25).
 
 ## 1. Goal
@@ -623,7 +623,12 @@ Decided:
   2.8.0). The dictionary adds about 1.1 MB to the RPM. Since 0.7.2 the
   estimate runs on a pool thread and the estimator's heap blocks are
   wiped (security review 2026-11, F1 to F3); 0.7.0 and 0.7.1 were
-  tagged but never released.
+  tagged but never released. Device test on the Jolla Phone
+  (2026-11-27, development build): both dialogs rate as before; with
+  "12" typed about fifty times typing stays smooth, the indicator says
+  that it is rating and shows the result two to three seconds later;
+  the new database dialog does not accept a password while its rating is
+  pending.
   Device test on the Jolla Phone (2026-11-27, development build): the
   new database dialog rates the master password while typing, and typing
   stays smooth. Not checked one by one: landscape, and the two new

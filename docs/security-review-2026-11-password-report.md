@@ -286,9 +286,9 @@ entries.
 
 | | Action | When |
 |---|---|---|
-| F1 | Rate off the UI thread (C3 for the dialogs) | before 0.7.x is released |
-| F2 | C1 and C2 | with the report; C2 can go into 0.7.x already |
-| F3 | End cleanly on a failed allocation, in the wrapper of C2 | with C2 |
+| F1 | Rate off the UI thread (C3 for the dialogs) | done in 0.7.2 (`a81e93d`), verified on the device |
+| F2 | C1 and C2 | C2 done in 0.7.2 (`fa36683`); C1 with the report |
+| F3 | End cleanly on a failed allocation, in the wrapper of C2 | done in 0.7.2 (`fa36683`) |
 | F4, F5 | C5 | before the report |
-| - | Correct the benchmark's conclusion in `PLAN.md` | with this review |
+| - | Correct the benchmark's conclusion in `PLAN.md` | done |
 | - | Add the report, its safeguards and F6 to the threat model | with the report |

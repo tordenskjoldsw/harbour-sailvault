@@ -13,7 +13,7 @@ my passwords on my phone, in a format I control, in an app that runs
 sandboxed. SailVault is written for Sailfish OS 5.2 and tested on the Jolla
 Phone (aarch64).
 
-**Status:** version 0.7.1. Reading, editing, importing, merging and sync
+**Status:** version 0.7.2. Reading, editing, importing, merging and sync
 through Nextcloud are done and tested on the device. It is available in
 the Jolla Store (Harbour).
 
