@@ -77,6 +77,10 @@ Page {
 
         PullDownMenu {
             MenuItem {
+                text: qsTr("Lock")
+                onClicked: vault.lock()
+            }
+            MenuItem {
                 text: qsTr("Check again")
                 enabled: !vault.reporting
                 onClicked: {
