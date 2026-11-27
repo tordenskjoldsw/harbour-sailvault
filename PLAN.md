@@ -589,8 +589,22 @@ Part B - sync with Nextcloud over WebDAV (section 8):
   whether to honor KeePassXC's mark for entries excluded from its report
   (how it is stored is not looked up yet). Not wanted in any case: a
   check against breach databases, which would send data to a third
-  party. To measure before deciding: the time for 1000 entries on the
-  Jolla Phone, and whether zxcvbn-c may be called from two threads.
+  party.
+  Measured and looked up on 2026-11-27, before the decision:
+  - Time: `tools/run-strength-benchmark.sh` on the Jolla Phone rates 1000
+    made-up passwords (generated ones, words with digits, PINs,
+    passphrases) in 50 ms, 0.05 ms on average and 0.6 ms the slowest. The
+    worst single case found, one character repeated 100 times or more,
+    takes 5 ms. A report needs no worker thread for the estimate itself.
+  - Threads: with the dictionary compiled in, zxcvbn-c has no mutable
+    global or static data (the only such variables belong to its
+    file-based mode, which SailVault does not build). Eight threads with
+    24000 estimates each ran on the host under ThreadSanitizer without a
+    report and with identical results. Calls need no lock.
+  - KeePassXC's exclusion: KDBX 4.1 gives an entry the boolean element
+    `QualityCheck` (default true; false excludes it from the quality
+    estimate), and KeePassXC still reads its older entry CustomData key
+    `KnownBad`. Honoring both would only read them.
 
 Decided:
 
