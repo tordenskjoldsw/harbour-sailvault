@@ -17,7 +17,7 @@ log="$build_dir/strength-benchmark-build.log"
 # build-shell hangs when stdin is open, so stdin is closed and the compiler
 # output goes to a log file.
 if ! "$sfdk" build-shell sh -c "gcc -O2 -Ithird_party/zxcvbn -o '$binary' \
-    tools/strength-benchmark.c third_party/zxcvbn/zxcvbn.c -lm > '$log' 2>&1" \
+    tools/strength-benchmark.c src/estimator.c -lm > '$log' 2>&1" \
     < /dev/null > /dev/null 2>&1; then
     tail -20 "$log" >&2
     exit 1

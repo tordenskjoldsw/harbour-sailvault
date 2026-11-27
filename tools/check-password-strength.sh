@@ -1,6 +1,7 @@
 #!/bin/sh
-# Compares the vendored estimator with KeePassXC: both must report the same
-# entropy for every sample password. Needs cc and keepassxc-cli.
+# Compares the estimator as the app builds it (src/estimator.c) with
+# KeePassXC: both must report the same entropy for every sample password.
+# Needs cc and keepassxc-cli.
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -20,7 +21,7 @@ int main(int argc, char *argv[])
 }
 SOURCE
 cc -O2 -I"$root/third_party/zxcvbn" -o "$work/estimate" \
-    "$work/estimate.c" "$root/third_party/zxcvbn/zxcvbn.c" -lm
+    "$work/estimate.c" "$root/src/estimator.c" -lm
 
 failed=0
 while IFS= read -r password; do

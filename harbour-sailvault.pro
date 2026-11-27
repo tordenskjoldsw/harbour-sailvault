@@ -35,8 +35,9 @@ SOURCES += \
 INCLUDEPATH += core/include
 
 # The password strength estimator, an unchanged copy of zxcvbn-c with its
-# dictionary compiled in (third_party/zxcvbn/README.md).
-SOURCES += third_party/zxcvbn/zxcvbn.c
+# dictionary compiled in (third_party/zxcvbn/README.md). src/estimator.c
+# includes zxcvbn.c and gives it a heap that is wiped.
+SOURCES += src/estimator.c
 INCLUDEPATH += third_party/zxcvbn
 
 # The spec passes the package version; the About page shows it. Builds
