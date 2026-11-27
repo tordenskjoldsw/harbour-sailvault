@@ -35,3 +35,10 @@ static void wipingFree(void *block)
 #define malloc wipingMalloc
 #define free wipingFree
 #include "zxcvbn.c"
+
+#include "estimator.h"
+
+double sv_estimate(const char *password)
+{
+    return ZxcvbnMatch(password, NULL, NULL);
+}

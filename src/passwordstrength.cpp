@@ -3,21 +3,8 @@
 #include <QByteArray>
 #include <QThreadPool>
 
-#include <zxcvbn.h>
-
 #include "corebridge.h"
-
-namespace {
-
-// As KeePassXC: the estimator rates the first characters, and each further
-// one counts with their average.
-const int EstimatedCharacters = 256;
-
-const double WeakBits = 40;
-const double GoodBits = 75;
-const double ExcellentBits = 100;
-
-} // namespace
+#include "estimator.h"
 
 PasswordStrength::PasswordStrength(QObject *parent)
     : QObject(parent)
@@ -64,31 +51,21 @@ bool PasswordStrength::current() const
 
 double PasswordStrength::excellentBits()
 {
-    return ExcellentBits;
+    return sv_password_excellent_bits();
 }
 
 double PasswordStrength::entropyBits(const QString &password)
 {
-    if (password.isEmpty())
-        return 0;
-    QByteArray utf8 = password.leftRef(EstimatedCharacters).toUtf8();
-    double bits = ZxcvbnMatch(utf8.constData(), nullptr, nullptr);
+    QByteArray utf8 = password.toUtf8();
+    const double bits = sv_password_entropy(bytePointer(utf8), static_cast<size_t>(utf8.size()),
+                                            sv_estimate);
     secureWipe(utf8);
-    const int furtherCharacters = password.size() - EstimatedCharacters;
-    if (furtherCharacters > 0)
-        bits += bits / EstimatedCharacters * furtherCharacters;
-    return bits;
+    return bits > 0 ? bits : 0;
 }
 
 PasswordStrength::Quality PasswordStrength::qualityOf(double entropyBits)
 {
-    if (entropyBits < WeakBits)
-        return Poor;
-    if (entropyBits < GoodBits)
-        return Weak;
-    if (entropyBits < ExcellentBits)
-        return Good;
-    return Excellent;
+    return static_cast<Quality>(sv_password_quality(entropyBits));
 }
 
 void PasswordStrength::estimated(const QString &password, double bits)

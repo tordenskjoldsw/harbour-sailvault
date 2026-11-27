@@ -5,8 +5,11 @@
 #include <QRunnable>
 #include <QString>
 
+#include "sailvault_core.h"
+
 // Estimates how hard a password is to guess, with the estimator and the
-// quality levels of KeePassXC, so both rate a password the same.
+// quality levels of KeePassXC, so both rate a password the same. The core
+// bounds what the estimator gets and holds the levels.
 //
 // The estimate runs on a pool thread: the estimator needs up to two seconds
 // for some passwords of 100 characters, which must not block the UI. While
@@ -24,10 +27,10 @@ class PasswordStrength : public QObject
 
 public:
     enum Quality {
-        Poor,
-        Weak,
-        Good,
-        Excellent
+        Poor = SV_QUALITY_POOR,
+        Weak = SV_QUALITY_WEAK,
+        Good = SV_QUALITY_GOOD,
+        Excellent = SV_QUALITY_EXCELLENT
     };
     Q_ENUM(Quality)
 
