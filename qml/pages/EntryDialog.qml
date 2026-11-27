@@ -138,7 +138,10 @@ Dialog {
                 minimumValue: 8
                 maximumValue: 64
                 stepSize: 1
-                value: 20
+                // At 20 characters the estimator rates one in four
+                // generated passwords without symbols below Excellent,
+                // because it finds chance patterns; at 24 almost none.
+                value: 24
                 valueText: value
             }
 
