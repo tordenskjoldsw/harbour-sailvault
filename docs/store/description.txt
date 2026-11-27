@@ -7,7 +7,7 @@ What you can do with it
 - Sync with your own Nextcloud. Change a password on the phone and it is on your computer, and the other way round. If both sides changed, SailVault merges them. Without a connection you keep working and it syncs later.
 - No Nextcloud? Merge a copy of the database from a file instead.
 - Coming from Bitwarden or Vaultwarden? Import your JSON export, with or without a password. Importing a newer export later updates the entries instead of doubling them.
-- Create a new database and generate passwords. SailVault rates the new master password the way KeePassXC does and refuses one that is too easy to guess.
+- Create a new database and generate passwords. SailVault rates passwords the way KeePassXC does, for an entry and for a new master password, and refuses a master password that is too easy to guess.
 
 What it does not do
 - No fingerprint unlock and no autofill. I found no way to do either from an app in the Jolla Store.

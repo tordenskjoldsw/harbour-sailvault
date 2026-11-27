@@ -13,7 +13,7 @@ my passwords on my phone, in a format I control, in an app that runs
 sandboxed. SailVault is written for Sailfish OS 5.2 and tested on the Jolla
 Phone (aarch64).
 
-**Status:** version 0.7.0. Reading, editing, importing, merging and sync
+**Status:** version 0.7.1. Reading, editing, importing, merging and sync
 through Nextcloud are done and tested on the device. It is available in
 the Jolla Store (Harbour).
 
@@ -43,8 +43,9 @@ The screenshots show a demo database with made-up data.
 - Lock after five minutes without use and after one minute in the
   background.
 - Password generator.
-- Rates the master password of a new database with the estimator KeePassXC
-  uses (zxcvbn), and refuses one that is too easy to guess.
+- Rates passwords with the estimator KeePassXC uses (zxcvbn): the master
+  password of a new database, where one that is too easy to guess is
+  refused, and the password of an entry while you edit it.
 - Create a new database with Argon2id at one of three strengths, all
   measured on the Jolla Phone (about 1, 2.5 and 5 seconds to unlock).
 - Keep databases and key files in SailVault's private storage, out of
