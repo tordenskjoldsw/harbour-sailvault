@@ -1,3 +1,8 @@
+* Fri Nov 27 2026 Tobias Kaminski <instance_maintainer@protonmail.com> - 0.7.2-1
+- The password rating no longer blocks the dialog: some long passwords
+  take the estimator seconds, so it runs in the background and says so
+- The estimator's memory is overwritten after use
+
 * Fri Nov 27 2026 Tobias Kaminski <instance_maintainer@protonmail.com> - 0.7.1-1
 - Rates the password of an entry in the entry dialog, also an existing
   one; entry passwords are never refused
