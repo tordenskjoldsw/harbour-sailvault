@@ -1,3 +1,9 @@
+* Fri Nov 27 2026 Tobias Kaminski <instance_maintainer@protonmail.com> - 0.8.0-1
+- Password report in Settings: the entries with a weak password, weakest
+  first, and the passwords used in more than one entry
+- Entries that KeePassXC excludes from its reports are left out
+- Rating all passwords leaves no trace of them in memory
+
 * Fri Nov 27 2026 Tobias Kaminski <instance_maintainer@protonmail.com> - 0.7.2-1
 - The password rating no longer blocks the dialog: some long passwords
   take the estimator seconds, so it runs in the background and says so
